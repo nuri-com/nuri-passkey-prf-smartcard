@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nuri Passkey PRF Test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #17191c;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+
+      p {
+        margin: 0 0 18px;
+        color: #4d5562;
+        line-height: 1.5;
+      }
+
+      section {
+        border-top: 1px solid #d9dee7;
+        padding: 22px 0;
+      }
+
+      label {
+        display: block;
+        margin: 14px 0 6px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid #c9d0db;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font: inherit;
+        background: #ffffff;
+        color: #17191c;
+      }
+
+      .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      button {
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font: inherit;
+        font-weight: 650;
+        background: #1e293b;
+        color: #ffffff;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: transparent;
+        color: #1e293b;
+      }
+
+      pre {
+        overflow: auto;
+        min-height: 220px;
+        border: 1px solid #d9dee7;
+        border-radius: 6px;
+        padding: 14px;
+        background: #ffffff;
+        color: #17191c;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .status {
+        margin-top: 12px;
+        font-weight: 650;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #111418;
+          color: #f4f6f8;
+        }
+
+        p {
+          color: #b8c0cc;
+        }
+
+        section,
+        pre,
+        input {
+          border-color: #333b47;
+        }
+
+        input,
+        pre {
+          background: #171b21;
+          color: #f4f6f8;
+        }
+
+        button.secondary {
+          border-color: #c8d0dc;
+          color: #f4f6f8;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Nuri Passkey PRF Test</h1>
+      <p>
+        Localhost WebAuthn smoke test for passkey authentication plus the PRF extension. It works
+        only with authenticators your browser exposes to WebAuthn.
+      </p>
+
+      <section>
+        <label for="username">Username</label>
+        <input id="username" autocomplete="username" value="nuri-local-test" />
+
+        <label for="salt1">PRF first input</label>
+        <input id="salt1" value="nuri browser prf first input" />
+
+        <label for="salt2">PRF second input</label>
+        <input id="salt2" value="nuri browser prf second input" />
+
+        <div class="buttons">
+          <button id="register">Register Passkey</button>
+          <button id="authenticate">Authenticate + PRF</button>
+          <button id="clear" class="secondary">Clear Local Credential</button>
+        </div>
+        <div id="status" class="status"></div>
+      </section>
+
+      <section>
+        <pre id="output">Ready.</pre>
+      </section>
+    </main>
+
+    <script>
+      const rpName = 'Nuri Local PRF Test';
+      const storageKey = 'nuri.passkeyPrf.credential';
+      const output = document.querySelector('#output');
+      const status = document.querySelector('#status');
+
+      function randomBytes(length) {
+        const out = new Uint8Array(length);
+        crypto.getRandomValues(out);
+        return out;
+      }
+
+      function textBytes(value) {
+        return new TextEncoder().encode(value);
+      }
+
+      function toBase64Url(bytes) {
+        let binary = '';
+        for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+        return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+      }
+
+      function fromBase64Url(value) {
+        const padded = `${value}${'='.repeat((4 - (value.length % 4)) % 4)}`;
+        const binary = atob(padded.replaceAll('-', '+').replaceAll('_', '/'));
+        const out = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+        return out;
+      }
+
+      function hex(buffer) {
+        return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+
+      function getInputs() {
+        return {
+          username: document.querySelector('#username').value.trim() || 'nuri-local-test',
+          salt1: textBytes(document.querySelector('#salt1').value),
+          salt2: textBytes(document.querySelector('#salt2').value),
+        };
+      }
+
+      function print(title, data) {
+        output.textContent = `${title}\n${JSON.stringify(data, null, 2)}`;
+      }
+
+      function setStatus(message) {
+        status.textContent = message;
+      }
+
+      async function register() {
+        if (!window.PublicKeyCredential) throw new Error('WebAuthn is not available in this browser.');
+        const { username, salt1 } = getInputs();
+        const userId = randomBytes(32);
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: randomBytes(32),
+            rp: { name: rpName },
+            user: {
+              id: userId,
+              name: username,
+              displayName: username,
+            },
+            pubKeyCredParams: [
+              { type: 'public-key', alg: -7 },
+              { type: 'public-key', alg: -257 },
+            ],
+            authenticatorSelection: {
+              residentKey: 'preferred',
+              requireResidentKey: false,
+              userVerification: 'preferred',
+            },
+            timeout: 120000,
+            attestation: 'none',
+            extensions: {
+              prf: { eval: { first: salt1 } },
+            },
+          },
+        });
+        const extensionResults = credential.getClientExtensionResults();
+        const saved = {
+          id: credential.id,
+          rawId: toBase64Url(credential.rawId),
+          username,
+          createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(storageKey, JSON.stringify(saved));
+        setStatus('Registered.');
+        print('Registration result', {
+          credentialId: credential.id,
+          type: credential.type,
+          prf: normalizePrf(extensionResults.prf),
+          saved,
+        });
+      }
+
+      async function authenticate() {
+        if (!window.PublicKeyCredential) throw new Error('WebAuthn is not available in this browser.');
+        const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+        if (!saved) throw new Error('Register a local passkey first.');
+        const { salt1, salt2 } = getInputs();
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge: randomBytes(32),
+            allowCredentials: [{ type: 'public-key', id: fromBase64Url(saved.rawId) }],
+            userVerification: 'preferred',
+            timeout: 120000,
+            extensions: {
+              prf: { eval: { first: salt1, second: salt2 } },
+            },
+          },
+        });
+        const extensionResults = assertion.getClientExtensionResults();
+        setStatus('Authenticated.');
+        print('Authentication + PRF result', {
+          credentialId: assertion.id,
+          authenticatorDataBytes: assertion.response.authenticatorData.byteLength,
+          signatureBytes: assertion.response.signature.byteLength,
+          prf: normalizePrf(extensionResults.prf),
+        });
+      }
+
+      function normalizePrf(prf) {
+        if (!prf) return null;
+        const normalized = {};
+        if ('enabled' in prf) normalized.enabled = prf.enabled;
+        if (prf.results) {
+          normalized.results = {};
+          if (prf.results.first) normalized.results.firstHex = hex(prf.results.first);
+          if (prf.results.second) normalized.results.secondHex = hex(prf.results.second);
+        }
+        return normalized;
+      }
+
+      document.querySelector('#register').addEventListener('click', () => {
+        setStatus('Waiting for authenticator...');
+        register().catch((error) => {
+          setStatus('Registration failed.');
+          print('Error', { name: error.name, message: error.message });
+        });
+      });
+
+      document.querySelector('#authenticate').addEventListener('click', () => {
+        setStatus('Waiting for authenticator...');
+        authenticate().catch((error) => {
+          setStatus('Authentication failed.');
+          print('Error', { name: error.name, message: error.message });
+        });
+      });
+
+      document.querySelector('#clear').addEventListener('click', () => {
+        localStorage.removeItem(storageKey);
+        setStatus('Cleared.');
+        output.textContent = 'Ready.';
+      });
+    </script>
+  </body>
+</html>

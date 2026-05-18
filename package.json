@@ -1,0 +1,20 @@
+{
+  "name": "nuri-passkey-prf-smartcard",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "musig2:demo": "node src/musig2/card-sim-cli.js",
+    "fido2:prepare": "scripts/prepare-fido2-baseline.sh",
+    "fido2:test-prf": "scripts/run-fido2-prf-sim-tests.sh",
+    "e2e": "scripts/run-all-e2e.sh",
+    "web:prf": "scripts/serve-prf-test.sh"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@scure/base": "^1.2.6",
+    "@scure/btc-signer": "^2.0.1"
+  }
+}
