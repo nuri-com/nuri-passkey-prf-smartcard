@@ -25,14 +25,17 @@ fi
 if [[ -n "${GP_KEY:-}" ]]; then
   GP_ARGS+=("-k" "$GP_KEY")
 fi
-if [[ -n "${GP_KEY_ENC:-}" ]]; then
-  GP_ARGS+=("--key-enc" "$GP_KEY_ENC")
+KEY_ENC="${GP_KEY_ENC:-${SCP03_ENC:-}}"
+KEY_MAC="${GP_KEY_MAC:-${SCP03_MAC:-}}"
+KEY_DEK="${GP_KEY_DEK:-${SCP03_DEK:-}}"
+if [[ -n "$KEY_ENC" ]]; then
+  GP_ARGS+=("--key-enc" "$KEY_ENC")
 fi
-if [[ -n "${GP_KEY_MAC:-}" ]]; then
-  GP_ARGS+=("--key-mac" "$GP_KEY_MAC")
+if [[ -n "$KEY_MAC" ]]; then
+  GP_ARGS+=("--key-mac" "$KEY_MAC")
 fi
-if [[ -n "${GP_KEY_DEK:-}" ]]; then
-  GP_ARGS+=("--key-dek" "$GP_KEY_DEK")
+if [[ -n "$KEY_DEK" ]]; then
+  GP_ARGS+=("--key-dek" "$KEY_DEK")
 fi
 if [[ "${GP_FORCE:-}" == "YES" ]]; then
   GP_ARGS+=("--force")

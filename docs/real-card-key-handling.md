@@ -32,6 +32,13 @@ Observed with HID Global OMNIKEY 5422:
 
 Use exactly one card per slot while testing, and label command output with the physical card/sample.
 
+On 2026-05-20, macOS `system_profiler SPSmartCardsDataType` reported:
+
+- `HID Global OMNIKEY 5422 Smartcard Reader 01`: no card present.
+- `HID Global OMNIKEY 5422 Smartcard Reader`: ATR `3B80800101`.
+
+That means the IDEX NFC card was not yet close enough or not being polled successfully, even though the reader itself exists.
+
 ## Local IDEX Material Already Found
 
 The following sibling-folder files look relevant. They contain or reference development card keys or IDEX procedures; treat them as local secrets and do not copy their key values into this repo:
@@ -55,12 +62,14 @@ The local notes mention an IDEX/IBA service AID family beginning with `A00000090
 Load keys through shell environment variables only for the current terminal session:
 
 ```bash
-export GP_KEY_ENC="..."
-export GP_KEY_MAC="..."
-export GP_KEY_DEK="..."
-gp -r1 --key-enc "$GP_KEY_ENC" --key-mac "$GP_KEY_MAC" --key-dek "$GP_KEY_DEK" -l
-GP_READER_INDEX=1 GP_KEY_ENC="$GP_KEY_ENC" GP_KEY_MAC="$GP_KEY_MAC" GP_KEY_DEK="$GP_KEY_DEK" npm run card:install
+set -a
+source ../FIDO2Applet-working-idex/satochip/.env
+set +a
+gp -r1 --key-enc "$SCP03_ENC" --key-mac "$SCP03_MAC" --key-dek "$SCP03_DEK" -l
+GP_READER_INDEX=1 npm run card:install
 ```
+
+The install script accepts either `GP_KEY_ENC`/`GP_KEY_MAC`/`GP_KEY_DEK` or the existing local aliases `SCP03_ENC`/`SCP03_MAC`/`SCP03_DEK`.
 
 For cards with one default/master key:
 
@@ -71,7 +80,7 @@ GP_READER_INDEX=2 GP_KEY="404142434445464748494A4B4C4D4E4F" npm run card:install
 Only use `GP_FORCE=YES` on a development sample when the local card notes or vendor explicitly say installation is allowed but GlobalPlatformPro is blocking a development-card operation:
 
 ```bash
-GP_FORCE=YES GP_READER_INDEX=1 GP_KEY_ENC="$GP_KEY_ENC" GP_KEY_MAC="$GP_KEY_MAC" GP_KEY_DEK="$GP_KEY_DEK" npm run card:install
+GP_FORCE=YES GP_READER_INDEX=1 npm run card:install
 ```
 
 ## What To Search For In Email Or Vendor Files
