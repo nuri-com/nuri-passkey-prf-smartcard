@@ -16,6 +16,7 @@
     "card:reinstall": "scripts/reinstall-fido2-card.sh",
     "card:reset": "scripts/reset-real-fido2-card.sh",
     "card:test": "scripts/test-real-fido2-card.sh",
+    "card:test:pin": "FIDO2_TEST_UV=required FIDO2_TEST_PIN_PROMPT=YES scripts/test-real-fido2-card.sh",
     "card:pin:status": "scripts/manage-fido2-pin.sh status",
     "card:pin:set": "scripts/manage-fido2-pin.sh set",
     "card:pin:change": "scripts/manage-fido2-pin.sh change",

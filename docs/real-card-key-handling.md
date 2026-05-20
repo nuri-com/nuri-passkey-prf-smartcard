@@ -50,7 +50,7 @@ On 2026-05-20, macOS `system_profiler SPSmartCardsDataType` reported:
 
 After CTAP reset on the original preinstalled contact sample, direct CTAP `hmac-secret` worked only with `up=false`. Normal user-presence (`up=true`) assertions still failed with CTAP `0x27 OPERATION_DENIED`.
 
-After deleting package `A0000006472F` and reinstalling this repo's clean `dist/FIDO2.cap`, the contact card passed `npm run card:test` with `REAL_CARD_FIDO2_HMAC_SECRET_OK`. The installed package is now `A000000647` version `0.4` with applet `A0000006472F0001`.
+After deleting package `A0000006472F` and reinstalling this repo's clean `dist/FIDO2.cap`, the contact card passed `npm run card:test` with `REAL_CARD_WEBAUTHN_PRF_OK`. The installed package is now `A000000647` version `0.4` with applet `A0000006472F0001`.
 
 Current `getInfo` after clean CAP install:
 
@@ -82,7 +82,8 @@ Expected state transition:
 1. Before setting: `clientPin: false`.
 2. After `card:pin:set`: `FIDO2_PIN_SET_OK` and `clientPin: true`.
 3. After `card:pin:verify`: `FIDO2_PIN_VERIFY_OK`.
-4. `npm run card:test` should still print `REAL_CARD_FIDO2_HMAC_SECRET_OK`.
+4. `npm run card:test` should still print `REAL_CARD_WEBAUTHN_PRF_OK`.
+5. `npm run card:test:pin` should prompt for the PIN and still print `REAL_CARD_WEBAUTHN_PRF_OK`.
 
 If the phone loops while asking to enter the new PIN twice, check the PC/SC status immediately. If `clientPin` is still `false`, the phone did not complete CTAP `setPin`. If `clientPin` changed to `true`, the phone may be failing later during registration or PRF and the browser page output matters.
 

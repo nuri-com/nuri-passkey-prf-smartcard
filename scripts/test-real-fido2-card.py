@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import getpass
 import hashlib
 import os
 import sys
@@ -22,8 +23,21 @@ from fido2.webauthn import (
 )
 
 
-def webauthn_prf_salt(value: bytes) -> bytes:
-    return hashlib.sha256(b"WebAuthn PRF\x00" + value).digest()
+class CliUserInteraction(UserInteraction):
+    def __init__(self):
+        self.pin = os.environ.get("FIDO2_TEST_PIN")
+        self.prompt_pin = os.environ.get("FIDO2_TEST_PIN_PROMPT") == "YES"
+
+    def prompt_up(self) -> None:
+        print("User presence requested by authenticator.")
+
+    def request_pin(self, permissions, rp_id):
+        if self.pin is None and self.prompt_pin:
+            self.pin = getpass.getpass("FIDO2 PIN for real-card PRF test: ")
+        return self.pin
+
+    def request_uv(self, permissions, rp_id) -> bool:
+        return True
 
 
 def output_bytes(value):
@@ -45,12 +59,17 @@ def ext_value(results, key):
     return getattr(results, key, None)
 
 
-def hmac_outputs(assertion):
+def prf_outputs(assertion):
     results = getattr(assertion, "client_extension_results", {})
-    hmac = ext_value(results, "hmacGetSecret")
-    if isinstance(hmac, dict):
-        return output_bytes(hmac["output1"]), output_bytes(hmac.get("output2"))
-    return output_bytes(hmac.output1), output_bytes(getattr(hmac, "output2", None))
+    prf = ext_value(results, "prf")
+    if not prf:
+        return None, None
+    prf_results = ext_value(prf, "results")
+    if not prf_results:
+        return None, None
+    return output_bytes(ext_value(prf_results, "first")), output_bytes(
+        ext_value(prf_results, "second")
+    )
 
 
 def extension_results(value):
@@ -66,6 +85,22 @@ def credential_id(value):
     if hasattr(response, "attestation_object"):
         return response.attestation_object.auth_data.credential_data.credential_id
     return response.auth_data.credential_data.credential_id
+
+
+def prf_enabled(value):
+    prf = ext_value(extension_results(value), "prf")
+    return ext_value(prf, "enabled") if prf else None
+
+
+def user_verification_requirement():
+    raw = os.environ.get("FIDO2_TEST_UV", "discouraged").strip().lower()
+    if raw == "required":
+        return UserVerificationRequirement.REQUIRED
+    if raw == "preferred":
+        return UserVerificationRequirement.PREFERRED
+    if raw == "discouraged":
+        return UserVerificationRequirement.DISCOURAGED
+    raise ValueError("FIDO2_TEST_UV must be discouraged, preferred, or required")
 
 
 def main():
@@ -90,11 +125,13 @@ def main():
     rp_id = os.environ.get("FIDO2_RP_ID", "example.com")
     origin = os.environ.get("FIDO2_ORIGIN", f"https://{rp_id}")
     collector = DefaultClientDataCollector(origin=origin)
+    user_verification = user_verification_requirement()
+    print(f"user_verification={user_verification.value}")
     client = Fido2Client(
         device,
         collector,
         extensions=[HmacSecretExtension(True)],
-        user_interaction=UserInteraction(),
+        user_interaction=CliUserInteraction(),
     )
 
     challenge = os.urandom(32)
@@ -111,17 +148,15 @@ def main():
         ],
         authenticator_selection=AuthenticatorSelectionCriteria(
             resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.DISCOURAGED,
+            user_verification=user_verification,
         ),
-        extensions={"hmacCreateSecret": True},
+        extensions={"prf": {}},
     )
     credential = client.make_credential(create_options)
-    if not ext_value(extension_results(credential), "hmacCreateSecret"):
-        print("Credential did not report hmacCreateSecret.", file=sys.stderr)
+    if prf_enabled(credential) is not True:
+        print("Credential did not report PRF enabled.", file=sys.stderr)
         return 4
 
-    salt1 = webauthn_prf_salt(b"nuri browser prf first input")
-    salt2 = webauthn_prf_salt(b"nuri browser prf second input")
     request_options = PublicKeyCredentialRequestOptions(
         challenge=os.urandom(32),
         rp_id=rp_id,
@@ -131,26 +166,28 @@ def main():
                 "id": credential_id(credential),
             }
         ],
-        user_verification=UserVerificationRequirement.DISCOURAGED,
+        user_verification=user_verification,
         extensions={
-            "hmacGetSecret": {
-                "salt1": salt1,
-                "salt2": salt2,
+            "prf": {
+                "eval": {
+                    "first": b"nuri browser prf first input",
+                    "second": b"nuri browser prf second input",
+                }
             }
         },
     )
     assertions = client.get_assertion(request_options)
     assertion = assertions.get_response(0)
-    output1, output2 = hmac_outputs(assertion)
+    output1, output2 = prf_outputs(assertion)
 
-    if len(output1) != 32 or len(output2) != 32:
-        print("Unexpected hmac-secret output length.", file=sys.stderr)
+    if output1 is None or output2 is None or len(output1) != 32 or len(output2) != 32:
+        print("Unexpected PRF output length.", file=sys.stderr)
         return 5
 
     print(f"credential_id={credential_id(credential).hex()}")
     print(f"prf_first={output1.hex()}")
     print(f"prf_second={output2.hex()}")
-    print("REAL_CARD_FIDO2_HMAC_SECRET_OK")
+    print("REAL_CARD_WEBAUTHN_PRF_OK")
     return 0
 
 

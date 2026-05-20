@@ -134,10 +134,16 @@ Delete an existing FIDO2 package/app instance and reinstall the clean CAP on a t
 FIDO2_REINSTALL_CONFIRM=YES GP_READER_INDEX=2 npm run card:reinstall
 ```
 
-Run the real-card hmac-secret/PRF primitive test:
+Run the real-card WebAuthn PRF test:
 
 ```bash
 npm run card:test
+```
+
+Run the same real-card WebAuthn PRF test with FIDO2 PIN/user verification required:
+
+```bash
+npm run card:test:pin
 ```
 
 Reset only the FIDO2 authenticator state on an inserted card:
@@ -180,8 +186,9 @@ After deleting the old package `A0000006472F` and reinstalling this repo's clean
 
 - GlobalPlatform registry shows package `A000000647` version `0.4` with applet `A0000006472F0001`.
 - `npm run card:test` passes on the real contact card.
-- The passing marker is `REAL_CARD_FIDO2_HMAC_SECRET_OK`.
-- The real-card PRF test produced two 32-byte PRF outputs through CTAP2 `hmac-secret`.
+- `npm run card:test:pin` passes with FIDO2 PIN/user verification required.
+- The passing marker is `REAL_CARD_WEBAUTHN_PRF_OK`.
+- The real-card PRF test produced two 32-byte WebAuthn PRF outputs through CTAP2 `hmac-secret`.
 
 The current contact-card state is therefore good for CLI-level FIDO2 auth + passkey PRF validation. Browser validation still depends on whether the OS/browser can expose this PC/SC smartcard as a WebAuthn authenticator.
 

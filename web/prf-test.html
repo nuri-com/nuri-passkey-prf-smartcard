@@ -171,6 +171,13 @@
               <option value="discouraged">discouraged</option>
             </select>
           </div>
+          <div>
+            <label for="prfMode">PRF input mode</label>
+            <select id="prfMode">
+              <option value="eval" selected>eval</option>
+              <option value="evalByCredential">evalByCredential</option>
+            </select>
+          </div>
         </div>
 
         <div class="buttons">
@@ -227,6 +234,7 @@
           salt2: textBytes(document.querySelector('#salt2').value),
           userVerification: document.querySelector('#userVerification').value,
           residentKey: document.querySelector('#residentKey').value,
+          prfMode: document.querySelector('#prfMode').value,
         };
       }
 
@@ -275,6 +283,7 @@
         });
         const extensionResults = credential.getClientExtensionResults();
         const authenticatorData = await registrationAuthenticatorData(credential.response);
+        const request = summarizeRequest(publicKey);
         const saved = {
           id: credential.id,
           rawId: toBase64Url(credential.rawId),
@@ -286,6 +295,8 @@
         print('Registration result', {
           credentialId: credential.id,
           type: credential.type,
+          request,
+          browserCapabilities: capabilities,
           prf: normalizePrf(extensionResults.prf),
           authenticatorData: authDataSummary(authenticatorData),
           saved,
@@ -296,14 +307,18 @@
         if (!window.PublicKeyCredential) throw new Error('WebAuthn is not available in this browser.');
         const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
         if (!saved) throw new Error('Register a local passkey first.');
-        const { salt1, salt2, userVerification } = getInputs();
+        const { salt1, salt2, userVerification, prfMode } = getInputs();
+        const prfValues = { first: salt1, second: salt2 };
+        const prf = prfMode === 'evalByCredential'
+          ? { evalByCredential: { [saved.id]: prfValues } }
+          : { eval: prfValues };
         const publicKey = {
           challenge: randomBytes(32),
           allowCredentials: [{ type: 'public-key', id: fromBase64Url(saved.rawId) }],
           userVerification,
           timeout: 120000,
           extensions: {
-            prf: { eval: { first: salt1, second: salt2 } },
+            prf,
           },
         };
         const capabilities = await getClientCapabilities();
@@ -315,9 +330,12 @@
           publicKey,
         });
         const extensionResults = assertion.getClientExtensionResults();
+        const request = summarizeRequest(publicKey);
         setStatus('Authenticated.');
         print('Authentication + PRF result', {
           credentialId: assertion.id,
+          request,
+          browserCapabilities: capabilities,
           authenticatorDataBytes: assertion.response.authenticatorData.byteLength,
           authenticatorData: authDataSummary(assertion.response.authenticatorData),
           signatureBytes: assertion.response.signature.byteLength,
@@ -395,6 +413,13 @@
           requireResidentKey: publicKey.authenticatorSelection?.requireResidentKey,
           allowCredentials: publicKey.allowCredentials?.length || 0,
           prfRequested: Boolean(publicKey.extensions?.prf),
+          prfMode: publicKey.extensions?.prf?.evalByCredential
+            ? 'evalByCredential'
+            : publicKey.extensions?.prf?.eval
+              ? 'eval'
+              : publicKey.extensions?.prf
+                ? 'enableOnly'
+                : null,
         };
       }
 
@@ -407,6 +432,7 @@
             message: error.message,
             userVerification: document.querySelector('#userVerification').value,
             residentKey: document.querySelector('#residentKey').value,
+            prfMode: document.querySelector('#prfMode').value,
             origin: location.origin,
           });
         });
@@ -421,6 +447,7 @@
             message: error.message,
             userVerification: document.querySelector('#userVerification').value,
             residentKey: document.querySelector('#residentKey').value,
+            prfMode: document.querySelector('#prfMode').value,
             origin: location.origin,
           });
         });
