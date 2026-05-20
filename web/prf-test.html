@@ -156,6 +156,14 @@
 
         <div class="control-grid">
           <div>
+            <label for="authenticatorAttachment">Authenticator</label>
+            <select id="authenticatorAttachment">
+              <option value="cross-platform" selected>cross-platform</option>
+              <option value="">any</option>
+              <option value="platform">platform</option>
+            </select>
+          </div>
+          <div>
             <label for="userVerification">User verification</label>
             <select id="userVerification">
               <option value="discouraged" selected>discouraged</option>
@@ -235,6 +243,7 @@
           userVerification: document.querySelector('#userVerification').value,
           residentKey: document.querySelector('#residentKey').value,
           prfMode: document.querySelector('#prfMode').value,
+          authenticatorAttachment: document.querySelector('#authenticatorAttachment').value || undefined,
         };
       }
 
@@ -248,7 +257,7 @@
 
       async function register() {
         if (!window.PublicKeyCredential) throw new Error('WebAuthn is not available in this browser.');
-        const { username, userVerification, residentKey } = getInputs();
+        const { username, userVerification, residentKey, authenticatorAttachment } = getInputs();
         const userId = randomBytes(32);
         const publicKey = {
           challenge: randomBytes(32),
@@ -263,6 +272,7 @@
             { type: 'public-key', alg: -257 },
           ],
           authenticatorSelection: {
+            ...(authenticatorAttachment ? { authenticatorAttachment } : {}),
             residentKey,
             requireResidentKey: residentKey === 'required',
             userVerification,
@@ -299,6 +309,7 @@
           browserCapabilities: capabilities,
           prf: normalizePrf(extensionResults.prf),
           authenticatorData: authDataSummary(authenticatorData),
+          transports: credential.response.getTransports ? credential.response.getTransports() : null,
           saved,
         });
       }
@@ -409,6 +420,7 @@
           origin: location.origin,
           rpId: publicKey.rp?.id || location.hostname,
           userVerification: publicKey.userVerification || publicKey.authenticatorSelection?.userVerification,
+          authenticatorAttachment: publicKey.authenticatorSelection?.authenticatorAttachment,
           residentKey: publicKey.authenticatorSelection?.residentKey,
           requireResidentKey: publicKey.authenticatorSelection?.requireResidentKey,
           allowCredentials: publicKey.allowCredentials?.length || 0,
@@ -431,6 +443,7 @@
             name: error.name,
             message: error.message,
             userVerification: document.querySelector('#userVerification').value,
+            authenticatorAttachment: document.querySelector('#authenticatorAttachment').value || 'any',
             residentKey: document.querySelector('#residentKey').value,
             prfMode: document.querySelector('#prfMode').value,
             origin: location.origin,
@@ -446,6 +459,7 @@
             name: error.name,
             message: error.message,
             userVerification: document.querySelector('#userVerification').value,
+            authenticatorAttachment: document.querySelector('#authenticatorAttachment').value || 'any',
             residentKey: document.querySelector('#residentKey').value,
             prfMode: document.querySelector('#prfMode').value,
             origin: location.origin,
