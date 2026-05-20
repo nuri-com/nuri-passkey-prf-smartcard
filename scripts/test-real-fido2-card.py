@@ -9,6 +9,7 @@ from fido2.client import DefaultClientDataCollector, Fido2Client, UserInteractio
 from fido2.cose import ES256
 from fido2.ctap2 import Ctap2
 from fido2.ctap2.extensions import HmacSecretExtension
+from fido2.hid import CtapHidDevice
 from fido2.pcsc import CtapPcscDevice
 from fido2.webauthn import (
     AuthenticatorSelectionCriteria,
@@ -103,16 +104,36 @@ def user_verification_requirement():
     raise ValueError("FIDO2_TEST_UV must be discouraged, preferred, or required")
 
 
+def resident_key_requirement():
+    raw = os.environ.get("FIDO2_TEST_RK", "required").strip().lower()
+    if raw == "required":
+        return ResidentKeyRequirement.REQUIRED
+    if raw == "preferred":
+        return ResidentKeyRequirement.PREFERRED
+    if raw == "discouraged":
+        return ResidentKeyRequirement.DISCOURAGED
+    raise ValueError("FIDO2_TEST_RK must be discouraged, preferred, or required")
+
+
 def main():
-    devices = list(CtapPcscDevice.list_devices())
-    if not devices:
-        print("No PC/SC FIDO2 smartcard device found.", file=sys.stderr)
-        print("Check reader/card insertion and make sure the FIDO2 applet is installed.", file=sys.stderr)
+    transport = os.environ.get("FIDO2_TEST_TRANSPORT", "pcsc").strip().lower()
+    if transport == "hid":
+        devices = list(CtapHidDevice.list_devices())
+        index = int(os.environ.get("FIDO2_HID_INDEX", os.environ.get("FIDO2_DEVICE_INDEX", "0")))
+    elif transport == "pcsc":
+        devices = list(CtapPcscDevice.list_devices())
+        index = int(os.environ.get("FIDO2_PCSC_INDEX", os.environ.get("FIDO2_DEVICE_INDEX", "0")))
+    else:
+        print("FIDO2_TEST_TRANSPORT must be pcsc or hid.", file=sys.stderr)
         return 2
 
-    index = int(os.environ.get("FIDO2_PCSC_INDEX", "0"))
+    if not devices:
+        print(f"No {transport.upper()} FIDO2 device found.", file=sys.stderr)
+        print("Check device insertion and make sure the FIDO2 interface is enabled.", file=sys.stderr)
+        return 2
+
     device = devices[index]
-    print(f"Using PC/SC device: {device}")
+    print(f"Using {transport.upper()} device: {device}")
 
     info = Ctap2(device).info
     print(f"versions: {info.versions}")
@@ -126,7 +147,9 @@ def main():
     origin = os.environ.get("FIDO2_ORIGIN", f"https://{rp_id}")
     collector = DefaultClientDataCollector(origin=origin)
     user_verification = user_verification_requirement()
+    resident_key = resident_key_requirement()
     print(f"user_verification={user_verification.value}")
+    print(f"resident_key={resident_key.value}")
     client = Fido2Client(
         device,
         collector,
@@ -147,7 +170,7 @@ def main():
             )
         ],
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
+            resident_key=resident_key,
             user_verification=user_verification,
         ),
         extensions={"prf": {}},
