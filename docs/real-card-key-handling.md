@@ -52,13 +52,16 @@ After CTAP reset on the original preinstalled contact sample, direct CTAP `hmac-
 
 After deleting package `A0000006472F` and reinstalling this repo's clean `dist/FIDO2.cap`, the contact card passed `npm run card:test` with `REAL_CARD_WEBAUTHN_PRF_OK`. The installed package is now `A000000647` version `0.4` with applet `A0000006472F0001`.
 
-After loading `../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap`, the same card also has the Nuri MuSig2 applet installed:
+After loading `dist/nuri-musig2-v20-keygen.cap`, the same card also has the Nuri MuSig2 applet installed:
 
 - package `4E5552494D5547`, version `1.9`
 - applet `4E5552494D554701`
+- applet-reported version `1.10`, build `KGEN`
+- on-card key generation command `INS_KEYGEN = 0x04`
 - `npm run card:musig2:test` passed with `Result: 6/6 tests passed`
+- `npm run cosign:real-card` passed with `REAL_CARD_COSIGN_FLOW_OK`
 
-Current MuSig2 caveat: v1.9 signs on the real card, but its `INIT` command imports a 32-byte seed from the host. For the desired production model, add a `KEYGEN` command that creates the long-term cosigner key on-card and returns only the public key.
+Current MuSig2 status: v1.10/KGEN signs on the real card and creates the long-term cosigner key on-card. The key is non-exportable at the applet API level: the host receives only the compressed public key, nonces, and partial signatures.
 
 Current `getInfo` after clean CAP install:
 

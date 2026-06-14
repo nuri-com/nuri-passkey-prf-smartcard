@@ -101,7 +101,7 @@ export function runCardCosignFlow({
     backend,
     key_origin: 'card-generated-non-exportable-in-backend',
     caveat: backend === 'simulated-on-card-keygen'
-      ? 'Simulation: the card object generated the key internally and only exposes pubkey/nonce/partial-sign. Real Java Card needs a KEYGEN APDU.'
+      ? 'Simulation: the card object generated the key internally and only exposes pubkey/nonce/partial-sign. The matching real-card proof is npm run cosign:real-card.'
       : undefined,
     msg32_source: parsed.source,
     message: parsed.message,

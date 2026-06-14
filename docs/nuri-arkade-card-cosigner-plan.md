@@ -311,17 +311,20 @@ npm run cli:e2e
 Use `REAL_CARD=1 npm run cli:e2e` to include the real FIDO2 PRF PC/SC tests.
 That proves the current physical FIDO2 card can be reached and returns PRF.
 
-On 2026-06-14, the standalone Nuri MuSig2 v1.9 applet was also installed on the
+On 2026-06-14, the standalone Nuri MuSig2 applet was also installed on the
 same Feitian sample:
 
 ```bash
-gp -r 2 --load ../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap
+gp -r 2 --load dist/nuri-musig2-v20-keygen.cap
 gp -r 2 --package 4E5552494D5547 --applet 4E5552494D554701 --create 4E5552494D554701
+npm run cosign:real-card
 npm run card:musig2:test
 ```
 
 The applet selected successfully at `4E5552494D554701` and the Python real-card
-suite passed `6/6`. That is a real device proof for the standalone APDU signer.
+suite passed `6/6`. `npm run cosign:real-card` also passed with on-card
+long-term key generation and final aggregate BIP340 signature verification.
+That is a real device proof for the standalone APDU signer.
 It is not yet the final Arkade signer backend because the server route still
 needs to call this card API, bind nonce/session state to the current
 `@scure/btc-signer` flow, and verify returned partials before aggregation.
@@ -340,10 +343,9 @@ calls a local cosign server and receives a valid aggregate MuSig2/BIP340
 signature. This proof uses `simulated-on-card-keygen`: the backend generates the
 card key internally and returns only pubkey, nonce, and partial signature.
 
-The real MuSig2 v1.9 applet is one command short of that production model:
-it signs on-card, but its current `INIT` APDU imports a 32-byte seed. The needed
-real-card addition is a `KEYGEN`/key-slot APDU that creates the cosigner key
-inside the card and returns only `card_pubkey33`.
+`npm run cosign:real-card` is the matching real-card proof. It uses the
+v1.10/KGEN applet `INS_KEYGEN` command, so the cosigner key is generated inside
+the card and only `card_pubkey33` leaves the card.
 
 ## Fit With This Repo
 

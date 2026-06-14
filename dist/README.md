@@ -1,4 +1,6 @@
-# Flash Artifact
+# Flash Artifacts
+
+## FIDO2.cap
 
 `FIDO2.cap` is a compiled Java Card CAP file built from:
 
@@ -25,3 +27,37 @@ GP_READER="your reader name" GP_KEY="404142434445464748494A4B4C4D4E4F" npm run c
 ```
 
 The default `GP_KEY` shown above is the common test/development key, not a production key. Use the key supplied with your card.
+
+## nuri-musig2-v20-keygen.cap
+
+`nuri-musig2-v20-keygen.cap` is the real-card MuSig2 cosigner applet with
+on-card long-term key generation.
+
+- Source workbench: `../nuri-smartcard-musig2/java-applet`
+- Base class: `NuriMuSig2v019`
+- Applet-reported version: `1.10`
+- Applet-reported build tag: `KGEN`
+- Java Card SDK: `jc304_kit`
+- Java used for CAP build: Zulu JDK 8
+
+Package/app IDs:
+
+- Package AID: `4E5552494D5547`
+- Applet AID: `4E5552494D554701`
+
+SHA-256:
+
+```text
+21f742c0b1eeef25b03c404a23d0c643e978f5a89af7a6e34f63c39c3589a2de  nuri-musig2-v20-keygen.cap
+```
+
+Install on the current developer card:
+
+```bash
+npm run card:musig2:install
+npm run cosign:real-card
+```
+
+The expected real-card proof marker is `REAL_CARD_COSIGN_FLOW_OK` with
+`key_origin: on_card_keygen_non_exportable`, `card_partial_verified: true`, and
+`final_signature_verified: true`.

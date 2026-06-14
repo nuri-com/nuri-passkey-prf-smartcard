@@ -73,7 +73,7 @@ verifying every returned partial before aggregation.
 - A previously flashed clean FIDO2 CAP in this repo passed real-card CLI auth + PRF with marker `REAL_CARD_WEBAUTHN_PRF_OK`.
 - The currently inserted Feitian BioCARD sample was converted from the vendor preloaded FIDO2 applet to the local `dist/FIDO2.cap` applet under the standard FIDO2 PC/SC AID `A0000006472F0001`.
 - The local applet advertises `hmac-secret`, `rk`, `clientPin`, CTAP2.0, CTAP2.1, and PIN/UV protocols 1 and 2 through `npm run card:prf:info`.
-- The same card was then loaded with `../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap`. The real-card MuSig2 host test selected AID `4E5552494D554701` and passed `6/6` checks: card info, init/pubkey/nonces, finalize, parity handling, single-signer BIP340/MuSig2 sanity checks, random signatures, and a 3-party simulation with the card as one signer.
+- The same card was then loaded with `dist/nuri-musig2-v20-keygen.cap`. The real-card MuSig2 proof selected AID `4E5552494D554701`, generated the cosigner key on-card, returned only `card_pubkey33`, produced a real card partial signature, and verified the final aggregate BIP340/MuSig2 signature.
 
 Current verification commands that passed in this checkout:
 
@@ -86,9 +86,10 @@ REAL_CARD=1 npm run cli:e2e
 npm run card:prf:info
 npm run card:test
 npm run card:musig2:test
+npm run cosign:real-card
 ```
 
-`npm test` passed all MuSig2 simulator tests. `npm run musig2:demo` produced `verified=true`. `npm run cosign:demo` produced `NURI_CARD_COSIGN_FLOW_OK` with `final_signature_verified=true`. `npm run cli:e2e` passed the software, card-sim, and APDU-sim server-cosigner flow and ended with `CLI_E2E_OK`. `REAL_CARD=1 npm run cli:e2e` additionally passed real PC/SC FIDO2 PRF info + selftest and ended with `CLI_E2E_OK`. `npm run card:test` printed `REAL_CARD_WEBAUTHN_PRF_OK`. `npm run card:musig2:test` passed the real-card MuSig2 Python host suite with `Result: 6/6 tests passed`.
+`npm test` passed all MuSig2 simulator tests. `npm run musig2:demo` produced `verified=true`. `npm run cosign:demo` produced `NURI_CARD_COSIGN_FLOW_OK` with `final_signature_verified=true`. `npm run cli:e2e` passed the software, card-sim, and APDU-sim server-cosigner flow and ended with `CLI_E2E_OK`. `REAL_CARD=1 npm run cli:e2e` additionally passed real PC/SC FIDO2 PRF info + selftest and ended with `CLI_E2E_OK`. `npm run card:test` printed `REAL_CARD_WEBAUTHN_PRF_OK`. `npm run card:musig2:test` passed the real-card MuSig2 Python host suite with `Result: 6/6 tests passed`. `npm run cosign:real-card` printed `REAL_CARD_COSIGN_FLOW_OK` with `key_origin: on_card_keygen_non_exportable`, `card_partial_verified: true`, and `final_signature_verified: true`.
 
 Before reinstalling the local applet, the vendor preloaded FIDO2 instance returned CTAP `0x27 OPERATION_DENIED` for `makeCredential`, even with PRF disabled and with PIN/UV attempts. The working fix was:
 
@@ -104,14 +105,15 @@ After that, `npm run card:prf:info`, `npm run card:test`, the ngrok PC/SC bridge
 The successful MuSig2 real-card install/test sequence was:
 
 ```bash
-gp -r 2 --load ../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap
+gp -r 2 --load dist/nuri-musig2-v20-keygen.cap
 gp -r 2 --package 4E5552494D5547 --applet 4E5552494D554701 --create 4E5552494D554701
+npm run cosign:real-card
 npm run card:musig2:test
 scripts/card-prf-backup.sh selftest --profile after-musig2-install-prf --force --resident-key discouraged --user-verification discouraged --registration-prf prf --salt 'nuri browser prf first input'
 npm run card:test
 ```
 
-The MuSig2 CAP/test tool currently come from the local sibling checkout `../nuri-smartcard-musig2`. The wrappers `npm run card:musig2:install` and `npm run card:musig2:test` use that path by default and can be pointed at another CAP/tool with `MUSIG2_CAP=...` and `MUSIG2_TEST_TOOL=...`.
+The MuSig2 CAP is committed at `dist/nuri-musig2-v20-keygen.cap`. The wrappers `npm run card:musig2:install` and `npm run card:musig2:test` use the committed CAP/test defaults and can be pointed at another CAP/tool with `MUSIG2_CAP=...` and `MUSIG2_TEST_TOOL=...`.
 
 ### What We Can Do Now
 
@@ -119,7 +121,7 @@ The MuSig2 CAP/test tool currently come from the local sibling checkout `../nuri
 - **Desktop Chrome PC/SC bridge:** the same local page has `PC/SC Card Info`, `PC/SC PRF Selftest`, and `PC/SC PRF Derive` buttons. These call the local Node helper, not browser-native WebAuthn.
 - **Local card-cosign web demo:** use `npm run cosign:web` and open `http://127.0.0.1:8787/cosign-demo.html`. It simulates the final product shape: a card-generated cosigner key, browser-triggered sign request, local cosign server, card partial signature, client partial signature, and one verified aggregate BIP340/MuSig2 signature.
 - **Server-cosigner CLI:** use `npm run server:cosigner:software`, `npm run server:cosigner:card-sim`, `npm run server:cosigner:apdu-sim`, or `npm run cli:e2e`. These prove the Arkade server-side card/HSM boundary and remain useful even now that the standalone real-card MuSig2 applet has passed its own host suite.
-- **Real-card MuSig2 applet:** use `npm run card:musig2:install` to install the local sibling CAP on a sacrificial developer card, then `npm run card:musig2:test` to run the Python APDU suite. The tested applet AID is `4E5552494D554701`.
+- **Real-card MuSig2 applet:** use `npm run card:musig2:install` to install `dist/nuri-musig2-v20-keygen.cap` on a sacrificial developer card, then `npm run cosign:real-card` to prove on-card keygen + real card partial + final verified aggregate signature. `npm run card:musig2:test` remains the broader legacy APDU suite. The tested applet AID is `4E5552494D554701`.
 - **Real card PRF in CLI:** use `npm run card:prf:info`, `npm run card:prf:enroll`, `npm run card:prf:derive`, and `npm run card:prf:selftest`. Run only one PC/SC command at a time.
 - **Real card PRF on Android native NFC:** use `npm run mobile:android`, then the Expo NFC probe app. This is the cleanest phone-tap path when browser NFC/WebAuthn routing does not return PRF.
 - **Feitian fingerprint enrollment:** use Feitian's manager app, Windows Security Key settings, or the offline sleeve. This enrolls fingerprints into the Feitian biometric stack.
@@ -129,8 +131,7 @@ The MuSig2 CAP/test tool currently come from the local sibling checkout `../nuri
 
 - We cannot claim mobile Safari or Android Chrome NFC browser PRF works for this card. The browser path is OS/browser-routed, while the native NFC app talks directly to ISO-DEP.
 - We cannot claim Feitian fingerprint unlock is integrated into our custom Java Card applet yet. Feitian confirmed the API exists, but the SDK/API is NDA-gated.
-- We cannot claim the current MuSig2 Java Card applet is audited or production-ready. We can claim the local v1.9 applet was installed on the current Feitian sample and passed the included real-card MuSig2 APDU suite. A product signer still needs a reviewed key lifecycle, nonce policy, PIN/fingerprint policy, and a final host flow verified against the exact Nuri Arkade `@scure/btc-signer` session.
-- We cannot claim the current real-card MuSig2 v1.9 applet generates its long-term signing key on-card. Its current `INIT` command accepts a 32-byte seed from the host. The new local cosign web/server demo proves the product contract with simulated on-card key generation; the real CAP still needs a `KEYGEN`/key-slot command for the full production claim.
+- We cannot claim the current MuSig2 Java Card applet is audited or production-ready. We can claim the local v1.10/KGEN applet was installed on the current Feitian sample, generated the long-term cosigner key on-card, returned only the public key, produced a valid real-card partial signature, and verified the final aggregate BIP340/MuSig2 signature. A product signer still needs a reviewed nonce policy, PIN/fingerprint policy, and a final host flow verified against the exact Nuri Arkade `@scure/btc-signer` session.
 - We can claim the inserted Feitian sample now enrolls and derives PRF credentials via desktop PC/SC after replacing the vendor FIDO2 applet with the local `dist/FIDO2.cap`.
 - We should not publish local sample GlobalPlatform/SCP keys from old working folders in a public MIT repo. Keep those in local secret notes or a private vault.
 
@@ -229,7 +230,7 @@ The wallet/host still preprocesses part of the session context. That fits our in
 Local sibling folders:
 
 - `../FIDO2Applet-working-idex` contains an older combined workbench with FIDO2 PRF support notes, IDEX biometric experiments, Satochip tools, and local MuSig2 notes. Its README says WebAuthn PRF is supported via CTAP `hmac-secret`, but CTAP bio-stuff is not implemented.
-- `../nuri-smartcard-musig2` contains the standalone Java Card MuSig2 implementation (`NuriMuSig2v019.java`, CAP, Python tool, Expo NFC app). On 2026-06-14 its `nuri-musig2-v19.cap` was loaded onto the same Feitian sample as the local FIDO2 applet and passed the Python real-card suite. This repo's `src/musig2` simulator is still the minimal scure-compatible server contract; the real applet is the APDU/device proof.
+- `../nuri-smartcard-musig2` contains the standalone Java Card MuSig2 implementation (`NuriMuSig2v019.java`, CAP, Python tool, Expo NFC app). On 2026-06-14 it was extended with `INS_KEYGEN` and rebuilt as `dist/nuri-musig2-v20-keygen.cap`. That CAP was loaded onto the same Feitian sample as the local FIDO2 applet and passed the real-card cosign proof. This repo's `src/musig2` simulator is still the minimal scure-compatible server contract; the real applet is the APDU/device proof.
 
 License warning: upstream SatochipApplet is AGPL-3.0. This repo is MIT. Do not copy Satochip Java code into this repo without making an explicit license decision. For a clean MIT product, keep this repo as protocol/test harness and either depend on Satochip separately, get permission, or write a clean-room applet.
 
@@ -263,7 +264,7 @@ License warning: upstream SatochipApplet is AGPL-3.0. This repo is MIT. Do not c
 
 5. **MuSig2 product phase**
    - Keep it separate from FIDO2, even if both applets are on the same card.
-   - Use the now-installed `NuriMuSig2v019` applet as the first real-card APDU proof.
+   - Use the now-installed `NuriMuSig2v019` v1.10/KGEN applet as the first real-card APDU proof.
    - Continue using Satochip `musig2-support` as the reference behavior for nonce reuse protection and BIP327 host/card boundaries.
    - Add a final Nuri Arkade host test that signs the exact `@scure/btc-signer` session used by `nuri-expo` and `server-arkade-v4`.
    - Only after that, decide whether to integrate Feitian fingerprint API instead of PIN.
@@ -403,10 +404,19 @@ own key internally and never returns the private key. The output field
 sighash for a funded transaction and `final_signature64` must be inserted as
 the Taproot witness signature.
 
-This is intentionally one step ahead of the real MuSig2 v1.9 applet. The real
-card applet can sign today, but it still initializes its key from a host-provided
-seed. The exact missing production APDU is an on-card `KEYGEN`/key-slot command
-that returns only `card_pubkey33`.
+The simulator and the real card now prove the same product shape. The real card
+path is:
+
+```bash
+npm run cosign:real-card
+```
+
+Expected real-card markers:
+
+- `status: REAL_CARD_COSIGN_FLOW_OK`
+- `key_origin: on_card_keygen_non_exportable`
+- `card_partial_verified: true`
+- `final_signature_verified: true`
 
 ## Offline Backup PRF CLI
 

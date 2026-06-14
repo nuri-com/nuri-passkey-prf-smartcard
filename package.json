@@ -12,6 +12,7 @@
     "server:cosigner:apdu-sim": "node scripts/server-cosigner-smoke.mjs --backend=apdu-sim",
     "cosign:demo": "node scripts/local-card-cosign-server.mjs --selftest",
     "cosign:web": "node scripts/local-card-cosign-server.mjs",
+    "cosign:real-card": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/real-card-cosign-proof.py",
     "cli:e2e": "scripts/run-cli-e2e.sh",
     "fido2:prepare": "scripts/prepare-fido2-baseline.sh",
     "fido2:test-prf": "scripts/run-fido2-prf-sim-tests.sh",

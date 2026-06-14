@@ -15,9 +15,9 @@ Update: 2026-06-14
 - The current card now runs the local `dist/FIDO2.cap` applet at
   `A0000006472F0001`. It advertises `hmac-secret`, `rk`,
   `clientPin=false`, CTAP2.0, CTAP2.1, and PIN/UV protocols 1 and 2.
-- The same card also now runs the Nuri MuSig2 v1.9 applet at
+- The same card also now runs the Nuri MuSig2 v1.10/KGEN applet at
   `4E5552494D554701`, loaded from
-  `../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap`.
+  `dist/nuri-musig2-v20-keygen.cap`.
 - Server-cosigner CLI tests pass for `software`, `card-sim`, and `apdu-sim`.
 - Fresh FIDO2 credential creation and PRF derivation now pass on the inserted
   Feitian sample over desktop PC/SC.
@@ -33,6 +33,8 @@ Update: 2026-06-14
   `REAL_CARD=1 npm run cli:e2e` now pass with real-card PRF.
 - `npm run card:musig2:test` now passes against the real card with the MuSig2
   Python suite: `Result: 6/6 tests passed`.
+- `npm run cosign:real-card` now passes against the real card with on-card
+  keygen and final aggregate BIP340 signature verification.
 - `npm run cosign:demo` now proves the intended local card-cosigner product
   boundary in simulation: card-generated key in the backend, local cosign
   server request, card partial signature, client partial signature, and a final
@@ -64,8 +66,9 @@ Notes:
 The successful MuSig2 add-on sequence on the same card was:
 
 ```bash
-gp -r 2 --load ../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap
+gp -r 2 --load dist/nuri-musig2-v20-keygen.cap
 gp -r 2 --package 4E5552494D5547 --applet 4E5552494D554701 --create 4E5552494D554701
+npm run cosign:real-card
 npm run card:musig2:test
 scripts/card-prf-backup.sh selftest --profile after-musig2-install-prf --force --resident-key discouraged --user-verification discouraged --registration-prf prf --salt 'nuri browser prf first input'
 npm run card:test
@@ -78,6 +81,9 @@ Observed results:
 - `npm run card:musig2:test` selected the MuSig2 applet and passed card info,
   basic operations, parity handling, single-signer MuSig2, random signatures,
   and multi-party simulation.
+- `npm run cosign:real-card` returned `REAL_CARD_COSIGN_FLOW_OK` with
+  `key_origin: on_card_keygen_non_exportable`, `card_partial_verified: true`,
+  and `final_signature_verified: true`.
 - The post-install FIDO2 PRF selftest returned `CARD_PRF_STABLE_OK`.
 - The post-install FIDO2 auth+PRF test returned `REAL_CARD_WEBAUTHN_PRF_OK`.
 
@@ -203,11 +209,15 @@ Expected:
 - `final_signature64` is a valid BIP340 signature over `msg32` for
   `aggregate_xonly32`
 
-This is the desired Nuri product shape, but currently with a simulated
-on-card-keygen backend. The installed real-card MuSig2 v1.9 applet can sign, but
-its `INIT` command imports a 32-byte seed from the host. The exact missing
-production applet feature is a `KEYGEN`/key-slot APDU that generates the
-cosigner key on-card and returns only `card_pubkey33`.
+The browser demo is still backed by the simulator, but the same product shape is
+now proven on the real card with:
+
+```bash
+npm run cosign:real-card
+```
+
+That command uses `INS_KEYGEN` on the installed card applet, so the long-term
+cosigner key is generated on-card and never exported.
 
 ## Step 5: Card Installation Work
 

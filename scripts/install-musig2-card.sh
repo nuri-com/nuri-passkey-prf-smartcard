@@ -2,13 +2,13 @@
 set -euo pipefail
 
 GP_READER="${GP_READER:-2}"
-MUSIG2_CAP="${MUSIG2_CAP:-../nuri-smartcard-musig2/java-applet/nuri-musig2-v19.cap}"
+MUSIG2_CAP="${MUSIG2_CAP:-dist/nuri-musig2-v20-keygen.cap}"
 MUSIG2_PACKAGE_AID="${MUSIG2_PACKAGE_AID:-4E5552494D5547}"
 MUSIG2_APPLET_AID="${MUSIG2_APPLET_AID:-4E5552494D554701}"
 
 if [[ ! -f "$MUSIG2_CAP" ]]; then
   echo "MuSig2 CAP not found: $MUSIG2_CAP" >&2
-  echo "Set MUSIG2_CAP=/path/to/nuri-musig2-v19.cap or place ../nuri-smartcard-musig2 next to this repo." >&2
+  echo "Set MUSIG2_CAP=/path/to/nuri-musig2-v20-keygen.cap or build/copy the MuSig2 CAP into dist/." >&2
   exit 1
 fi
 

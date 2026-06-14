@@ -66,8 +66,8 @@ function handleInfo(res) {
     endpoints: {
       sign: 'POST /api/cosign/sign',
     },
-    real_card_gap:
-      'The installed NuriMuSig2 v1.9 real-card applet signs, but uses INIT(seed). A real on-card generated product applet needs KEYGEN plus key-slot policy.',
+    real_card_proof:
+      'The installed NuriMuSig2 v1.10/KGEN applet has a real INS_KEYGEN path. Run npm run cosign:real-card to prove on-card keygen, card partial verification, and final aggregate BIP340 verification.',
   });
 }
 
