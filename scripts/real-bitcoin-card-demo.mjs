@@ -34,7 +34,7 @@ function usage() {
   console.log(`Usage:
   node scripts/real-bitcoin-card-demo.mjs address [--network=signet|testnet4|testnet|regtest]
   node scripts/real-bitcoin-card-demo.mjs utxos [--network=signet|testnet4|testnet]
-  node scripts/real-bitcoin-card-demo.mjs spend --network=signet --to=<address|self> [--utxo=<txid:vout:value>] [--fee-sats=500] [--include-unconfirmed] [--broadcast]
+  node scripts/real-bitcoin-card-demo.mjs spend --network=signet --to=<address|self> [--amount-sats=1337] [--op-return=Nuri.com] [--utxo=<txid:vout:value>] [--fee-sats=500] [--include-unconfirmed] [--broadcast]
 
 Notes:
   - address/utxos are safe read-only commands.
@@ -51,6 +51,8 @@ function parseArgs(argv) {
     to: 'self',
     utxo: '',
     feeSats: 500n,
+    amountSats: null,
+    opReturn: '',
     includeUnconfirmed: false,
     broadcast: false,
   };
@@ -59,6 +61,8 @@ function parseArgs(argv) {
     else if (arg.startsWith('--to=')) args.to = arg.slice('--to='.length);
     else if (arg.startsWith('--utxo=')) args.utxo = arg.slice('--utxo='.length);
     else if (arg.startsWith('--fee-sats=')) args.feeSats = BigInt(arg.slice('--fee-sats='.length));
+    else if (arg.startsWith('--amount-sats=')) args.amountSats = BigInt(arg.slice('--amount-sats='.length));
+    else if (arg.startsWith('--op-return=')) args.opReturn = arg.slice('--op-return='.length);
     else if (arg === '--include-unconfirmed') args.includeUnconfirmed = true;
     else if (arg === '--broadcast') args.broadcast = true;
     else if (arg === '--help' || arg === '-h') {
@@ -73,6 +77,7 @@ function parseArgs(argv) {
     process.exit(args.command ? 1 : 0);
   }
   if (!NETWORKS[args.network]) throw new Error(`unknown network: ${args.network}`);
+  if (args.amountSats !== null && args.amountSats <= 0n) throw new Error('--amount-sats must be positive');
   return args;
 }
 
@@ -96,6 +101,13 @@ function decodeP2trAddress(address, network) {
   const program = Uint8Array.from(bech32m.fromWords(words.slice(1)));
   if (program.length !== 32) throw new Error('taproot witness program must be 32 bytes');
   return p2trScript(program);
+}
+
+function opReturnScript(text) {
+  const data = new TextEncoder().encode(text);
+  if (data.length > 80) throw new Error('--op-return must be 80 bytes or less');
+  if (data.length < 0x4c) return new Uint8Array([0x6a, data.length, ...data]);
+  return new Uint8Array([0x6a, 0x4c, data.length, ...data]);
 }
 
 async function loadProfile() {
@@ -219,14 +231,17 @@ async function commandSpend(args) {
   const sourceScript = hexToBytes(identity.scriptPubKey);
   const utxo = await selectUtxo(args, identity.address);
   const inputValue = BigInt(utxo.value);
-  if (inputValue <= args.feeSats) {
-    throw new Error(`UTXO ${utxo.txid}:${utxo.vout} value ${inputValue} is <= fee ${args.feeSats}`);
-  }
+  if (inputValue <= args.feeSats) throw new Error(`UTXO ${utxo.txid}:${utxo.vout} value ${inputValue} is <= fee ${args.feeSats}`);
   const toAddress = args.to === 'self' ? identity.address : args.to;
   const destScript = decodeP2trAddress(toAddress, network);
-  const outputValue = inputValue - args.feeSats;
+  const sendValue = args.amountSats === null ? inputValue - args.feeSats : args.amountSats;
+  const changeValue = inputValue - args.feeSats - sendValue;
+  if (sendValue <= 0n) throw new Error('send value must be positive');
+  if (changeValue < 0n) {
+    throw new Error(`UTXO value ${inputValue} is too small for amount ${sendValue} plus fee ${args.feeSats}`);
+  }
 
-  const tx = new Transaction({ version: 2 });
+  const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
   tx.addInput({
     txid: utxo.txid,
     index: utxo.vout,
@@ -237,8 +252,20 @@ async function commandSpend(args) {
   });
   tx.addOutput({
     script: destScript,
-    amount: outputValue,
+    amount: sendValue,
   });
+  if (args.opReturn) {
+    tx.addOutput({
+      script: opReturnScript(args.opReturn),
+      amount: 0n,
+    });
+  }
+  if (changeValue > 0n) {
+    tx.addOutput({
+      script: sourceScript,
+      amount: changeValue,
+    });
+  }
 
   const msg32 = bytesToHex(tx.preimageWitnessV1(0, [sourceScript], SigHash.DEFAULT, [inputValue]));
   const cardResult = await cardSign(profile, msg32);
@@ -260,7 +287,9 @@ async function commandSpend(args) {
       value: Number(inputValue),
     },
     fee_sats: Number(args.feeSats),
-    output_sats: Number(outputValue),
+    send_sats: Number(sendValue),
+    change_sats: Number(changeValue),
+    op_return: args.opReturn || null,
     taproot_sighash32: msg32,
     card_partial_verified: cardResult.card_partial_verified,
     final_signature_verified: true,
