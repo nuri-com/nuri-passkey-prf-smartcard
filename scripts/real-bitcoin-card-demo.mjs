@@ -271,13 +271,18 @@ async function commandSpend(args) {
     broadcasted: false,
   };
   if (args.broadcast) {
-    const txid = await fetchText(`${network.explorer}/tx`, {
-      method: 'POST',
-      headers: { 'content-type': 'text/plain' },
-      body: rawTx,
-    });
-    result.broadcasted = true;
-    result.broadcast_txid = txid.trim();
+    try {
+      const txid = await fetchText(`${network.explorer}/tx`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: rawTx,
+      });
+      result.broadcasted = true;
+      result.broadcast_txid = txid.trim();
+    } catch (error) {
+      result.status = 'REAL_BITCOIN_CARD_TX_READY_BROADCAST_FAILED';
+      result.broadcast_error = error?.message || String(error);
+    }
   }
   console.log(JSON.stringify(result, null, 2));
 }
