@@ -19,6 +19,7 @@
     "bitcoin:card:address": "node scripts/real-bitcoin-card-demo.mjs address",
     "bitcoin:card:utxos": "node scripts/real-bitcoin-card-demo.mjs utxos",
     "bitcoin:card:spend": "node scripts/real-bitcoin-card-demo.mjs spend",
+    "bitcoin:card:status": "node scripts/real-bitcoin-card-demo.mjs status",
     "cli:e2e": "scripts/run-cli-e2e.sh",
     "fido2:prepare": "scripts/prepare-fido2-baseline.sh",
     "fido2:test-prf": "scripts/run-fido2-prf-sim-tests.sh",

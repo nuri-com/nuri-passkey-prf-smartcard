@@ -22,6 +22,10 @@ cosigner and explains why "server or card" needs an explicit key/policy choice.
 For the immediate Chrome, CLI, Android, and card-install order, see
 [`docs/current-test-next-steps.md`](docs/current-test-next-steps.md).
 
+For the confirmed real-card Signet transaction, verbose terminal proof commands,
+and Mermaid signing flow, see
+[`docs/real-card-signet-proof.md`](docs/real-card-signet-proof.md).
+
 ### Can The Nuri Server Signer Be Replaced By The Card?
 
 Yes, for a server-attached HSM-style deployment. The Arkade server would keep
@@ -74,6 +78,7 @@ verifying every returned partial before aggregation.
 - The currently inserted Feitian BioCARD sample was converted from the vendor preloaded FIDO2 applet to the local `dist/FIDO2.cap` applet under the standard FIDO2 PC/SC AID `A0000006472F0001`.
 - The local applet advertises `hmac-secret`, `rk`, `clientPin`, CTAP2.0, CTAP2.1, and PIN/UV protocols 1 and 2 through `npm run card:prf:info`.
 - The same card was then loaded with `dist/nuri-musig2-v20-keygen.cap`. The real-card MuSig2 proof selected AID `4E5552494D554701`, generated the cosigner key on-card, returned only `card_pubkey33`, produced a real card partial signature, and verified the final aggregate BIP340/MuSig2 signature.
+- A real Signet Taproot transaction was co-signed by the physical card, broadcast, and confirmed in block `308802`: `d9ecca378bd015f2bd39d3113d3dadc65e6b6f29b72c1d1e6a7d73f246994c38`. It sends `1337` sats, includes `OP_RETURN "Nuri.com"`, returns change to the card aggregate address, and is documented in [`docs/real-card-signet-proof.md`](docs/real-card-signet-proof.md).
 
 Current verification commands that passed in this checkout:
 
@@ -485,6 +490,28 @@ transaction:
 
 ```bash
 npm run bitcoin:card:spend -- --include-unconfirmed --fee-sats=500 --broadcast
+```
+
+The CLI can also print human-readable signing progress while keeping stdout as
+JSON:
+
+```bash
+npm run bitcoin:card:spend -- --amount-sats=1337 --op-return=Nuri.com --fee-sats=500 --verbose
+```
+
+The first confirmed physical-card broadcast was:
+
+```text
+txid        = d9ecca378bd015f2bd39d3113d3dadc65e6b6f29b72c1d1e6a7d73f246994c38
+block       = 308802
+block_hash  = 000000130e5278bfe9045681c1cbc23fe3a23dc78d2d570b271730c7ba84ad29
+outputs     = 1337 sats to the card address, OP_RETURN "Nuri.com", change to the card address
+```
+
+Check the proof transaction:
+
+```bash
+npm run bitcoin:card:status -- --txid=d9ecca378bd015f2bd39d3113d3dadc65e6b6f29b72c1d1e6a7d73f246994c38 --verbose
 ```
 
 For local smoke testing only, a dummy UTXO can be passed manually. This proves
