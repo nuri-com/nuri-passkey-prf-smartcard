@@ -311,19 +311,30 @@ Run with no arguments for a walk-through, idiot-proof menu:
 nuricard
 ```
 
+The menu exposes every smartcard function, grouped by area:
+
 ```text
    nuricard — Nuri Smartcard
-  TOTP (2FA-Codes, z.B. Hetzner)
-    1) Aktuellen 6-stelligen Code anzeigen
-    2) Secret auf der Karte speichern/ändern
-  FIDO2 / Passkey-PIN
-    3) PIN-Status   4) PIN setzen   5) PIN ändern
-  Karte
-    6) Karten-Info   7) Applets anzeigen   8) TOTP-Applet installieren
-  Bitcoin
-    9) Kartenadresse
-   10) Alle Befehle   0) Beenden
+  TOTP  (2FA codes, e.g. Hetzner)
+    show code / store secret / install + build the TOTP applet
+  FIDO2 / Passkey
+    PRF card test, PIN status/set/change/verify, reset, build/install/reinstall,
+    CTAP makeCredential matrix, HID transport test
+  WebAuthn PRF  (offline backup)
+    card info, enroll, derive, stability selftest
+  Bitcoin / MuSig2  (card cosigner)
+    address, UTXOs, build+sign spend, tx status, MuSig2 install/test,
+    real-card cosign + keygen proofs
+  Simulators / server cosigner
+    MuSig2 sim, cosign sim, server cosigner (software/card-sim/apdu-sim),
+    full CLI e2e, unit tests
+  Web / Mobile PRF
+    serve browser PRF page, ngrok tunnel, Android/iOS NFC PRF probe
+  Card maintenance
+    list installed applets, show all raw npm commands
 ```
+
+Destructive actions (FIDO2 reset/reinstall) require typing `YES` to confirm.
 
 Power users can skip the menu and call any function directly. Every npm
 script is a subcommand:

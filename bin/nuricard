@@ -15,61 +15,115 @@ cd "$ROOT"
 
 export GP_READER="${GP_READER:-2}"   # contact reader index on this setup
 
-run() { echo "+ npm run $*" >&2; npm run --silent "$@"; }
+# label|command   (command "H" means it is a section header, not selectable)
+ENTRIES=(
+  "H|TOTP  (2FA codes, e.g. Hetzner)"
+  "Show current 6-digit code|totp_code"
+  "Store / replace secret on card|totp_put"
+  "Install TOTP applet on card|card:totp:install"
+  "Build TOTP applet CAP|card:totp:build"
 
-pause() { echo; read -r -p "Enter drücken, um zurück zum Menü..." _ || true; }
+  "H|FIDO2 / Passkey"
+  "WebAuthn PRF card test|card:test"
+  "WebAuthn PRF card test (PIN/UV required)|card:test:pin"
+  "PIN status|card:pin:status"
+  "Set PIN|card:pin:set"
+  "Change PIN|card:pin:change"
+  "Verify PIN|card:pin:verify"
+  "Reset FIDO2 state (DESTRUCTIVE)|RESET"
+  "Build FIDO2 CAP|card:build"
+  "Install FIDO2 CAP|card:install"
+  "Reinstall FIDO2 CAP (DESTRUCTIVE)|REINSTALL"
+  "CTAP makeCredential matrix|card:ctap:makecred-matrix"
+  "HID transport test|hid:test"
+
+  "H|WebAuthn PRF  (offline backup)"
+  "Card info / capabilities|card:prf:info"
+  "Enroll PRF credential|card:prf:enroll"
+  "Derive PRF secret|card:prf:derive"
+  "PRF stability selftest|card:prf:selftest"
+
+  "H|Bitcoin / MuSig2  (card cosigner)"
+  "Show card Bitcoin address|bitcoin:card:address"
+  "Show card UTXOs|bitcoin:card:utxos"
+  "Build + sign spend (no broadcast)|bitcoin:card:spend"
+  "Check tx status|bitcoin:card:status"
+  "Install MuSig2 applet|card:musig2:install"
+  "Test MuSig2 applet|card:musig2:test"
+  "Real-card cosign proof|cosign:real-card"
+  "Real-card cosign keygen proof|cosign:real-card:keygen"
+
+  "H|Simulators / server cosigner"
+  "MuSig2 simulator demo|musig2:demo"
+  "Cosign simulator selftest|cosign:demo"
+  "Server cosigner (software)|server:cosigner:software"
+  "Server cosigner (card-sim)|server:cosigner:card-sim"
+  "Server cosigner (apdu-sim)|server:cosigner:apdu-sim"
+  "Full CLI end-to-end|cli:e2e"
+  "Unit tests|test"
+
+  "H|Web / Mobile PRF"
+  "Serve browser PRF page|web:prf"
+  "Serve PRF page via ngrok|web:tunnel"
+  "Android NFC PRF probe|mobile:android"
+  "iOS NFC PRF probe|mobile:ios"
+
+  "H|Card maintenance"
+  "List installed applets|APPLETS"
+  "Show ALL raw npm commands|ALLCMDS"
+)
+
+run() { echo "+ npm run $*" >&2; npm run --silent "$@"; }
+pause() { echo; read -r -p "Press Enter to return to the menu..." _ || true; }
+confirm() { local a; read -r -p "$1 Type YES to continue: " a || true; [ "$a" = "YES" ]; }
+
+dispatch() {
+  case "$1" in
+    totp_code) run card:totp -- code ;;
+    totp_put)
+      local s; read -r -p "BASE32 secret: " s || true
+      if [ -n "${s// /}" ]; then run card:totp -- put "$s"; else echo "No secret entered, aborted."; fi ;;
+    APPLETS) gp -r "$GP_READER" -l 2>&1 | grep -E 'APP:|PKG:' || true ;;
+    ALLCMDS) npm run 2>/dev/null | grep -E '^  [a-z]' || true ;;
+    RESET)
+      if confirm "This WIPES all FIDO2 credentials/state on the card."; then
+        FIDO2_RESET_CONFIRM=YES npm run --silent card:reset
+      else echo "Cancelled."; fi ;;
+    REINSTALL)
+      if confirm "This DELETES and reinstalls the FIDO2 applet."; then
+        FIDO2_REINSTALL_CONFIRM=YES npm run --silent card:reinstall
+      else echo "Cancelled."; fi ;;
+    *) run "$1" ;;
+  esac
+}
 
 menu() {
   while true; do
     clear 2>/dev/null || true
-    cat <<'EOF'
-============================================
-   nuricard — Nuri Smartcard
-============================================
-  TOTP (2FA-Codes, z.B. Hetzner)
-    1) Aktuellen 6-stelligen Code anzeigen
-    2) Secret auf der Karte speichern/ändern
-
-  FIDO2 / Passkey-PIN
-    3) PIN-Status anzeigen
-    4) PIN setzen
-    5) PIN ändern
-
-  Karte
-    6) Karten-Info (PRF / FIDO2)
-    7) Installierte Applets anzeigen
-    8) TOTP-Applet auf Karte installieren
-
-  Bitcoin (MuSig2-Karte)
-    9) Kartenadresse anzeigen
-
- 10) Alle verfügbaren Befehle auflisten
-  0) Beenden
-============================================
-EOF
-    read -r -p "Auswahl [0-10]: " choice || exit 0
+    echo "============================================"
+    echo "   nuricard — Nuri Smartcard"
+    echo "============================================"
+    local -a cmds=()
+    local n=0 label cmd
+    for e in "${ENTRIES[@]}"; do
+      label="${e%%|*}"; cmd="${e#*|}"
+      if [ "$label" = "H" ]; then
+        printf "\n  %s\n" "$cmd"
+      else
+        n=$((n + 1)); cmds[$n]="$cmd"
+        printf "   %2d) %s\n" "$n" "$label"
+      fi
+    done
+    printf "\n    0) Quit\n"
+    echo "============================================"
+    local choice
+    read -r -p "Select [0-$n]: " choice || exit 0
+    if ! [[ "$choice" =~ ^[0-9]+$ ]]; then echo "Please enter a number."; sleep 1; continue; fi
+    if [ "$choice" = "0" ]; then echo "Bye."; exit 0; fi
+    if [ "$choice" -lt 1 ] || [ "$choice" -gt "$n" ]; then echo "Out of range: $choice"; sleep 1; continue; fi
     echo
-    case "$choice" in
-      1) run card:totp -- code || true; pause ;;
-      2)
-        read -r -p "BASE32-Secret (von Hetzner): " secret
-        if [ -n "${secret// /}" ]; then
-          run card:totp -- put "$secret" || true
-        else
-          echo "Kein Secret eingegeben — abgebrochen."
-        fi
-        pause ;;
-      3) run card:pin:status || true; pause ;;
-      4) run card:pin:set || true; pause ;;
-      5) run card:pin:change || true; pause ;;
-      6) run card:prf:info || true; pause ;;
-      7) gp -r "$GP_READER" -l 2>&1 | grep -E 'APP:|PKG:' || true; pause ;;
-      8) run card:totp:install || true; pause ;;
-      9) run bitcoin:card:address || true; pause ;;
-      10) npm run 2>/dev/null | grep -E '^  [a-z]' || true; pause ;;
-      0|q|Q) echo "Tschüss."; exit 0 ;;
-      *) echo "Ungültige Auswahl: '$choice'. Bitte eine Zahl von 0 bis 10."; sleep 1 ;;
-    esac
+    dispatch "${cmds[$choice]}" || true
+    pause
   done
 }
 
@@ -80,10 +134,10 @@ case "$cmd" in
   ""|menu)
     menu ;;
   help|--help|-h)
-    echo "nuricard            interaktives Menü (idiotensicher)"
-    echo "nuricard totp       aktuellen TOTP-Code"
-    echo "nuricard totp put \"BASE32\"  Secret speichern"
-    echo "nuricard <npm-script> [-- args]   jeder Befehl aus package.json"
+    echo "nuricard                    interactive menu (idiot-proof)"
+    echo "nuricard totp               current TOTP code from the card"
+    echo "nuricard totp put \"BASE32\"   store a TOTP secret on the card"
+    echo "nuricard <npm-script> [-- args]   run any command from package.json"
     echo
     npm run 2>/dev/null | grep -E '^  [a-z]' || true ;;
   totp)
