@@ -12,6 +12,10 @@ const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nu
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 
 const NETWORKS = {
+  mainnet: {
+    hrp: 'bc',
+    explorer: 'https://mempool.space/api',
+  },
   signet: {
     hrp: 'tb',
     explorer: 'https://mempool.space/signet/api',
