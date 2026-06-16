@@ -293,6 +293,69 @@ License warning: upstream SatochipApplet is AGPL-3.0. This repo is MIT. Do not c
 
 This repo does not vendor the FIDO2Applet source. It clones the baseline into `vendor/FIDO2Applet-clean`, which is ignored by git.
 
+## nuricard Console App
+
+`nuricard` is one installable console command that fronts every smartcard
+function in this repo. It does not reimplement anything; it forwards to the
+npm scripts, so there is nothing to keep in sync.
+
+Install once (makes the global `nuricard` command):
+
+```bash
+npm link
+```
+
+Run with no arguments for a walk-through, idiot-proof menu:
+
+```bash
+nuricard
+```
+
+```text
+   nuricard — Nuri Smartcard
+  TOTP (2FA-Codes, z.B. Hetzner)
+    1) Aktuellen 6-stelligen Code anzeigen
+    2) Secret auf der Karte speichern/ändern
+  FIDO2 / Passkey-PIN
+    3) PIN-Status   4) PIN setzen   5) PIN ändern
+  Karte
+    6) Karten-Info   7) Applets anzeigen   8) TOTP-Applet installieren
+  Bitcoin
+    9) Kartenadresse
+   10) Alle Befehle   0) Beenden
+```
+
+Power users can skip the menu and call any function directly. Every npm
+script is a subcommand:
+
+```bash
+nuricard totp                 # current 6-digit TOTP code from the card
+nuricard totp put "BASE32"     # store a TOTP secret on the card
+nuricard card:pin:status
+nuricard bitcoin:card:address
+nuricard help                 # list every command
+```
+
+The contact reader index defaults to `GP_READER=2`; override it in the
+environment if your reader differs.
+
+### On-Card OATH-TOTP
+
+The repo includes a small Java Card OATH-TOTP applet so a 2FA secret (for
+example a Hetzner "Authenticator app" setup key) is stored on the card and the
+`HMAC-SHA1` is computed on-card. The card has no clock, so the host sends the
+time counter and the card never returns the secret.
+
+- Applet source: `card/NuriOathTotp.java` (AID `4E555249544F5450`)
+- Build: `npm run card:totp:build` (JDK 8 + Java Card SDK) -> `dist/nuri-oath-totp.cap`
+- Install: `npm run card:totp:install`
+- Use: `nuricard totp put "HETZNER_BASE32"` then `nuricard totp`
+
+The code is verified against the RFC 6238 test vector
+(`python3 scripts/card-totp.py --selfcheck`) and was matched live against an
+independent host TOTP on the real card. The applet stores a single secret and
+is not PIN-gated; both are marked as `ponytail:` upgrade points in the source.
+
 ## Quick Start
 
 Requirements:

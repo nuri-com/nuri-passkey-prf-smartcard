@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "nuricard": "bin/nuricard"
+  },
   "scripts": {
     "test": "node --test test/*.test.js",
     "musig2:demo": "node src/musig2/card-sim-cli.js",
@@ -49,7 +52,10 @@
     "card:ctap:makecred-pin": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/direct-ctap-diagnostics.py makecred-pin",
     "card:ctap:makecred-uv": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/direct-ctap-diagnostics.py makecred-uv",
     "card:musig2:install": "scripts/install-musig2-card.sh",
-    "card:musig2:test": "scripts/test-musig2-card.sh"
+    "card:musig2:test": "scripts/test-musig2-card.sh",
+    "card:totp:build": "cd card && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build",
+    "card:totp:install": "scripts/install-totp-card.sh",
+    "card:totp": "/opt/homebrew/bin/python3.13 scripts/card-totp.py"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

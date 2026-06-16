@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# nuricard: one console entry for every smartcard function in this repo.
+# No args -> walk-through menu (idiot-proof). With args -> forwards to npm scripts.
+set -euo pipefail
+
+# Resolve repo root even when called through an npm-link symlink.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+cd "$ROOT"
+
+export GP_READER="${GP_READER:-2}"   # contact reader index on this setup
+
+run() { echo "+ npm run $*" >&2; npm run --silent "$@"; }
+
+pause() { echo; read -r -p "Enter drücken, um zurück zum Menü..." _ || true; }
+
+menu() {
+  while true; do
+    clear 2>/dev/null || true
+    cat <<'EOF'
+============================================
+   nuricard — Nuri Smartcard
+============================================
+  TOTP (2FA-Codes, z.B. Hetzner)
+    1) Aktuellen 6-stelligen Code anzeigen
+    2) Secret auf der Karte speichern/ändern
+
+  FIDO2 / Passkey-PIN
+    3) PIN-Status anzeigen
+    4) PIN setzen
+    5) PIN ändern
+
+  Karte
+    6) Karten-Info (PRF / FIDO2)
+    7) Installierte Applets anzeigen
+    8) TOTP-Applet auf Karte installieren
+
+  Bitcoin (MuSig2-Karte)
+    9) Kartenadresse anzeigen
+
+ 10) Alle verfügbaren Befehle auflisten
+  0) Beenden
+============================================
+EOF
+    read -r -p "Auswahl [0-10]: " choice || exit 0
+    echo
+    case "$choice" in
+      1) run card:totp -- code || true; pause ;;
+      2)
+        read -r -p "BASE32-Secret (von Hetzner): " secret
+        if [ -n "${secret// /}" ]; then
+          run card:totp -- put "$secret" || true
+        else
+          echo "Kein Secret eingegeben — abgebrochen."
+        fi
+        pause ;;
+      3) run card:pin:status || true; pause ;;
+      4) run card:pin:set || true; pause ;;
+      5) run card:pin:change || true; pause ;;
+      6) run card:prf:info || true; pause ;;
+      7) gp -r "$GP_READER" -l 2>&1 | grep -E 'APP:|PKG:' || true; pause ;;
+      8) run card:totp:install || true; pause ;;
+      9) run bitcoin:card:address || true; pause ;;
+      10) npm run 2>/dev/null | grep -E '^  [a-z]' || true; pause ;;
+      0|q|Q) echo "Tschüss."; exit 0 ;;
+      *) echo "Ungültige Auswahl: '$choice'. Bitte eine Zahl von 0 bis 10."; sleep 1 ;;
+    esac
+  done
+}
+
+cmd="${1:-}"
+[ "$#" -gt 0 ] && shift || true
+
+case "$cmd" in
+  ""|menu)
+    menu ;;
+  help|--help|-h)
+    echo "nuricard            interaktives Menü (idiotensicher)"
+    echo "nuricard totp       aktuellen TOTP-Code"
+    echo "nuricard totp put \"BASE32\"  Secret speichern"
+    echo "nuricard <npm-script> [-- args]   jeder Befehl aus package.json"
+    echo
+    npm run 2>/dev/null | grep -E '^  [a-z]' || true ;;
+  totp)
+    if [ "${1:-}" = "put" ]; then shift; exec npm run --silent card:totp -- put "$@"; fi
+    exec npm run --silent card:totp -- code "$@" ;;
+  *)
+    exec npm run --silent "$cmd" -- "$@" ;;
+esac
