@@ -367,6 +367,36 @@ The code is verified against the RFC 6238 test vector
 independent host TOTP on the real card. The applet stores a single secret and
 is not PIN-gated; both are marked as `ponytail:` upgrade points in the source.
 
+## Smartcard MCP Cosigner
+
+`scripts/card-mcp-server.mjs` exposes the physical card as a remote MCP cosigner.
+It mirrors the Nuri MCP shape (`initialize` / `tools/list` / `tools/call`) but the
+signer is the card on this machine over PC/SC — no browser, no `sign.nuri.com`.
+Tunnel it with ngrok to let a remote agent call it.
+
+```bash
+npm run card:mcp            # serve http://127.0.0.1:8799/mcp  (+ /healthz)
+npm run card:mcp:tunnel     # ngrok http 8799  (public /mcp URL for an agent)
+npm run card:mcp:selftest   # JSON-RPC path + one real card signature
+```
+
+Tools:
+
+```text
+nuri_card_info     public card pubkey, aggregate key, applet version
+nuri_card_cosign   sign a 32-byte msg (or text) -> verified BIP340 signature
+```
+
+Verified end-to-end over HTTP: `tools/call nuri_card_cosign` returns
+`final_signature_verified: true` from the real card. All PC/SC access is
+serialized so two card commands never overlap.
+
+Known gap (honest): the installed MuSig2 applet does plain MuSig2 (even-y, no
+tweak input). It is **not yet byte-compatible** with `sign.nuri.com`'s tweaked
+BIP327 session (`tweak32` + `musig2.Session(..., [tweak32], [true])`). Making the
+card a drop-in cosigner for an existing Nuri wallet needs the applet to apply the
+Taproot tweak — a separate applet change, not just this wrapper.
+
 ## Quick Start
 
 Requirements:

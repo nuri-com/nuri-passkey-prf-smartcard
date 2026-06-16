@@ -55,7 +55,10 @@
     "card:musig2:test": "scripts/test-musig2-card.sh",
     "card:totp:build": "cd card && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build",
     "card:totp:install": "scripts/install-totp-card.sh",
-    "card:totp": "/opt/homebrew/bin/python3.13 scripts/card-totp.py"
+    "card:totp": "/opt/homebrew/bin/python3.13 scripts/card-totp.py",
+    "card:mcp": "node scripts/card-mcp-server.mjs",
+    "card:mcp:selftest": "node scripts/card-mcp-server.mjs --selftest",
+    "card:mcp:tunnel": "ngrok http ${PORT:-8799}"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
