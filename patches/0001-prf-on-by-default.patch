@@ -1,0 +1,15 @@
+diff --git a/src/main/java/us/q3q/fido2/FIDO2Applet.java b/src/main/java/us/q3q/fido2/FIDO2Applet.java
+index 137da2a..55df286 100644
+--- a/src/main/java/us/q3q/fido2/FIDO2Applet.java
++++ b/src/main/java/us/q3q/fido2/FIDO2Applet.java
+@@ -641,7 +641,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
+             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_ALGORITHM);
+         }
+ 
+-        boolean hmacSecretEnabled = false;
++        // ponytail: default hmac-secret ON so EVERY passkey is PRF-capable. A client
++        // can still opt out by sending the hmac-secret extension with value false (0xF4).
++        boolean hmacSecretEnabled = true;
+         boolean uvmRequested = false;
+         byte credProtectLevel = 0;
+         boolean pinAuthSuccess = false;

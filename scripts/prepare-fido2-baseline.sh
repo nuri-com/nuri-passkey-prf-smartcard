@@ -24,5 +24,12 @@ git -C "$DEST" submodule update --init --recursive
 git -C "$DEST" clean -fdx
 git -C "$DEST" reset --hard
 
+# Apply Nuri patches (kept here because vendor/ is gitignored and re-cloned).
+for patch in "$ROOT"/patches/*.patch; do
+  [[ -e "$patch" ]] || continue
+  echo "Applying $(basename "$patch")"
+  git -C "$DEST" apply "$patch"
+done
+
 echo "Prepared clean FIDO2 baseline at $DEST"
 git -C "$DEST" log --oneline -1
