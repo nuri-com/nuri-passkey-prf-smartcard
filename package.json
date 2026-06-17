@@ -59,6 +59,7 @@
     "card:mcp": "node scripts/card-mcp-server.mjs",
     "card:mcp:selftest": "node scripts/card-mcp-server.mjs --selftest",
     "card:mcp:tunnel": "ngrok http ${PORT:-8799}",
+    "card:full-round-proof": "bash scripts/card-full-round-proof.sh",
     "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
     "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
     "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend"

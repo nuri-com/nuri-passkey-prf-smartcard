@@ -9,6 +9,61 @@ root than a software key or a phone TEE.
 
 ---
 
+## The complete 2-of-2 round on one page
+
+Everything below is proven on the real card (`scripts/card-full-round-proof.sh` →
+`CARD_FULL_ROUND_PROOF_OK`). The client key is re-derived from the card's FIDO2
+PRF every operation; the cosigner partial comes from the card's MuSig2 applet;
+the host only aggregates and applies the public Taproot tweak.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User / Host app
+  participant C as Card FIDO2 applet
+  participant M as Card MuSig2 applet
+  participant H as Host (RAM only)
+  participant BC as Bitcoin / Nuri (scure)
+
+  rect rgb(235,248,255)
+    Note over U,BC: RECEIVE — derive the wallet address (once)
+    U->>C: getAssertion + prf.eval.first = wallet salt
+    C->>C: hmac-secret over the passkey credential
+    C-->>H: 32-byte PRF output (a derivation, not the secret)
+    H->>H: HKDF(PRF) -> 32-byte client seed (RAM, never written to disk)
+    H->>H: client_pk33 = secp256k1 pub(seed)
+    U->>M: GET_PUBKEY
+    M-->>H: card_pk33 (cosigner key generated on-card, non-exportable)
+    H->>BC: musig2(client_pk33, card_pk33) + CSV leaf -> Taproot output key
+    BC-->>U: bc1p… receive address (same on every re-derivation)
+  end
+
+  rect rgb(240,255,240)
+    Note over U,BC: SPEND — every input needs the card (twice: PRF + MuSig2)
+    U->>H: build Taproot key-path tx, compute BIP341 sighash (msg32)
+    U->>C: getAssertion + prf.eval.first = wallet salt  (RE-derive client key)
+    C-->>H: PRF output -> client seed (RAM)
+    U->>M: NONCES
+    M->>M: k1,k2 from on-card RNG
+    M-->>H: card pub nonce (66 B)
+    H->>H: aggregate nonce, b, e; fold Taproot tweak into coefficient `a`
+    U->>M: FINALIZE(a, b, parity, e)
+    M->>M: s = k_adj + e*a*sk  (sk NEVER leaves the card)
+    M-->>H: card partial (32 B)
+    H->>H: client partial (software, same g*gAcc fold) + e*g*tweakAcc
+    H->>H: final BIP340 signature
+    H->>BC: schnorr.verify(sig, msg32, wallet output key)
+    BC-->>H: true
+    H->>BC: broadcast signed tx
+  end
+```
+
+Key property: the host sees a PRF derivation, public keys, public nonces, and
+partials. It never sees a card private key. Remove the card and steps 4, 9-15
+become impossible — no client key, no partial.
+
+---
+
 ## What is on the card
 
 The physical card is a Java Card secure element (JCOP-class). It runs isolated
