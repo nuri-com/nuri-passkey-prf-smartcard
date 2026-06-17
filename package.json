@@ -58,7 +58,10 @@
     "card:totp": "/opt/homebrew/bin/python3.13 scripts/card-totp.py",
     "card:mcp": "node scripts/card-mcp-server.mjs",
     "card:mcp:selftest": "node scripts/card-mcp-server.mjs --selftest",
-    "card:mcp:tunnel": "ngrok http ${PORT:-8799}"
+    "card:mcp:tunnel": "ngrok http ${PORT:-8799}",
+    "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
+    "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
+    "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

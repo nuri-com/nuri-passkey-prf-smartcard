@@ -405,6 +405,31 @@ the Nuri wallet tweak (key-path over musig2(client,card) with a client CSV
 52500-block recovery leaf); `scripts/verify-tweaked-cosign.mjs` cross-checks it
 against `@scure/btc-signer`.
 
+## Nuri Smartcard Wallet (real addresses, real spend)
+
+`scripts/nuri-card-wallet.mjs` turns the card into a stable Nuri Taproot wallet:
+`musig2(client, card)` key-path with a client CSV (52500-block) recovery leaf —
+the same structure as the Nuri wallet, but with the card as cosigner instead of
+`sign.nuri.com`. The client key is stored locally for this proof; in production
+it would come from the Nuri passkey PRF.
+
+```bash
+npm run nuri:wallet:address                                   # provision + show address
+npm run nuri:wallet:utxos                                     # check funding
+npm run nuri:wallet:spend -- --network=signet --to=<addr|self> --amount-sats=1337 --fee-sats=500
+npm run nuri:wallet:spend -- --network=signet --to=self --amount-sats=1337 --fee-sats=500 --broadcast
+```
+
+Defaults to **signet** (free, safe). Switch to `--network=mainnet` once the
+flow is proven. The spend builds a real key-path Taproot tx, computes the
+BIP341 sighash, signs each input with the physical card via the tweaked
+cosign (`scripts/card-cosign-tweaked.py`), verifies the BIP340 signature
+against the wallet output key locally, and optionally broadcasts.
+
+Proven on the real card: a stable signet wallet address was provisioned and is
+identical across re-runs; the tweaked cosign path returns signatures that match
+the Nuri `scure` derivation and verify BIP340.
+
 ## Quick Start
 
 Requirements:
