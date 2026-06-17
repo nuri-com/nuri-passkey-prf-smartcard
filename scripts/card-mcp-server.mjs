@@ -10,26 +10,21 @@
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import process from 'node:process';
-import * as btc from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
+import {
+  NETWORKS as WALLET_NETS,
+  nuriDerive,
+  provisionAddress,
+  loadProfile,
+  fetchUtxos,
+  buildAndSignSpend,
+} from './nuri-card-wallet.mjs';
 
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
 const SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const CSV_BLOCKS = 52500; // matches card-cosign-tweaked.py and nuriBitcoin.ts
-
-// Nuri's exact Taproot derivation: internal = musig2(client,card), one client CSV leaf.
-function nuriDerive(clientPk33Hex, cardPk33Hex) {
-  const sorted = musig2.sortKeys([hexToBytes(clientPk33Hex), hexToBytes(cardPk33Hex)]);
-  const aggComp = musig2.keyAggExport(musig2.keyAggregate(sorted));
-  const Px = aggComp.length === 33 ? aggComp.slice(1) : aggComp;
-  const userXOnly = hexToBytes(clientPk33Hex).slice(1);
-  const leaf = { script: btc.Script.encode([userXOnly, 'CHECKSIGVERIFY', CSV_BLOCKS, 'CHECKSEQUENCEVERIFY']), leafVersion: 0xc0 };
-  const p2tr = btc.p2tr(Px, [leaf], btc.NETWORK, true);
-  return { outputXOnly: bytesToHex(p2tr.script.slice(2)), address: p2tr.address };
-}
 
 // Never run two PC/SC commands at once: serialize all card access.
 let cardChain = Promise.resolve();
@@ -88,6 +83,45 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'nuri_card_wallet_address',
+    description: 'Provision or show the stable Nuri Taproot wallet address (musig2(client,card) + CSV) for a network. Taps the card once. Use signet for free tests, mainnet for real BTC.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        network: { type: 'string', enum: ['signet', 'mainnet'], description: 'Bitcoin network. signet = free test, mainnet = real BTC.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'nuri_card_wallet_utxos',
+    description: 'List unspent outputs (UTXOs) for the Nuri smartcard wallet address on a network.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        network: { type: 'string', enum: ['signet', 'mainnet'] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'nuri_card_wallet_spend',
+    description: 'Build + sign a real key-path Taproot spend with the physical card. DRY-RUN by default (returns raw_tx_hex, no broadcast). Set broadcast:true to push to the chain. Each input is signed by the card. MAINNET = REAL MONEY.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        network: { type: 'string', enum: ['signet', 'mainnet'] },
+        to: { type: 'string', description: 'Destination address, or "self" to sweep change back to the wallet.' },
+        amount_sats: { type: 'integer', description: 'Amount to send in satoshis. Omit to send everything minus fee.' },
+        fee_sats: { type: 'integer', description: 'Miner fee in satoshis.', default: 500 },
+        broadcast: { type: 'boolean', description: 'Broadcast the tx. Default false = dry-run. MAINNET broadcast spends real BTC.', default: false },
+        include_unconfirmed: { type: 'boolean', description: 'Spend unconfirmed UTXOs too.', default: false },
+      },
+      required: ['network', 'to'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 async function callTool(name, callArgs) {
@@ -123,7 +157,7 @@ async function callTool(name, callArgs) {
     const r = await runCardTweaked({ msg32: callArgs?.msg32, message: callArgs?.message, clientSecretHex: callArgs?.client_secret_hex });
     if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`tweaked cosign failed: ${JSON.stringify(r)}`);
     // Independently confirm the card's output key == Nuri's scure derivation and the sig verifies.
-    const nuri = nuriDerive(r.client_pk33, r.card_pk33);
+    const nuri = nuriDerive(r.client_pk33, r.card_pk33, WALLET_NETS.mainnet);
     const matchesNuri = nuri.outputXOnly === r.tweaked_output_xonly32;
     const sigValid = schnorr.verify(hexToBytes(r.final_signature64), hexToBytes(r.msg32), hexToBytes(r.tweaked_output_xonly32));
     if (!matchesNuri || !sigValid) throw new Error(`nuri-compat check failed: matchesNuri=${matchesNuri} sigValid=${sigValid}`);
@@ -139,6 +173,30 @@ async function callTool(name, callArgs) {
       signature_valid_bip340: sigValid,
       csv_blocks: CSV_BLOCKS,
     };
+  }
+  if (name === 'nuri_card_wallet_address') {
+    const network = callArgs?.network || 'signet';
+    if (!WALLET_NETS[network]) throw new Error(`unknown network: ${network}`);
+    const profile = await provisionAddress(network);
+    return { status: 'NURI_CARD_WALLET_READY', network, address: profile.address, output_xonly32: profile.output_xonly32, client_pk33: profile.client_pk33, card_pk33: profile.card_pk33, csv_blocks: profile.csv_blocks, note: 'Stable receive address. Fund it, then call nuri_card_wallet_spend.' };
+  }
+  if (name === 'nuri_card_wallet_utxos') {
+    const network = callArgs?.network || 'signet';
+    const profile = await loadProfile(network);
+    if (!profile) throw new Error(`no wallet profile for ${network}; call nuri_card_wallet_address first`);
+    return { network, address: profile.address, utxos: await fetchUtxos(profile.address, network) };
+  }
+  if (name === 'nuri_card_wallet_spend') {
+    const network = callArgs?.network || 'signet';
+    if (!callArgs?.to) throw new Error('to is required');
+    const result = await buildAndSignSpend(network, {
+      to: String(callArgs.to),
+      amountSats: callArgs?.amount_sats ?? null,
+      feeSats: callArgs?.fee_sats ?? 500,
+      broadcast: Boolean(callArgs?.broadcast),
+      includeUnconfirmed: Boolean(callArgs?.include_unconfirmed),
+    });
+    return result;
   }
   throw new Error(`unknown tool: ${name}`);
 }

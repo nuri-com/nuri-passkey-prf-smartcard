@@ -385,16 +385,18 @@ Tools:
 ```text
 nuri_card_info              public card pubkey, aggregate key, applet version
 nuri_card_cosign            sign a 32-byte msg (plain MuSig2, no tweak)
-nuri_card_cosign_tweaked    sign for the exact Nuri Taproot wallet:
-                            musig2(client,card) key-path + client CSV leaf,
-                            returns the Nuri address + verified BIP340 sig
+nuri_card_cosign_tweaked    sign for the exact Nuri Taproot wallet (raw primitive)
+nuri_card_wallet_address    provision/show a stable musig2(client,card)+CSV wallet address
+nuri_card_wallet_utxos      list UTXOs for the wallet address
+nuri_card_wallet_spend      build + sign a real key-path Taproot spend (dry-run by
+                            default; broadcast:true to push). MAINNET = real BTC.
 ```
 
-Verified end-to-end over HTTP: `tools/call nuri_card_cosign_tweaked` returns
-a signature that (1) matches the Nuri `scure` derivation of the Taproot output
-key / address, and (2) verifies as a BIP340 key-path signature for it
-(`REAL_CARD_TWEAKED_COSIGN_NURI_COMPATIBLE`). All PC/SC access is serialized so
-two card commands never overlap.
+Runs locally at `http://127.0.0.1:8799/mcp` — no ngrok needed when the MCP
+client is on the same machine. Verified end-to-end over HTTP: provisioning a
+stable **mainnet** wallet address, UTXO fetch, and the tweaked cosign path all
+work; the spend signs each input with the physical card and verifies BIP340.
+Default network is **signet** (free tests); switch to `mainnet` for real BTC.
 
 How the tweak is done (no applet change needed): the card applet computes a
 plain MuSig2 partial `s = k + e*a*sk`. BIP327 puts a TapRoot tweak in two

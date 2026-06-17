@@ -2,14 +2,17 @@
 // Nuri smartcard wallet: stable musig2(client,card)+CSV Taproot address backed
 // by the physical card. Real addresses, real UTXOs, real key-path spend.
 //
+// CLI:
 //   nuri-card-wallet.mjs address  [--network=signet|mainnet]
-//   nuri-card-wallet.mjs utxos    [--network=signet]
+//   nuri-card-wallet.mjs utxos    [--network=signet|mainnet]
 //   nuri-card-wallet.mjs spend    --network=signet --to=<addr|self> --amount-sats=N --fee-sats=N [--broadcast]
 //
-// Default network is signet (free, safe). Switch to mainnet once the flow is proven.
+// The exported functions are also imported by scripts/card-mcp-server.mjs so the
+// MCP exposes the same wallet operations (single source of truth for tx building).
 import { randomBytes } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { execFile } from 'node:child_process';
 import { SigHash, Transaction } from '@scure/btc-signer';
@@ -19,34 +22,18 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
 import { bech32m } from '@scure/base';
 
-const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
-const TWEAKED = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
-const CSV_BLOCKS = 52500;
+export const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+export const TWEAKED = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
+export const CSV_BLOCKS = 52500;
 const WALLET_DIR = '.nuri-card-wallet';
 
-const NETWORKS = {
+export const NETWORKS = {
   signet: { hrp: 'tb', btc: btc.TEST_NETWORK, explorer: 'https://mempool.space/signet/api' },
   mainnet: { hrp: 'bc', btc: btc.NETWORK, explorer: 'https://mempool.space/api' },
 };
 
-function parseArgs(argv) {
-  const a = { network: 'signet', command: '', to: null, amountSats: null, feeSats: 500, utxo: null, includeUnconfirmed: false, broadcast: false };
-  for (const arg of argv) {
-    if (arg.startsWith('--network=')) a.network = arg.slice(10);
-    else if (arg.startsWith('--to=')) a.to = arg.slice(5);
-    else if (arg.startsWith('--amount-sats=')) a.amountSats = Number(arg.slice(13));
-    else if (arg.startsWith('--fee-sats=')) a.feeSats = Number(arg.slice(11));
-    else if (arg.startsWith('--utxo=')) a.utxo = arg.slice(7);
-    else if (arg === '--include-unconfirmed') a.includeUnconfirmed = true;
-    else if (arg === '--broadcast') a.broadcast = true;
-    else if (!arg.startsWith('-') && !a.command) a.command = arg;
-  }
-  if (!NETWORKS[a.network]) throw new Error(`unknown network: ${a.network}`);
-  return a;
-}
-
 // Nuri Taproot derivation: internal = musig2(client,card); one client CSV leaf.
-function nuriDerive(clientPk33Hex, cardPk33Hex, network) {
+export function nuriDerive(clientPk33Hex, cardPk33Hex, network) {
   const sorted = musig2.sortKeys([hexToBytes(clientPk33Hex), hexToBytes(cardPk33Hex)]);
   const aggComp = musig2.keyAggExport(musig2.keyAggregate(sorted));
   const Px = aggComp.length === 33 ? aggComp.slice(1) : aggComp;
@@ -55,12 +42,12 @@ function nuriDerive(clientPk33Hex, cardPk33Hex, network) {
   const p2tr = btc.p2tr(Px, [leaf], network.btc, true);
   const outputXOnly = bytesToHex(p2tr.script.slice(2));
   const words = bech32m.toWords(hexToBytes(outputXOnly));
-  words.unshift(0x01); // witness v0
+  words.unshift(0x01);
   const address = bech32m.encode(network.hrp, words);
   return { outputXOnly, address, scriptPubKey: bytesToHex(p2tr.script) };
 }
 
-async function execPy(args) {
+export function execPy(args) {
   return new Promise((res, rej) => {
     execFile(PY, args, { cwd: process.cwd(), timeout: 120000, maxBuffer: 1 << 20 }, (err, out, errout) => {
       if (err) return rej(new Error(`${err.message}\n${errout || out}`.trim()));
@@ -69,37 +56,40 @@ async function execPy(args) {
   });
 }
 
-function profilePath(network) { return resolve(WALLET_DIR, `${network}.json`); }
-
-async function loadProfile(network) {
+export function profilePath(network) { return resolve(WALLET_DIR, `${network}.json`); }
+export async function loadProfile(network) {
   try { return JSON.parse(await readFile(profilePath(network), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
 }
-async function saveProfile(network, p) {
+export async function saveProfile(network, p) {
   await mkdir(dirname(resolve(profilePath(network))), { recursive: true });
   await writeFile(profilePath(network), JSON.stringify(p, null, 2) + '\n');
 }
 
-async function fetchJson(url) {
+export async function fetchJson(url) {
   const r = await fetch(url, { cache: 'no-store' });
   if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
   return r.json();
 }
+export async function fetchUtxos(address, networkName) {
+  const net = NETWORKS[networkName];
+  return fetchJson(`${net.explorer}/address/${address}/utxo`);
+}
 
-// Provision a stable Nuri wallet identity for this network: stable client key,
-// tap the card once to read client/card pubkeys + tweaked output key.
-async function commandAddress(args) {
-  const net = NETWORKS[args.network];
-  let profile = await loadProfile(args.network);
-  let clientSecretHex = profile?.client_secret_hex || bytesToHex(randomBytes(32));
-  // Tap the card to get the authoritative pubkeys + output key for this client key.
+// Tap the card with a client key to read authoritative pubkeys + output key and
+// persist a stable wallet profile for the network.
+export async function provisionAddress(networkName) {
+  const net = NETWORKS[networkName];
+  if (!net) throw new Error(`unknown network: ${networkName}`);
+  const existing = await loadProfile(networkName);
+  const clientSecretHex = existing?.client_secret_hex || bytesToHex(randomBytes(32));
   const r = await execPy([TWEAKED, '--client-secret-hex', clientSecretHex, '--msg32', bytesToHex(randomBytes(32))]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card cosign failed: ${JSON.stringify(r)}`);
   const nuri = nuriDerive(r.client_pk33, r.card_pk33, net);
   if (nuri.outputXOnly !== r.tweaked_output_xonly32) {
     throw new Error(`output key mismatch: node ${nuri.outputXOnly} vs card ${r.tweaked_output_xonly32}`);
   }
-  profile = {
-    network: args.network,
+  const profile = {
+    network: networkName,
     client_secret_hex: clientSecretHex,
     client_pk33: r.client_pk33,
     card_pk33: r.card_pk33,
@@ -107,41 +97,42 @@ async function commandAddress(args) {
     address: nuri.address,
     scriptPubKey: nuri.scriptPubKey,
     csv_blocks: CSV_BLOCKS,
-    created_at: profile?.created_at || new Date().toISOString(),
+    created_at: existing?.created_at || new Date().toISOString(),
     warning: 'Demo client key in a local file. Production client keys should come from the Nuri passkey PRF, not this file.',
   };
-  await saveProfile(args.network, profile);
-  console.log(JSON.stringify(profile, null, 2));
+  await saveProfile(networkName, profile);
+  return profile;
 }
 
-async function commandUtxos(args) {
-  const profile = await loadProfile(args.network);
-  if (!profile) throw new Error(`no wallet profile for ${args.network}; run "address" first`);
-  const net = NETWORKS[args.network];
-  const list = await fetchJson(`${net.explorer}/address/${profile.address}/utxo`);
-  console.log(JSON.stringify({ ...profile, utxos: list }, null, 2));
+export function parseUtxo(s) {
+  const [txid, vout, value] = s.split(':');
+  if (!txid || vout === undefined || value === undefined) throw new Error('--utxo=<txid:vout:value>');
+  return { txid, vout: Number(vout), value: Number(value) };
 }
 
-async function commandSpend(args) {
-  const profile = await loadProfile(args.network);
-  if (!profile) throw new Error(`no wallet profile for ${args.network}; run "address" first`);
-  const net = NETWORKS[args.network];
+// Build + sign a real key-path Taproot spend with the physical card.
+// Defaults to DRY-RUN (no broadcast). Returns the tx + status.
+export async function buildAndSignSpend(networkName, opts) {
+  const { to, amountSats = null, feeSats = 500, broadcast = false, utxo: utxoArg = null, includeUnconfirmed = false } = opts;
+  const profile = await loadProfile(networkName);
+  if (!profile) throw new Error(`no wallet profile for ${networkName}; provision an address first`);
+  const net = NETWORKS[networkName];
   const sourceScript = hexToBytes(profile.scriptPubKey);
-  // Pick UTXO
-  let utxo = args.utxo ? parseUtxo(args.utxo) : null;
+
+  let utxo = utxoArg ? parseUtxo(utxoArg) : null;
   if (!utxo) {
-    const list = await fetchJson(`${net.explorer}/address/${profile.address}/utxo`);
-    const avail = list.filter((u) => args.includeUnconfirmed || u.status?.confirmed).sort((a, b) => b.value - a.value);
-    if (!avail.length) throw new Error(`no confirmed UTXO for ${profile.address}; fund it first (or --include-unconfirmed)`);
+    const list = await fetchUtxos(profile.address, networkName);
+    const avail = list.filter((u) => includeUnconfirmed || u.status?.confirmed).sort((a, b) => b.value - a.value);
+    if (!avail.length) throw new Error(`no confirmed UTXO for ${profile.address}; fund it first (or includeUnconfirmed)`);
     utxo = avail[0];
   }
   const inputValue = BigInt(utxo.value);
-  if (inputValue <= args.feeSats) throw new Error(`UTXO value ${inputValue} <= fee ${args.feeSats}`);
-  const toAddress = args.to === 'self' ? profile.address : args.to;
-  const sendValue = args.amountSats === null ? inputValue - args.feeSats : BigInt(args.amountSats);
-  const changeValue = inputValue - args.feeSats - sendValue;
+  if (inputValue <= feeSats) throw new Error(`UTXO value ${inputValue} <= fee ${feeSats}`);
+  const toAddress = to === 'self' ? profile.address : to;
+  const sendValue = amountSats === null ? inputValue - BigInt(feeSats) : BigInt(amountSats);
+  const changeValue = inputValue - BigInt(feeSats) - sendValue;
   if (sendValue <= 0n) throw new Error('send value must be positive');
-  if (changeValue < 0n) throw new Error(`insufficient: have ${inputValue}, need ${sendValue + args.feeSats}`);
+  if (changeValue < 0n) throw new Error(`insufficient: have ${inputValue}, need ${sendValue + BigInt(feeSats)}`);
 
   const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
   tx.addInput({ txid: utxo.txid, index: utxo.vout, witnessUtxo: { amount: inputValue, script: sourceScript } });
@@ -149,7 +140,6 @@ async function commandSpend(args) {
   if (changeValue >= 330n) tx.addOutputAddress(profile.address, changeValue, net.btc);
 
   const msg32 = bytesToHex(tx.preimageWitnessV1(0, [sourceScript], SigHash.DEFAULT, [inputValue]));
-  // Sign with the physical card: tweaked cosign using the STABLE client key.
   const r = await execPy([TWEAKED, '--client-secret-hex', profile.client_secret_hex, '--msg32', msg32]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card sign failed: ${JSON.stringify(r)}`);
   const sig = hexToBytes(r.final_signature64);
@@ -158,47 +148,71 @@ async function commandSpend(args) {
   }
   tx.updateInput(0, { tapKeySig: sig }, true);
   tx.finalize();
-  const rawTx = tx.hex;
+
   const result = {
-    status: 'NURI_CARD_TX_READY',
-    network: args.network,
+    status: broadcast ? 'NURI_CARD_TX_BROADCAST' : 'NURI_CARD_TX_READY',
+    network: networkName,
     source_address: profile.address,
     destination_address: toAddress,
     utxo: `${utxo.txid}:${utxo.vout}`,
     input_sats: Number(inputValue),
     send_sats: Number(sendValue),
     change_sats: Number(changeValue),
-    fee_sats: args.feeSats,
-    raw_tx_hex: rawTx,
+    fee_sats: feeSats,
+    raw_tx_hex: tx.hex,
+    signature_verified_bip340: true,
   };
-  if (!args.broadcast) {
-    result.next_step = 'Review raw_tx_hex, then re-run with --broadcast';
-    console.log(JSON.stringify(result, null, 2));
-    return;
+  if (!broadcast) {
+    result.next_step = 'Review raw_tx_hex, then re-run with broadcast: true';
+    return result;
   }
-  const resp = await fetch(`${net.explorer}/tx`, { method: 'POST', body: rawTx });
+  const resp = await fetch(`${net.explorer}/tx`, { method: 'POST', body: tx.hex });
   const text = await resp.text();
   result.broadcast = resp.ok ? { txid: text.trim() } : { http_status: resp.status, body: text };
-  console.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
-function parseUtxo(s) {
-  const [txid, vout, value] = s.split(':');
-  if (!txid || vout === undefined || value === undefined) throw new Error('--utxo=<txid:vout:value>');
-  return { txid, vout: Number(vout), value: Number(value) };
-}
+// ---- CLI (only when invoked directly, not when imported by the MCP server) ----
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 
-const args = parseArgs(process.argv.slice(2));
-if (!['address', 'utxos', 'spend'].includes(args.command)) {
-  console.error('Usage: nuri-card-wallet.mjs <address|utxos|spend> [--network=signet|mainnet] [--to=] [--amount-sats=] [--fee-sats=] [--broadcast] [--include-unconfirmed] [--utxo=txid:vout:value]');
-  process.exit(1);
-}
-if (args.command === 'spend' && !args.to) { console.error('spend needs --to=<address|self>'); process.exit(1); }
-try {
-  if (args.command === 'address') await commandAddress(args);
-  else if (args.command === 'utxos') await commandUtxos(args);
-  else if (args.command === 'spend') await commandSpend(args);
-} catch (e) {
-  console.error(`error: ${e.message}`);
-  process.exit(1);
+if (isMain) {
+  function parseArgs(argv) {
+    const a = { network: 'signet', command: '', to: null, amountSats: null, feeSats: 500, utxo: null, includeUnconfirmed: false, broadcast: false };
+    for (const arg of argv) {
+      if (arg.startsWith('--network=')) a.network = arg.slice(10);
+      else if (arg.startsWith('--to=')) a.to = arg.slice(5);
+      else if (arg.startsWith('--amount-sats=')) a.amountSats = Number(arg.slice(13));
+      else if (arg.startsWith('--fee-sats=')) a.feeSats = Number(arg.slice(11));
+      else if (arg.startsWith('--utxo=')) a.utxo = arg.slice(7);
+      else if (arg === '--include-unconfirmed') a.includeUnconfirmed = true;
+      else if (arg === '--broadcast') a.broadcast = true;
+      else if (!arg.startsWith('-') && !a.command) a.command = arg;
+    }
+    if (!NETWORKS[a.network]) throw new Error(`unknown network: ${a.network}`);
+    return a;
+  }
+
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    if (!['address', 'utxos', 'spend'].includes(args.command)) {
+      console.error('Usage: nuri-card-wallet.mjs <address|utxos|spend> [--network=signet|mainnet] [--to=] [--amount-sats=] [--fee-sats=] [--broadcast] [--include-unconfirmed] [--utxo=txid:vout:value]');
+      process.exit(1);
+    }
+    if (args.command === 'spend' && !args.to) { console.error('spend needs --to=<address|self>'); process.exit(1); }
+    if (args.command === 'address') {
+      console.log(JSON.stringify(await provisionAddress(args.network), null, 2));
+    } else if (args.command === 'utxos') {
+      const profile = await loadProfile(args.network);
+      if (!profile) throw new Error(`no wallet profile for ${args.network}; run "address" first`);
+      console.log(JSON.stringify({ ...profile, utxos: await fetchUtxos(profile.address, args.network) }, null, 2));
+    } else if (args.command === 'spend') {
+      console.log(JSON.stringify(await buildAndSignSpend(args.network, {
+        to: args.to, amountSats: args.amountSats, feeSats: args.feeSats,
+        broadcast: args.broadcast, utxo: args.utxo, includeUnconfirmed: args.includeUnconfirmed,
+      }), null, 2));
+    }
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  }
 }
