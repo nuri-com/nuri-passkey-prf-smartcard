@@ -407,6 +407,15 @@ the Nuri wallet tweak (key-path over musig2(client,card) with a client CSV
 52500-block recovery leaf); `scripts/verify-tweaked-cosign.mjs` cross-checks it
 against `@scure/btc-signer`.
 
+## Smartcard Architecture & Security Pitch
+
+For a detailed walkthrough (Mermaid diagrams of the FIDO2/PRF + MuSig2 + OATH
+applets, the receive→spend flow, what leaves the card and what never does, and a
+side-by-side vs phone software keys and phone TEEs), see
+[`docs/card-architecture.md`](docs/card-architecture.md). Built for pitching the
+"everything on the card, keys non-exportable, physical-tap consent per op"
+story.
+
 ## Nuri Smartcard Wallet (real addresses, real spend)
 
 `scripts/nuri-card-wallet.mjs` turns the card into a stable Nuri Taproot wallet:
