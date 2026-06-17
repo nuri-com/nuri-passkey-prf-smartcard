@@ -383,19 +383,27 @@ npm run card:mcp:selftest   # JSON-RPC path + one real card signature
 Tools:
 
 ```text
-nuri_card_info     public card pubkey, aggregate key, applet version
-nuri_card_cosign   sign a 32-byte msg (or text) -> verified BIP340 signature
+nuri_card_info              public card pubkey, aggregate key, applet version
+nuri_card_cosign            sign a 32-byte msg (plain MuSig2, no tweak)
+nuri_card_cosign_tweaked    sign for the exact Nuri Taproot wallet:
+                            musig2(client,card) key-path + client CSV leaf,
+                            returns the Nuri address + verified BIP340 sig
 ```
 
-Verified end-to-end over HTTP: `tools/call nuri_card_cosign` returns
-`final_signature_verified: true` from the real card. All PC/SC access is
-serialized so two card commands never overlap.
+Verified end-to-end over HTTP: `tools/call nuri_card_cosign_tweaked` returns
+a signature that (1) matches the Nuri `scure` derivation of the Taproot output
+key / address, and (2) verifies as a BIP340 key-path signature for it
+(`REAL_CARD_TWEAKED_COSIGN_NURI_COMPATIBLE`). All PC/SC access is serialized so
+two card commands never overlap.
 
-Known gap (honest): the installed MuSig2 applet does plain MuSig2 (even-y, no
-tweak input). It is **not yet byte-compatible** with `sign.nuri.com`'s tweaked
-BIP327 session (`tweak32` + `musig2.Session(..., [tweak32], [true])`). Making the
-card a drop-in cosigner for an existing Nuri wallet needs the applet to apply the
-Taproot tweak — a separate applet change, not just this wrapper.
+How the tweak is done (no applet change needed): the card applet computes a
+plain MuSig2 partial `s = k + e*a*sk`. BIP327 puts a TapRoot tweak in two
+host-side places, not in each partial — a `g*gAcc` factor folded into the
+coefficient `a` sent to the card, and a single `e*g*tweakAcc` term added at
+final aggregation. `scripts/card-cosign-tweaked.py` implements this and builds
+the Nuri wallet tweak (key-path over musig2(client,card) with a client CSV
+52500-block recovery leaf); `scripts/verify-tweaked-cosign.mjs` cross-checks it
+against `@scure/btc-signer`.
 
 ## Quick Start
 
