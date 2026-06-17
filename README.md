@@ -454,6 +454,21 @@ Proven on the real card: a stable signet wallet address was provisioned and is
 identical across re-runs; the tweaked cosign path returns signatures that match
 the Nuri `scure` derivation and verify BIP340.
 
+## Arkade / Lightning (card-backed identity)
+
+The card can be the PRF root for an Arkade/Nuri wallet: same client key the
+phone derives, but card-gated. Proven on the real card:
+
+```bash
+npm run card:arkade:key         # card PRF -> arkade client key (stable, nuri derivation)
+npm run card:arkade:identity    # importable identity seam (getPublicKey/getSigningKey)
+```
+
+The Arkade tree-round tweak (VTXO scriptRoot) is supported via
+`scripts/card-cosign-tweaked.py --script-root <hex32>`. Full status + the exact
+nuri-expo wiring point (`SigningKeyVault`) in
+[`docs/arkade-lightning.md`](docs/arkade-lightning.md).
+
 ## Quick Start
 
 Requirements:

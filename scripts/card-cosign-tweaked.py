@@ -127,9 +127,17 @@ def csv_leaf_script(client_xonly):
 
 
 def taproot_tweak(internal_xonly, client_xonly):
+    # Default Nuri wallet tweak: key-path over musig2(client,card) with a
+    # client CSV recovery leaf. (--script-root overrides this for Arkade rounds.)
     leaf = csv_leaf_script(client_xonly)
     leaf_hash = tagged_hash("TapLeaf", bytes([0xC0, len(leaf)]) + leaf)
     return b2i(tagged_hash("TapTweak", internal_xonly + leaf_hash)) % N
+
+
+def arkade_script_root_tweak(internal_xonly, script_root32):
+    # Arkade tree-round tweak: TapTweak(internal || scriptRoot). The scriptRoot
+    # is the Ark VTXO tree root returned by the ASP, NOT our CSV leaf.
+    return b2i(tagged_hash("TapTweak", internal_xonly + script_root32)) % N
 
 
 class Card:
@@ -183,7 +191,12 @@ def run(args):
         client_xonly = client_pk[1:]
 
         # BIP327 ApplyTweak (single x-only Taproot tweak)
-        t = taproot_tweak(internal_xonly, client_xonly)
+        if args.script_root:
+            t = arkade_script_root_tweak(internal_xonly, bytes.fromhex(args.script_root))
+            tweak_mode = "arkade-script-root-tree-round"
+        else:
+            t = taproot_tweak(internal_xonly, client_xonly)
+            tweak_mode = "taproot-keypath-with-client-csv-leaf"
         g0 = 1 if Q[1] % 2 == 0 else N - 1            # parity of untweaked Q (xonly tweak)
         Qt = padd(pmul(g0, Q), pmul(t, G))            # tweaked output key
         g_acc = g0
@@ -229,7 +242,7 @@ def run(args):
         return {
             "status": "REAL_CARD_TWEAKED_COSIGN_OK" if ok else "REAL_CARD_TWEAKED_COSIGN_FAILED",
             "real_card": True,
-            "tweak_mode": "taproot-keypath-with-client-csv-leaf",
+            "tweak_mode": tweak_mode,
             "csv_blocks": CSV_BLOCKS,
             "reader": card.reader,
             "card_version": ver,
@@ -253,6 +266,7 @@ def main():
     ap.add_argument("--message", default="nuri real card tweaked cosign")
     ap.add_argument("--msg32", default="")
     ap.add_argument("--client-secret-hex", default="")
+    ap.add_argument("--script-root", default="", help="32-hex Ark VTXO scriptRoot; switches to Arkade tree-round tweak (no CSV leaf)")
     ap.add_argument("--include-demo-client-secret", action="store_true")
     args = ap.parse_args()
     res = run(args)

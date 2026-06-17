@@ -60,6 +60,8 @@
     "card:mcp:selftest": "node scripts/card-mcp-server.mjs --selftest",
     "card:mcp:tunnel": "ngrok http ${PORT:-8799}",
     "card:full-round-proof": "bash scripts/card-full-round-proof.sh",
+    "card:arkade:key": "node scripts/card-arkade-key.mjs",
+    "card:arkade:identity": "node scripts/card-arkade-identity.mjs",
     "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
     "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
     "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend"
@@ -67,6 +69,7 @@
   "dependencies": {
     "@noble/curves": "^1.9.7",
     "@scure/base": "^1.2.6",
+    "@scure/bip32": "^1.7.0",
     "@scure/btc-signer": "^2.0.1"
   }
 }
