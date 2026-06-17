@@ -412,10 +412,23 @@ against `@scure/btc-signer`.
 `scripts/nuri-card-wallet.mjs` turns the card into a stable Nuri Taproot wallet:
 `musig2(client, card)` key-path with a client CSV (52500-block) recovery leaf —
 the same structure as the Nuri wallet, but with the card as cosigner instead of
-`sign.nuri.com`. The client key is stored locally for this proof; in production
-it would come from the Nuri passkey PRF.
+`sign.nuri.com`.
+
+**No secret is stored on the host.** The client key is re-derived from the
+card's own FIDO2 passkey PRF on every operation (HKDF → secp256k1); the card's
+MuSig2 applet is the cosigner. The wallet profile only keeps public data
+(pubkeys, address, and the PRF profile name + salt to pick which passkey
+credential feeds the derivation). Losing the card (or its PRF credential)
+locks funds until the CSV window.
+
+Enroll a wallet PRF credential on the card once (creates
+`.nuri-card-prf/wallet-client.json`, no secret — just the credential ID):
 
 ```bash
+npm run card:prf:enroll -- --profile wallet-client --resident-key discouraged --user-verification discouraged --registration-prf prf
+```
+
+Then:
 npm run nuri:wallet:address                                   # provision + show address
 npm run nuri:wallet:utxos                                     # check funding
 npm run nuri:wallet:spend -- --network=signet --to=<addr|self> --amount-sats=1337 --fee-sats=500

@@ -24,8 +24,13 @@ import { bech32m } from '@scure/base';
 
 export const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
 export const TWEAKED = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
+export const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 export const CSV_BLOCKS = 52500;
 const WALLET_DIR = '.nuri-card-wallet';
+// The client key is derived from the card's FIDO2 PRF — nothing secret is stored.
+// These name+salt pick WHICH passkey credential and salt feed into HKDF->secp256k1.
+export const DEFAULT_PRF_PROFILE = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
+export const DEFAULT_PRF_SALT = process.env.NURI_WALLET_PRF_SALT || 'nuri-wallet-client-key-v1';
 
 export const NETWORKS = {
   signet: { hrp: 'tb', btc: btc.TEST_NETWORK, explorer: 'https://mempool.space/signet/api' },
@@ -56,6 +61,22 @@ export function execPy(args) {
   });
 }
 
+// Derive the CLIENT private-key seed from the card's FIDO2 passkey PRF.
+// Nothing secret is stored: the PRF output is recomputed from the card every
+// call, HKDF-stretched to 32 bytes, and used as the secp256k1 client secret.
+// card-cosign-tweaked.py normalizes it to even-y internally, so the raw seed is fine.
+export function derivePrfSeed(prfProfile = DEFAULT_PRF_PROFILE, salt = DEFAULT_PRF_SALT) {
+  return new Promise((res, rej) => {
+    execFile(PY, [PRF_SCRIPT, 'derive', '--profile', prfProfile, '--salt', salt, '--raw'],
+      { cwd: process.cwd(), timeout: 60000, maxBuffer: 1 << 20 }, (err, out, errout) => {
+      if (err) return rej(new Error(`PRF derive failed: ${err.message}\n${errout || out}`.trim()));
+      const hex = out.trim();
+      if (!/^[0-9a-f]{64}$/.test(hex)) return rej(new Error(`PRF derive returned bad output: ${hex.slice(0, 80)}`));
+      res(hex);
+    });
+  });
+}
+
 export function profilePath(network) { return resolve(WALLET_DIR, `${network}.json`); }
 export async function loadProfile(network) {
   try { return JSON.parse(await readFile(profilePath(network), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
@@ -77,12 +98,16 @@ export async function fetchUtxos(address, networkName) {
 
 // Tap the card with a client key to read authoritative pubkeys + output key and
 // persist a stable wallet profile for the network.
-export async function provisionAddress(networkName) {
+// persist a stable wallet profile for the network. The CLIENT key is derived
+// from the card's FIDO2 PRF every call; nothing secret is stored.
+export async function provisionAddress(networkName, opts = {}) {
   const net = NETWORKS[networkName];
   if (!net) throw new Error(`unknown network: ${networkName}`);
   const existing = await loadProfile(networkName);
-  const clientSecretHex = existing?.client_secret_hex || bytesToHex(randomBytes(32));
-  const r = await execPy([TWEAKED, '--client-secret-hex', clientSecretHex, '--msg32', bytesToHex(randomBytes(32))]);
+  const prfProfile = opts.prfProfile || existing?.client_prf_profile || DEFAULT_PRF_PROFILE;
+  const prfSalt = opts.prfSalt || existing?.client_prf_salt || DEFAULT_PRF_SALT;
+  const seedHex = await derivePrfSeed(prfProfile, prfSalt);
+  const r = await execPy([TWEAKED, '--client-secret-hex', seedHex, '--msg32', bytesToHex(randomBytes(32))]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card cosign failed: ${JSON.stringify(r)}`);
   const nuri = nuriDerive(r.client_pk33, r.card_pk33, net);
   if (nuri.outputXOnly !== r.tweaked_output_xonly32) {
@@ -90,7 +115,9 @@ export async function provisionAddress(networkName) {
   }
   const profile = {
     network: networkName,
-    client_secret_hex: clientSecretHex,
+    key_origin: 'client=card_fido2_prf__cosigner=card_musig2',
+    client_prf_profile: prfProfile,
+    client_prf_salt: prfSalt,
     client_pk33: r.client_pk33,
     card_pk33: r.card_pk33,
     output_xonly32: r.tweaked_output_xonly32,
@@ -98,7 +125,7 @@ export async function provisionAddress(networkName) {
     scriptPubKey: nuri.scriptPubKey,
     csv_blocks: CSV_BLOCKS,
     created_at: existing?.created_at || new Date().toISOString(),
-    warning: 'Demo client key in a local file. Production client keys should come from the Nuri passkey PRF, not this file.',
+    note: 'Client key is re-derived from the card FIDO2 PRF on every spend. No secret is stored. Losing the card (or its PRF credential) locks funds until the CSV window (52500 blocks).',
   };
   await saveProfile(networkName, profile);
   return profile;
@@ -140,7 +167,8 @@ export async function buildAndSignSpend(networkName, opts) {
   if (changeValue >= 330n) tx.addOutputAddress(profile.address, changeValue, net.btc);
 
   const msg32 = bytesToHex(tx.preimageWitnessV1(0, [sourceScript], SigHash.DEFAULT, [inputValue]));
-  const r = await execPy([TWEAKED, '--client-secret-hex', profile.client_secret_hex, '--msg32', msg32]);
+  const seedHex = await derivePrfSeed(profile.client_prf_profile, profile.client_prf_salt);
+  const r = await execPy([TWEAKED, '--client-secret-hex', seedHex, '--msg32', msg32]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card sign failed: ${JSON.stringify(r)}`);
   const sig = hexToBytes(r.final_signature64);
   if (!schnorr.verify(sig, hexToBytes(msg32), hexToBytes(profile.output_xonly32))) {
