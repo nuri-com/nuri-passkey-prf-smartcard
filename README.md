@@ -11,6 +11,7 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [The vision](#the-vision)
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
+- [Status & latest findings](#status--latest-findings-2026-06-30)
 - [How it works](#how-it-works)
 - [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa--nuri-expo)
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
@@ -127,6 +128,33 @@ Full transcripts and explorer links: [`docs/real-card-signet-proof.md`](docs/rea
 
 Reproduce the host-side proofs (no card needed) and the real-card proofs (card
 inserted) with the commands in [Capability reference](#capability-reference).
+
+---
+
+## Status & latest findings (2026-06-30)
+
+Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log in
+[`CHANGELOG.md`](CHANGELOG.md). Headlines:
+
+- **One card can be the whole wallet.** [`web/card-wallet.html`](web/card-wallet.html)
+  + `POST /api/wallet/{address,utxos,spend}`: client key from the card's FIDO2 PRF,
+  cosigner from the same card's MuSig2 applet — `musig2(client,card)` + CSV(52500).
+  Proven end-to-end on **mainnet** via the reader (`npm run cosign:web` →
+  `http://localhost:8787/wallet`).
+- **FIDO2 user-presence fix** ([`dist/FIDO2-up.cap`](dist/FIDO2-up.cap),
+  [`patches/0002`](patches/0002-advertise-user-presence.patch)): the applet
+  advertised `up:false`, so browsers refused it; advertising `up:true` (the applet
+  already sets `UP=1`) makes Safari/Chrome accept the card. Verified on hardware.
+  Details: [`docs/fido2-user-presence.md`](docs/fido2-user-presence.md).
+- **secp256k1 is card-OS-gated.** MuSig2/Bitcoin works only on cards with OS
+  **`2025-05-14`** (ATR `3b:81:80:01:80:80`). The `2023-03-30` OS lacks the EC
+  point-multiply (`ALG_EC_SVDP_DH_PLAIN_XY`) → keygen returns `6A81`. The OS is
+  mask-ROM — **not user-updatable**. Same model number is not enough; screen each
+  batch (`gp -i` OS date, then `npm run cosign:real-card:keygen`).
+- **Browser PRF is a macOS dead-end (platform, not card).** The card enables
+  `hmac-secret` (assertion ED flag true), but **Safari returns `prf:null` for
+  external security keys**, and Chrome can't see a PC/SC contact reader. Browser
+  PRF works only via a native-NFC app or Windows. Card-as-passkey *login* works.
 
 ---
 
@@ -371,6 +399,14 @@ optionally broadcasts. The lower-level `bitcoin:card:*` demo
 (`address` / `utxos` / `spend` / `status`) does the same with explicit OP_RETURN and
 unconfirmed-UTXO options.
 
+For the same wallet with a **browser UI** (receive / balance / send), run
+`npm run cosign:web` and open `http://localhost:8787/wallet`
+([`web/card-wallet.html`](web/card-wallet.html)). It reads the card over the PC/SC
+reader by default (`POST /api/wallet/{address,utxos,spend}`), and a spend refuses to
+sign unless the passkey/card owns the funded address. A `prfHex` field lets a
+browser-supplied PRF drive it instead, once the browser path is available (see
+[Status & latest findings](#status--latest-findings-2026-06-30)).
+
 ### MuSig2 cosigner (real card + simulators)
 
 ```bash
@@ -561,13 +597,15 @@ an upstream reference, or write a clean-room minimal signer.
 - `src/musig2/` — method-level and APDU-level MuSig2 simulators (`@scure`-compatible).
 - `scripts/` — every real-card and host flow (wallet, cosign, PRF, Arkade, MCP, TOTP).
 - `dist/` — prebuilt CAPs + checksums + provenance.
-- `web/` — `prf-test.html`, `cosign-demo.html`, PWA manifest/service-worker.
+- `web/` — `card-wallet.html` (browser wallet UI), `passkey-wallet.html`,
+  `prf-test.html`, `cosign-demo.html`, PWA manifest/service-worker.
 - `mobile/expo-nfc-prf-probe/` — native Android/iOS ISO-DEP NFC PRF probe.
 - `test/` — Node MuSig2 tests + Python FIDO2 PRF mapping test.
 - `bin/nuricard` — the unified console app.
+- `CHANGELOG.md` — release log; `docs/logbook.md` — session notes (Q&A, card state, next steps).
 - `docs/` — architecture & security pitch (`card-architecture.md`), Arkade plan
-  (`nuri-arkade-card-cosigner-plan.md`, `arkade-lightning.md`), real-card proofs,
-  hardware spec, card research.
+  (`nuri-arkade-card-cosigner-plan.md`, `arkade-lightning.md`), FIDO2 user-presence
+  fix (`fido2-user-presence.md`), real-card proofs, hardware spec, card research.
 
 This repo does **not** vendor the FIDO2Applet source; `npm run fido2:prepare` clones
 [Bryan Jacobs' FIDO2Applet](https://github.com/BryanJacobs/FIDO2Applet) at a pinned
