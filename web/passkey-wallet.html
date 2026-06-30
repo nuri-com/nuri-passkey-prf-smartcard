@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nuri — localhost passkey → card-cosigned signature</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  p.lead { opacity: .8; }
+  button { font: inherit; padding: .6rem 1rem; border-radius: 8px; border: 1px solid #8884; cursor: pointer; }
+  button.primary { background: #f7931a; color: #111; border-color: #f7931a; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  label { display: block; margin: .8rem 0 .2rem; font-size: .85rem; opacity: .8; }
+  input { font: inherit; width: 100%; padding: .5rem; border-radius: 6px; border: 1px solid #8884; box-sizing: border-box; }
+  pre { background: #8881; padding: 1rem; border-radius: 8px; overflow: auto; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; }
+  .ok { color: #1a9d4b; font-weight: 600; }
+  .err { color: #d23; font-weight: 600; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .step { margin: .3rem 0; opacity: .75; font-size: .9rem; }
+  code { background: #8882; padding: .1rem .3rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>Localhost passkey → card-cosigned Bitcoin signature</h1>
+  <p class="lead">
+    Proves the <strong>same flow as the Nuri PWA</strong>, fully local: a browser passkey on
+    <code>localhost</code> produces a WebAuthn PRF, which is run through nuri-expo's exact
+    derivation (<code>HKDF(app:nuri.com|wallet|v1)</code> → BIP86 <code>m/86'/0'/0'/0/0</code>) to
+    get the client key. The physical card in your reader is the MuSig2 cosigner
+    (<code>musig2(client, card)</code> + CSV recovery leaf). The result is a valid BIP340
+    signature for the Nuri Taproot address — no server, no <code>sign.nuri.com</code>.
+  </p>
+
+  <label for="message">Message to sign (stands in for a Taproot sighash)</label>
+  <input id="message" value="hello from a localhost passkey" />
+
+  <p class="row" style="margin-top:1rem">
+    <button id="go" class="primary">Create / use passkey &amp; sign with the card</button>
+    <button id="reset">Forget passkey</button>
+  </p>
+
+  <div id="log"></div>
+  <pre id="out" hidden></pre>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls = 'step') => { const d = document.createElement('div'); d.className = cls; d.textContent = msg; $('log').appendChild(d); };
+const clearLog = () => { $('log').innerHTML = ''; $('out').hidden = true; };
+
+const RP_ID = location.hostname;           // "localhost" — the passkey's relying party
+const PRF_SALT = 'nuri-prf-salt-v1';       // identical to nuri-expo config/constants.ts
+const CRED_KEY = 'nuri-localhost-passkey-credid';
+const enc = new TextEncoder();
+const b64u = {
+  enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  dec: (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+};
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+async function createPasskey() {
+  log('Creating a localhost passkey (touch your authenticator)…');
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: rand(32),
+      rp: { name: 'Nuri localhost demo', id: RP_ID },
+      user: { id: rand(16), name: 'nuri-local', displayName: 'Nuri local' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+      extensions: { prf: {} },
+    },
+  });
+  const id = b64u.enc(cred.rawId);
+  localStorage.setItem(CRED_KEY, id);
+  log('Passkey created.');
+  return id;
+}
+
+async function prfFromPasskey(credId) {
+  log('Asking the passkey for its PRF (touch again if prompted)…');
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: rand(32),
+      rpId: RP_ID,
+      allowCredentials: credId ? [{ type: 'public-key', id: b64u.dec(credId) }] : [],
+      userVerification: 'preferred',
+      extensions: { prf: { eval: { first: enc.encode(PRF_SALT) } } },
+    },
+  });
+  const results = assertion.getClientExtensionResults();
+  const first = results?.prf?.results?.first;
+  if (!first) throw new Error('This browser/authenticator did not return a WebAuthn PRF result. Use Chrome/Safari with a platform passkey or a PRF-capable security key.');
+  return hex(first);
+}
+
+async function run() {
+  clearLog();
+  $('go').disabled = true;
+  try {
+    if (!window.PublicKeyCredential) throw new Error('WebAuthn is not available in this browser.');
+    let credId = localStorage.getItem(CRED_KEY);
+    if (!credId) credId = await createPasskey();
+    let prfHex;
+    try {
+      prfHex = await prfFromPasskey(credId);
+    } catch (e) {
+      // Stored credential may be gone; recreate once.
+      log('Retrying with a fresh passkey…');
+      credId = await createPasskey();
+      prfHex = await prfFromPasskey(credId);
+    }
+    log('Got 32-byte PRF: ' + prfHex.slice(0, 16) + '…');
+    log('Deriving client key + asking the card to cosign…');
+    const resp = await fetch('/api/cosign/passkey-sign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prfHex, message: $('message').value }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || JSON.stringify(data));
+    $('out').hidden = false;
+    $('out').textContent = JSON.stringify(data, null, 2);
+    if (data.signature_valid_bip340) log('✓ Card produced a VALID BIP340 signature for ' + data.nuri_address, 'ok');
+    else log('✗ Signature did not verify', 'err');
+  } catch (e) {
+    log('Error: ' + (e?.message || e), 'err');
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+$('go').addEventListener('click', run);
+$('reset').addEventListener('click', () => { localStorage.removeItem(CRED_KEY); clearLog(); log('Forgot the stored passkey credential id.'); });
+</script>
+</body>
+</html>
+</content>

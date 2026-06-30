@@ -4,13 +4,41 @@ import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
-import { bytesToHex } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { HDKey } from '@scure/bip32';
+import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bech32m } from '@scure/base';
 import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosign-flow.js';
+import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
 
 const card = createOnCardGeneratedCard();
 const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
+const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const REAL_CARD_PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';
+
+const utf8 = (s) => new TextEncoder().encode(s);
+
+// Exact port of nuri-expo lib/walletDerivation.ts + lib/bitcoin/bip86.ts:
+// browser passkey PRF -> HKDF entropy -> BIP86 m/86'/0'/0'/0/0 client key.
+// Same salt/info/path as the PWA, so a passkey derives the PWA-identical wallet.
+function deriveClientKeyFromPrf(prfBytes) {
+  const salt = sha256(utf8('app:nuri.com|wallet|v1'));
+  const info = utf8('app:nuri.com|wallet|v1|chain=bitcoin|fmt=taproot');
+  const entropy = new Uint8Array(hkdf(sha256, prfBytes, salt, info, 32));
+  const child = HDKey.fromMasterSeed(entropy).derive("m/86'/0'/0'/0/0");
+  if (!child.privateKey) throw new Error('failed to derive BIP86 child key');
+  const privateKey = new Uint8Array(child.privateKey);
+  return { privateKey, clientPk33: secp256k1.getPublicKey(privateKey, true) };
+}
+
+function taprootAddress(outputXonlyHex, network) {
+  const hrp = network === 'mainnet' ? 'bc' : 'tb';
+  const words = [1, ...bech32m.toWords(hexToBytes(outputXonlyHex))];
+  return bech32m.encode(hrp, words);
+}
 
 function parseArgs(argv) {
   const args = {
@@ -166,6 +194,122 @@ async function handleRealCardSign(body) {
   };
 }
 
+// Localhost passkey -> PWA-identical wallet, cosigned by the physical card.
+// Body: { prfHex (32-byte browser PRF output), message?, network? }
+async function handlePasskeySign(req, res) {
+  const body = await readJson(req);
+  const prfHex = String(body.prfHex || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(prfHex)) {
+    json(res, 400, { error: 'prfHex must be the 32-byte hex WebAuthn PRF output from the browser passkey' });
+    return;
+  }
+  const network = body.network === 'mainnet' ? 'mainnet' : 'signet';
+  const message = body.message ? String(body.message) : 'nuri localhost passkey wallet demo';
+  const { privateKey, clientPk33 } = deriveClientKeyFromPrf(hexToBytes(prfHex));
+  const r = await execFileJson(REAL_CARD_PYTHON, [
+    REAL_CARD_TWEAKED_SCRIPT,
+    '--client-secret-hex', bytesToHex(privateKey),
+    '--message', message,
+  ]);
+  if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') {
+    throw new Error(`card tweaked cosign failed: ${JSON.stringify(r)}`);
+  }
+  // Independently re-verify the card's signature against the wallet output key.
+  const sigValid = schnorr.verify(
+    hexToBytes(r.final_signature64),
+    hexToBytes(r.msg32),
+    hexToBytes(r.tweaked_output_xonly32),
+  );
+  json(res, 200, {
+    status: sigValid ? 'NURI_LOCALHOST_PASSKEY_WALLET_OK' : 'SIGNATURE_INVALID',
+    derivation: "browser passkey PRF -> HKDF(app:nuri.com|wallet|v1) -> BIP86 m/86'/0'/0'/0/0 (identical to nuri-expo PWA)",
+    cosigner: 'physical card MuSig2 applet — musig2(client, card) key-path + client CSV recovery leaf',
+    client_pk33: bytesToHex(clientPk33),
+    card_pk33: r.card_pk33,
+    network,
+    nuri_address: taprootAddress(r.tweaked_output_xonly32, network),
+    output_key_xonly32: r.tweaked_output_xonly32,
+    csv_blocks: r.csv_blocks,
+    msg32: r.msg32,
+    final_signature64: r.final_signature64,
+    signature_valid_bip340: sigValid,
+  });
+}
+
+// Full card-does-both wallet over the browser passkey PRF.
+// client key = browser passkey PRF -> HKDF+BIP86 (PWA-identical); cosigner = card.
+const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
+const READER_PRF_PROFILE = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
+const READER_PRF_SALT = process.env.NURI_WALLET_PRF_SALT || 'nuri-prf-salt-v1';
+
+function clientSeedFromPrf(prfHex) {
+  const { privateKey } = deriveClientKeyFromPrf(hexToBytes(prfHex));
+  return bytesToHex(privateKey);
+}
+
+// This card can't complete browser WebAuthn (it reports up:false), so read the
+// card's FIDO2 PRF directly over the PC/SC reader and run the SAME HKDF+BIP86
+// derivation — identical wallet to the browser path, just a reliable transport.
+function readerClientSeed() {
+  return new Promise((resolvePromise, reject) => {
+    execFile(REAL_CARD_PYTHON, [PRF_SCRIPT, 'derive', '--profile', READER_PRF_PROFILE, '--salt', READER_PRF_SALT, '--raw'],
+      { cwd: process.cwd(), timeout: 60000, maxBuffer: 1 << 20 }, (err, out, errout) => {
+        if (err) return reject(new Error(`card PRF over reader failed: ${err.message}\n${errout || out}`.trim()));
+        const h = out.trim();
+        if (!/^[0-9a-f]{64}$/.test(h)) return reject(new Error(`bad card PRF output: ${h.slice(0, 80)}`));
+        resolvePromise(clientSeedFromPrf(h));
+      });
+  });
+}
+
+async function clientSeed(body) {
+  return body.prfHex ? clientSeedFromPrf(requirePrf(body)) : await readerClientSeed();
+}
+function requirePrf(body) {
+  const prfHex = String(body.prfHex || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(prfHex)) throw new Error('prfHex must be the 32-byte hex WebAuthn PRF output');
+  return prfHex;
+}
+function pickNetwork(body) { return body.network === 'mainnet' ? 'mainnet' : 'signet'; }
+
+async function handleWalletAddress(req, res) {
+  const body = await readJson(req);
+  const network = pickNetwork(body);
+  const profile = await provisionAddress(network, { clientSeedHex: await clientSeed(body) });
+  json(res, 200, profile);
+}
+
+async function handleWalletUtxos(req, res) {
+  const body = await readJson(req);
+  const network = pickNetwork(body);
+  const profile = await loadProfile(network);
+  if (!profile) { json(res, 400, { error: `no ${network} wallet yet — get a receive address first` }); return; }
+  const utxos = await fetchUtxos(profile.address, network);
+  const confirmed = utxos.filter((u) => u.status?.confirmed);
+  json(res, 200, {
+    address: profile.address,
+    network,
+    utxos,
+    confirmed_sats: confirmed.reduce((s, u) => s + u.value, 0),
+    pending_sats: utxos.filter((u) => !u.status?.confirmed).reduce((s, u) => s + u.value, 0),
+  });
+}
+
+async function handleWalletSpend(req, res) {
+  const body = await readJson(req);
+  const network = pickNetwork(body);
+  if (!body.to) { json(res, 400, { error: 'to (address or "self") is required' }); return; }
+  const result = await buildAndSignSpend(network, {
+    to: String(body.to),
+    amountSats: body.amountSats == null ? null : Number(body.amountSats),
+    feeSats: body.feeSats == null ? 500 : Number(body.feeSats),
+    broadcast: body.broadcast === true,
+    includeUnconfirmed: body.includeUnconfirmed === true,
+    clientSeedHex: await clientSeed(body),
+  });
+  json(res, 200, result);
+}
+
 async function handleSign(req, res) {
   const body = await readJson(req);
   const result = args.backend === 'real-card'
@@ -185,8 +329,23 @@ async function requestHandler(req, res) {
       await serveStatic(res, resolve('web/cosign-demo.html'), 'text/html; charset=utf-8');
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/passkey-wallet.html') {
+      await serveStatic(res, resolve('web/passkey-wallet.html'), 'text/html; charset=utf-8');
+      return;
+    }
+    if (req.method === 'GET' && (url.pathname === '/wallet' || url.pathname === '/card-wallet.html')) {
+      await serveStatic(res, resolve('web/card-wallet.html'), 'text/html; charset=utf-8');
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/wallet/address') { await handleWalletAddress(req, res); return; }
+    if (req.method === 'POST' && url.pathname === '/api/wallet/utxos') { await handleWalletUtxos(req, res); return; }
+    if (req.method === 'POST' && url.pathname === '/api/wallet/spend') { await handleWalletSpend(req, res); return; }
     if (req.method === 'GET' && url.pathname === '/api/cosign/info') {
       handleInfo(res);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/cosign/passkey-sign') {
+      await handlePasskeySign(req, res);
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/cosign/sign') {

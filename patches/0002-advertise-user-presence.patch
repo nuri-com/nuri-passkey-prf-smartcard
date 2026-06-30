@@ -1,0 +1,17 @@
+diff --git a/src/main/java/us/q3q/fido2/CannedCBOR.java b/src/main/java/us/q3q/fido2/CannedCBOR.java
+index 69cc235..d0069ec 100644
+--- a/src/main/java/us/q3q/fido2/CannedCBOR.java
++++ b/src/main/java/us/q3q/fido2/CannedCBOR.java
+@@ -85,7 +85,11 @@ public abstract class CannedCBOR {
+                             (byte) 0xF5, // true
+                         0x62, // string: two bytes long
+                             0x75, 0x70, // up
+-                            (byte) 0xF4, // false
++                            // ponytail: advertise user-presence TRUE. The applet already sets UP=1
++                            // in every assertion (see FIDO2Applet "User always present"); advertising
++                            // up:false made Safari/macOS refuse the card as a security key. Card
++                            // presence (insert/NFC tap) IS the user-presence signal.
++                            (byte) 0xF5, // true
+                         0x66, // string: six bytes long
+                             0x75, 0x76, 0x41, 0x63, 0x66, 0x67, // uvAcfg
+                             (byte) 0xF5, // true

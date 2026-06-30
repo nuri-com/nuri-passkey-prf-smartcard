@@ -104,9 +104,11 @@ export async function provisionAddress(networkName, opts = {}) {
   const net = NETWORKS[networkName];
   if (!net) throw new Error(`unknown network: ${networkName}`);
   const existing = await loadProfile(networkName);
+  // Client key source: either a caller-supplied seed (browser passkey PRF, already
+  // HKDF+BIP86-derived the nuri-expo way) or the card's own FIDO2 PRF over PC/SC.
   const prfProfile = opts.prfProfile || existing?.client_prf_profile || DEFAULT_PRF_PROFILE;
   const prfSalt = opts.prfSalt || existing?.client_prf_salt || DEFAULT_PRF_SALT;
-  const seedHex = await derivePrfSeed(prfProfile, prfSalt);
+  const seedHex = opts.clientSeedHex || await derivePrfSeed(prfProfile, prfSalt);
   const r = await execPy([TWEAKED, '--client-secret-hex', seedHex, '--msg32', bytesToHex(randomBytes(32))]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card cosign failed: ${JSON.stringify(r)}`);
   const nuri = nuriDerive(r.client_pk33, r.card_pk33, net);
@@ -115,9 +117,11 @@ export async function provisionAddress(networkName, opts = {}) {
   }
   const profile = {
     network: networkName,
-    key_origin: 'client=card_fido2_prf__cosigner=card_musig2',
-    client_prf_profile: prfProfile,
-    client_prf_salt: prfSalt,
+    key_origin: opts.clientSeedHex
+      ? 'client=browser_passkey_prf_hkdf_bip86__cosigner=card_musig2'
+      : 'client=card_fido2_prf__cosigner=card_musig2',
+    client_prf_profile: opts.clientSeedHex ? null : prfProfile,
+    client_prf_salt: opts.clientSeedHex ? null : prfSalt,
     client_pk33: r.client_pk33,
     card_pk33: r.card_pk33,
     output_xonly32: r.tweaked_output_xonly32,
@@ -167,9 +171,14 @@ export async function buildAndSignSpend(networkName, opts) {
   if (changeValue >= 330n) tx.addOutputAddress(profile.address, changeValue, net.btc);
 
   const msg32 = bytesToHex(tx.preimageWitnessV1(0, [sourceScript], SigHash.DEFAULT, [inputValue]));
-  const seedHex = await derivePrfSeed(profile.client_prf_profile, profile.client_prf_salt);
+  const seedHex = opts.clientSeedHex || await derivePrfSeed(profile.client_prf_profile, profile.client_prf_salt);
   const r = await execPy([TWEAKED, '--client-secret-hex', seedHex, '--msg32', msg32]);
   if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`card sign failed: ${JSON.stringify(r)}`);
+  // Safety: the client key behind this spend MUST match the funded wallet, else
+  // we'd sign for a different address (wrong/lost passkey -> never broadcast).
+  if (r.client_pk33 !== profile.client_pk33 || r.card_pk33 !== profile.card_pk33) {
+    throw new Error(`key mismatch: this passkey/card does not own ${profile.address} (client ${r.client_pk33} vs ${profile.client_pk33})`);
+  }
   const sig = hexToBytes(r.final_signature64);
   if (!schnorr.verify(sig, hexToBytes(msg32), hexToBytes(profile.output_xonly32))) {
     throw new Error('local BIP340 verification failed');

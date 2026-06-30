@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nuri card wallet — browser passkey + card cosigner</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 760px; margin: 1.5rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.25rem; margin-bottom: .2rem; }
+  .lead { opacity: .8; margin-top: .2rem; }
+  fieldset { border: 1px solid #8884; border-radius: 10px; margin: 1rem 0; padding: 1rem; }
+  legend { font-weight: 600; padding: 0 .4rem; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: 8px; border: 1px solid #8884; cursor: pointer; }
+  button.primary { background: #f7931a; color: #111; border-color: #f7931a; font-weight: 600; }
+  button.danger { background: #d23; color: #fff; border-color: #d23; }
+  button:disabled { opacity: .5; cursor: default; }
+  label { display: inline-block; margin: .5rem .8rem .1rem 0; font-size: .85rem; opacity: .8; }
+  input, select { font: inherit; padding: .45rem; border-radius: 6px; border: 1px solid #8884; box-sizing: border-box; }
+  input[type=text], input[type=number] { width: 100%; }
+  pre { background: #8881; padding: .8rem; border-radius: 8px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .addr { font-size: 1.05rem; font-weight: 600; word-break: break-all; }
+  .ok { color: #1a9d4b; font-weight: 600; }
+  .err { color: #d23; font-weight: 600; }
+  .step { opacity: .75; font-size: .9rem; margin: .2rem 0; }
+  code { background: #8882; padding: .1rem .3rem; border-radius: 4px; }
+  .warn { background: #d2331a18; border: 1px solid #d23; border-radius: 8px; padding: .6rem .8rem; }
+  .net { font-weight: 700; }
+  .net.mainnet { color: #d23; }
+</style>
+</head>
+<body>
+  <h1>Nuri card wallet</h1>
+  <p class="lead">
+    Client key = your <strong>browser passkey PRF (from the card)</strong>, derived the
+    PWA way (<code>HKDF(app:nuri.com|wallet|v1)</code> → BIP86 <code>m/86'/0'/0'/0/0</code>).
+    Cosigner = the <strong>same card's MuSig2 applet</strong>. The card does both halves.
+    Wallet = <code>musig2(client, card)</code> + a 52 500-block client recovery leaf.
+  </p>
+
+  <p>
+    <label for="network">Network</label>
+    <select id="network">
+      <option value="mainnet">mainnet (real BTC)</option>
+      <option value="signet">signet (free test)</option>
+    </select>
+    <span id="netbadge" class="net mainnet">MAINNET — real money</span>
+  </p>
+
+  <fieldset>
+    <legend>1 · Receive</legend>
+    <p class="step">The card is read over the PC/SC reader (this card can't do browser WebAuthn). Same card → same address every time.</p>
+    <button id="getAddr" class="primary">Get receive address</button>
+    <p id="addrBox" hidden>Send BTC here:<br><span class="addr" id="addr"></span></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>2 · Check funding</legend>
+    <button id="checkUtxos">Refresh balance</button>
+    <p id="bal" class="step"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>3 · Send</legend>
+    <label for="to">To (address or <code>self</code>)</label>
+    <input id="to" type="text" value="self" />
+    <div>
+      <label for="amount">Amount (sats, blank = sweep)</label>
+      <input id="amount" type="number" placeholder="e.g. 1000" style="width:12rem" />
+      <label for="fee">Fee (sats)</label>
+      <input id="fee" type="number" value="500" style="width:8rem" />
+    </div>
+    <p style="margin-top:.6rem">
+      <label><input type="checkbox" id="unconf" /> include unconfirmed UTXO</label>
+      <label><input type="checkbox" id="broadcast" /> <strong>broadcast</strong> (otherwise dry-run)</label>
+    </p>
+    <div id="bcWarn" class="warn" hidden>⚠️ Broadcast is checked on <span class="net mainnet">MAINNET</span> — this spends real BTC and cannot be undone.</div>
+    <p><button id="send" class="primary">Build &amp; sign with card</button></p>
+  </fieldset>
+
+  <div id="log"></div>
+  <pre id="out" hidden></pre>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const log = (m, c = 'step') => { const d = document.createElement('div'); d.className = c; d.textContent = m; $('log').appendChild(d); };
+const show = (obj) => { $('out').hidden = false; $('out').textContent = JSON.stringify(obj, null, 2); };
+const clearLog = () => { $('log').innerHTML = ''; };
+
+const RP_ID = location.hostname;          // "localhost"
+const PRF_SALT = 'nuri-prf-salt-v1';      // identical to nuri-expo
+const CRED_KEY = 'nuri-card-wallet-credid';
+const enc = new TextEncoder();
+const b64u = {
+  enc: (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  dec: (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+};
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+const network = () => $('network').value;
+
+function refreshBadge() {
+  const m = network() === 'mainnet';
+  const b = $('netbadge');
+  b.textContent = m ? 'MAINNET — real money' : 'signet — free test';
+  b.className = 'net ' + (m ? 'mainnet' : '');
+  $('bcWarn').hidden = !($('broadcast').checked && m);
+}
+$('network').addEventListener('change', refreshBadge);
+$('broadcast').addEventListener('change', refreshBadge);
+
+async function createCardPasskey() {
+  log('Creating a passkey on the card (pick the security key / card, set a PIN if asked)…');
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: rand(32),
+      rp: { name: 'Nuri card wallet', id: RP_ID },
+      user: { id: rand(16), name: 'nuri-card', displayName: 'Nuri card' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'cross-platform', residentKey: 'discouraged', userVerification: 'preferred' },
+      extensions: { prf: {} },
+    },
+  });
+  const id = b64u.enc(cred.rawId);
+  localStorage.setItem(CRED_KEY, id);
+  log('Card passkey created.');
+  return id;
+}
+
+async function cardPrf() {
+  let credId = localStorage.getItem(CRED_KEY);
+  if (!credId) credId = await createCardPasskey();
+  const get = async (id) => {
+    log('Ask the card for its PRF (tap / enter PIN if prompted)…');
+    const a = await navigator.credentials.get({
+      publicKey: {
+        challenge: rand(32), rpId: RP_ID,
+        allowCredentials: [{ type: 'public-key', id: b64u.dec(id), transports: ['usb', 'nfc'] }],
+        userVerification: 'preferred',
+        extensions: { prf: { eval: { first: enc.encode(PRF_SALT) } } },
+      },
+    });
+    const first = a.getClientExtensionResults()?.prf?.results?.first;
+    if (!first) throw new Error('No PRF returned. Use a PRF-capable authenticator (the card). In Safari try Chrome if it fails.');
+    return hex(first);
+  };
+  try { return await get(credId); }
+  catch (e) { log('Retrying with a fresh card passkey…'); return await get(await createCardPasskey()); }
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || JSON.stringify(d));
+  return d;
+}
+
+async function withCard(fn, btn) {
+  clearLog(); btn.disabled = true;
+  try { await fn(); }
+  catch (e) { log('Error: ' + (e?.message || e), 'err'); }
+  finally { btn.disabled = false; }
+}
+
+$('getAddr').addEventListener('click', () => withCard(async () => {
+  log('Reading the card over the PC/SC reader (PRF) + cosigner pubkey…');
+  const p = await post('/api/wallet/address', { network: network() });
+  $('addrBox').hidden = false; $('addr').textContent = p.address;
+  log('✓ Address ready on ' + p.network, 'ok'); show(p);
+}, $('getAddr')));
+
+$('checkUtxos').addEventListener('click', () => withCard(async () => {
+  const u = await post('/api/wallet/utxos', { network: network() });
+  $('bal').textContent = `Confirmed: ${u.confirmed_sats} sats · Pending: ${u.pending_sats} sats`;
+  log('✓ ' + u.address, 'ok'); show(u);
+}, $('checkUtxos')));
+
+$('send').addEventListener('click', () => withCard(async () => {
+  if (network() === 'mainnet' && $('broadcast').checked && !confirm('Broadcast a REAL mainnet transaction? This cannot be undone.')) return;
+  log('Building tx + asking the card to cosign (over the reader)…');
+  const amt = $('amount').value.trim();
+  const r = await post('/api/wallet/spend', {
+    network: network(), to: $('to').value.trim(),
+    amountSats: amt === '' ? null : Number(amt),
+    feeSats: Number($('fee').value || 500),
+    includeUnconfirmed: $('unconf').checked,
+    broadcast: $('broadcast').checked,
+  });
+  if (r.broadcast?.txid) log('✓ Broadcast! txid ' + r.broadcast.txid, 'ok');
+  else if (r.status === 'NURI_CARD_TX_READY') log('✓ Signed (dry-run). Review raw_tx_hex, then check broadcast to send.', 'ok');
+  else log('Done: ' + r.status, 'ok');
+  show(r);
+}, $('send')));
+
+refreshBadge();
+</script>
+</body>
+</html>
+</content>

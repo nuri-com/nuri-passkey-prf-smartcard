@@ -28,6 +28,29 @@ GP_READER="your reader name" GP_KEY="404142434445464748494A4B4C4D4E4F" npm run c
 
 The default `GP_KEY` shown above is the common test/development key, not a production key. Use the key supplied with your card.
 
+This `FIDO2.cap` is the preserved **v1** applet (advertises `up:false`; works
+over PC/SC + native NFC, but not browser WebAuthn). Kept unchanged for
+reproducibility.
+
+## FIDO2-up.cap (v2 — user-presence update)
+
+Same applet as `FIDO2.cap` plus
+[`patches/0002-advertise-user-presence.patch`](../patches/0002-advertise-user-presence.patch):
+the CTAP2 getInfo `up` option is advertised as **true**, so Safari/Chrome and
+phone-web NFC accept the card as a passkey (the applet already set UP=1 in every
+assertion). See [`docs/fido2-user-presence.md`](../docs/fido2-user-presence.md).
+
+```text
+SHA-256: 2d80aeeb577b17365d0b58d32a9de879c0217444f89373be84c2bd8b02e750f8  FIDO2-up.cap
+```
+
+Install on a card that is OK to wipe (the version to flash going forward):
+
+```bash
+CAP=dist/FIDO2-up.cap GP_READER_INDEX=2 npm run card:install
+npm run card:prf:info     # expect options.up == true
+```
+
 ## nuri-musig2-v20-keygen.cap
 
 `nuri-musig2-v20-keygen.cap` is the real-card MuSig2 cosigner applet with
