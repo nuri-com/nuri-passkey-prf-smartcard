@@ -91,4 +91,14 @@ npm run cosign:web            # serves http://localhost:8787/wallet
 ```
 Endpoints: `POST /api/wallet/{address,utxos,spend}` — reader by default; pass
 `prfHex` to use a browser-supplied PRF instead.
+
+### Session reference
+- Claude Code session id: **`2b1f4b28-6681-46d2-9474-2597d74a5b72`**
+- Full transcript (local, auto-saved, ~3.8 MB):
+  `~/.claude/projects/-Users-eminmahrt-Developer-nuri-passkey-prf-smartcard/2b1f4b28-6681-46d2-9474-2597d74a5b72.jsonl`
+- Resume / read the whole conversation: `claude --resume 2b1f4b28-6681-46d2-9474-2597d74a5b72`
+
+This logbook is the distilled context; the raw transcript is the fallback if you
+need the full reasoning behind a decision. The transcript is intentionally **not**
+committed (it's already backed up locally, and it's large/noisy for a public repo).
 </content>
