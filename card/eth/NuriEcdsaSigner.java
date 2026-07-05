@@ -25,7 +25,10 @@ public class NuriEcdsaSigner extends Applet {
 
     // 1.1: fixed modInverse (endianness, halving carry, termination — 1.0 hung on every SIGN)
     // 1.2: fixed aliased negateMod call that zeroed s on every high-s signature; +debug INS 05/06
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x02};
+    // 1.3: fixed BigIntegerWrapper.addMod/subMod aliasing — result==b clobbered b
+    //      before it was read, so addMod(z, rd, rd) computed 2z instead of z+rd,
+    //      producing wrong ECDSA s on every signature (zrd and s were wrong).
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x03};
 
     private static final byte INS_GET_VERSION = (byte)0x01;
     private static final byte INS_GET_PUBKEY  = (byte)0x02;
@@ -35,7 +38,6 @@ public class NuriEcdsaSigner extends Applet {
     // host can diff each primitive against Python. Remove before production.
     private static final byte INS_DBG_MULMOD  = (byte)0x05; // a(32)||b(32) -> (a*b) mod n
     private static final byte INS_DBG_MODINV  = (byte)0x06; // a(32) -> a^-1 mod n
-    private static final byte INS_DBG_SIGNK   = (byte)0x07; // hash(32)||k(32) -> r||rd||zrd||kinv||s||d (leaks d+k: debug only!)
     private static final byte INS_DBG_KG      = (byte)0x08; // k(32) -> len(1)||raw generateSecret(k,G) (debug only)
 
     private static final short SW_NOT_INITIALIZED = (short)0x6986;
@@ -156,7 +158,6 @@ public class NuriEcdsaSigner extends Applet {
             case INS_SIGN:        sign(apdu); break;
             case INS_DBG_MULMOD:  dbgMulMod(apdu); break;
             case INS_DBG_MODINV:  dbgModInv(apdu); break;
-            case INS_DBG_SIGNK:   dbgSignK(apdu); break;
             case INS_DBG_KG:      dbgKG(apdu); break;
             default: ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
         }
@@ -219,38 +220,6 @@ public class NuriEcdsaSigner extends Applet {
         modInverse(scratchB, (short)0, scratchA, (short)0);
         Util.arrayCopy(scratchA, (short)0, buffer, (short)0, (short)32);
         apdu.setOutgoingAndSend((short)0, (short)32);
-    }
-
-    // Debug: sign with a caller-supplied nonce k so the host can recompute every
-    // intermediate. Emits r||rd||zrd||kinv||s||d (192B). Leaks d and k — debug only.
-    private void dbgSignK(APDU apdu) {
-        if (!privKey.isInitialized()) ISOException.throwIt(SW_NOT_INITIALIZED);
-        byte[] buffer = apdu.getBuffer();
-        short dataLen = apdu.setIncomingAndReceive();
-        if (dataLen != 64) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-
-        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, scratchA, (short)0, (short)32);          // z
-        BigIntegerMod.reduce(scratchA, (short)0, scratchA, (short)0);
-        Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA + 32), scratchB, (short)0, (short)32); // k
-
-        nonceKey.setS(scratchB, (short)0, (short)32);
-        keyAgreement.init(nonceKey);
-        short outLen = keyAgreement.generateSecret(SECP256K1, OFF_G, (short)65, ecdhOut, (short)0);
-        Util.arrayCopy(ecdhOut, (short)1, rStore, (short)0, (short)32);
-        BigIntegerMod.reduce(rStore, (short)0, rStore, (short)0);                             // r
-
-        privKey.getS(gcdTemp, (short)0);                                                      // d
-        BigIntegerWrapper.mulMod(rStore, (short)0, gcdTemp, (short)0, scratchC, (short)0, mulWorkspace, (short)0, (short)32); // rd
-        Util.arrayCopy(scratchC, (short)0, buffer, (short)32, (short)32);
-        Util.arrayCopy(rStore, (short)0, buffer, (short)0, (short)32);
-        BigIntegerWrapper.addMod(scratchA, (short)0, scratchC, (short)0, scratchC, (short)0, (short)32); // zrd
-        Util.arrayCopy(scratchC, (short)0, buffer, (short)64, (short)32);
-        modInverse(scratchB, (short)0, scratchA, (short)0);                                   // kinv
-        Util.arrayCopy(scratchA, (short)0, buffer, (short)96, (short)32);
-        BigIntegerWrapper.mulMod(scratchA, (short)0, scratchC, (short)0, scratchB, (short)0, mulWorkspace, (short)0, (short)32); // s
-        Util.arrayCopy(scratchB, (short)0, buffer, (short)128, (short)32);
-        Util.arrayCopy(gcdTemp, (short)0, buffer, (short)160, (short)32);                     // d
-        apdu.setOutgoingAndSend((short)0, (short)192);
     }
 
     private void dbgKG(APDU apdu) {

@@ -3,6 +3,37 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-05 (session 2) — ETH signer v1.3: end-to-end ecrecover green
+
+### Fixed
+- **ETH applet v1.3: `INS_SIGN` produced wrong signatures (v1.0–v1.2).** The
+  signature was a valid ECDSA signature for *some* key Q, but Q ≠ the keygen
+  pubkey and Q varied across `sign()` calls (impossible for correct ECDSA where
+  Q = d·G must be stable). Root cause: `BigIntegerWrapper.addMod` was not
+  aliasing-safe when `result == b` — the prologue `Util.arrayCopy(a, result)`
+  clobbered `b` before it was read, so `addMod(z, rd, rd)` computed `2·z`
+  instead of `z + rd`. `sign()` and `dbgSignK()` both hit this path
+  (`addMod(scratchA, scratchC, scratchC)`), so every signature had wrong `zrd`
+  and `s`. Fix: `addMod`/`subMod` now operate index-by-index (read `a[i]` and
+  `b[i]` together per byte, write `result[i]` last), so `result` may overlap
+  with `a` and/or `b`. `subMod` fixed the same way for robustness (not the
+  acute bug, but same latent pattern). Verified end-to-end: `keygen →
+  sign(5 hashes) → ecrecover → matches card pubkey` (5/5, v-bit correct,
+  low-s enforced). See `docs/gp-macos-troubleshooting.md` "Resolved: INS_SIGN
+  produced wrong signatures".
+
+### Diagnosis methodology (documented for future bignum work)
+- `dbgKG(k=1)` → exactly G (sanity check on curve parameters).
+- `dbgKG(k=random 256-bit)` ×3 → all match host `k·G` (proves the card's
+  `generateSecret(k, G)` is correct for production-sized `k`; small `k=2` is
+  *not* a valid test — constant-time scalar mult returns a valid but wrong
+  point for tiny scalars with 31 leading zero bytes).
+- `dbgModInv(a)` ×6, `dbgMulMod(a,b)` ×5 → all match host (isolates the bug
+  to the `sign()` composition, not the primitives).
+- `dbgSignK(z, k)` (leaks `d`+`k`, debug only) → `r`, `rd`, `kinv` correct;
+  `zrd = 2z` instead of `z+rd` → pins the aliasing bug. This INS **must be
+  removed before production** (d-leak).
+
 ## 2026-07-05 — ETH signer on-card; gp post-mortem; SIGN infinite-loop fix
 
 ### Added

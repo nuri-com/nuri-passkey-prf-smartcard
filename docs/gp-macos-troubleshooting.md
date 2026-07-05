@@ -112,6 +112,66 @@ wedged macOS PC/SC stack", which looks exactly like a reader/OS problem;
 (b) loop caps belong on the innermost loop that can spin, and the escape must
 be `ISOException.throwIt`, not a silent exit with a garbage result.
 
+### Resolved: `INS_SIGN` produced wrong signatures (v1.0–v1.2) — aliasing in `addMod`
+
+After the `modInverse` fix (v1.1) and the `negateMod` aliasing fix (v1.2), `sign()`
+still returned ECDSA signatures that `ecrecover` could not match to the card's
+public key. The card returned a *valid* ECDSA signature for *some* public key Q,
+but Q ≠ the keygen pubkey — and Q varied across `sign()` calls with the same key.
+That is impossible for correct ECDSA (Q = d·G must be stable), so the bug was in
+the `s` computation, not in `k·G` or `d`.
+
+Diagnosis procedure (each step one card session, never Ctrl-C mid-APDU):
+
+| Test | Result |
+|------|--------|
+| `dbgKG(k=1)` | `04‖Gx‖Gy` exactly G ✅ |
+| `dbgKG(k=random 256-bit)` ×3 | all match host `k·G` ✅ |
+| `dbgModInv(a)` ×6 (2, 3, …, n-1) | all match `pow(a,-1,n)` ✅ |
+| `dbgMulMod(a,b)` ×5 | all match `(a*b)%n` ✅ |
+| `dbgSignK(z, k)` (leaks d+k, debug only) | `r`, `rd`, `kinv` correct; `zrd` = `2z` ❌ |
+
+Root cause — **`BigIntegerWrapper.addMod` was not aliasing-safe when
+`result == b`** (`card/eth/BigIntegerWrapper.java`):
+
+```java
+// OLD — result==b clobbers b before it is read:
+Util.arrayCopy(a, a_offset, result, result_offset, size);  // if result==b, b is now a
+Biginteger.add_carry(result, result_offset, b, b_offset, size);  // result += b == result += a → 2a
+```
+
+`sign()` and `dbgSignK()` both called `addMod(scratchA, scratchC, scratchC)`
+(`z + rd`, result into `scratchC` — `result == b`), so every signature computed
+`zrd = 2·z` instead of `z + rd`, and `s = k⁻¹·(2z)` instead of `s = k⁻¹·(z+rd)`.
+The signature verified against `Q = (2z·k⁻¹)·G`'s implied key, not against `d·G`.
+
+Fix (v1.3): `addMod` and `subMod` now add/subtract index-by-index (read
+`a[i]` and `b[i]` together per byte, write `result[i]` last), so `result` may
+overlap with `a` and/or `b` safely. Verified end-to-end: `keygen → sign(5 hashes)
+→ ecrecover → matches card pubkey` (5/5, v-bit correct, low-s enforced).
+
+**Lesson:** the comment "Can handle aliasing (result can be same as a or b)" on
+`addMod`/`subMod` was a *claim*, not a *guarantee* — and it was wrong for
+`result == b`. The `Util.arrayCopy(a, result)` prologue broke it. Aliasing
+safety in bignum helpers must be *tested*, not asserted: write a host-side
+fuzz that calls every helper with `result==a`, `result==b`, `result==a==b`,
+and diff against a non-aliased reference. The `dbgSignK` INS that leaks `d`
+and `k` was the only way to pin this on-card; for production that INS must be
+removed, but while debugging it earned its keep.
+
+### Debug INS 05–08 — small-scalar `dbgKG(k=2)` is not a production test
+
+While diagnosing, `dbgKG(k=2)` returned a valid on-curve point that was *not* `2G`.
+That is **not a card bug** — it is an artifact of constant-time scalar
+multiplication (`ALG_EC_SVDP_DH_PLAIN_XY`) on tiny scalars: with 31 leading zero
+bytes, some implementations produce a valid but wrong point. The production
+`sign()` path uses random 256-bit `k` (like the proven MuSig2 `getNonces`), where
+`generateSecret(k, G)` is correct (3/3 matches against host `k·G` in testing).
+
+**Do not** use `dbgKG` with small `k` (1, 2, 3, …) as a "does the card work" test.
+Use random 256-bit `k`. The only small `k` that is meaningful is `k=1` (must
+return exactly `G`), as a sanity check that the curve parameters are right.
+
 ## Checklist for "gp can't see my reader/card"
 
 1. `gp --version` — is it a **release** version number (e.g. `26.06.04`)? A git

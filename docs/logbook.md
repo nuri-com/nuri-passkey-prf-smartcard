@@ -105,6 +105,52 @@ committed (it's already backed up locally, and it's large/noisy for a public rep
 
 ---
 
+## 2026-07-05 (session 2) — ETH signer v1.3: ecrecover green, aliasing bug pinned
+
+**Q: v1.1/v1.2 keygen works, but `sign()` returns a signature ecrecover can't
+match to the card pubkey. Bad k·G? Bad keygen?**
+A: Neither — `addMod` aliasing. The signature was a *valid* ECDSA signature
+for some key Q, but Q ≠ keygen pubkey and Q varied per `sign()` call
+(impossible for correct ECDSA — Q = d·G is stable). Diagnosis chain:
+
+1. Diff EC setup against proven MuSig2 CAP (decompiled `StaticField.cap`):
+   p, a, b, n, G byte-identical; `k·G` logic byte-identical. MuSig2 `getNonces`
+   uses the same `setS(k) → init → generateSecret(G)` path and is on-chain
+   proven (Signet tx `c85a73fa…`). So the card *can* do `k·G` correctly.
+2. `dbgKG(k=1)` → exactly G ✅. `dbgKG(k=random 256-bit)` ×3 → all match host
+   `k·G` ✅. (`dbgKG(k=2)` gave a valid but wrong point — constant-time scalar
+   mult artifact on tiny scalars, *not* a card bug; production uses random
+   256-bit k.)
+3. `dbgModInv` ×6, `dbgMulMod` ×5 → all match host ✅ (primitives OK).
+4. `dbgSignK(z, k)` (leaks d+k, debug only) → `r`, `rd`, `kinv` correct;
+   `zrd = 2z` instead of `z+rd` ❌ → pins the bug to `addMod`.
+
+Root cause: `BigIntegerWrapper.addMod` did `Util.arrayCopy(a, result)` first,
+which clobbered `b` when `result == b` — so `addMod(z, rd, rd)` computed `2z`.
+`sign()` calls exactly that pattern (`addMod(scratchA, scratchC, scratchC)`).
+Fix v1.3: `addMod`/`subMod` now operate index-by-index (read a[i], b[i] together,
+write result[i] last), so `result` may alias `a` and/or `b`. Verified: 5/5
+`sign()` ecrecover matches card pubkey, v-bit correct, low-s enforced.
+
+**Lesson:** the "Can handle aliasing" comment on `addMod`/`subMod` was a claim,
+not a guarantee, and wrong for `result == b`. Aliasing safety in bignum
+helpers must be tested (host fuzz with `result==a`, `result==b`, `result==a==b`),
+not asserted. Also: small-scalar `dbgKG(k=2)` is not a valid "card works" test.
+
+### State
+- Card: ETH applet **v1.3** installed, ecrecover green. Debug INS 05–08 still
+  present (dev key, not a production key). **Remove `INS_DBG_SIGNK` (0x07)
+  before any production install** — it leaks `d` and `k`.
+- `~/bin/gp.jar` is release v26.06.04.
+
+### Next steps
+- Remove `INS_DBG_SIGNK` (0x07) from `NuriEcdsaSigner.java`, rebuild, reflash.
+  Keep `INS_DBG_MULMOD/MODINV/KG` (05/06/08) — no key leak, useful for future
+  diagnostics.
+- Wire the signer into an ethers.js `Signer` (per `docs/eth-signing-spec.md`).
+- Sign a real Sepolia testnet transaction and broadcast (the spec's Phase 2
+  integration test).
+
 ## 2026-07-05 — gp reader "bug", ETH signer install, SIGN infinite loop
 
 **Q: gp can't connect to the OMNIKEY reader that has the card — every `-r`

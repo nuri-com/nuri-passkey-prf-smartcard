@@ -1,5 +1,5 @@
 // converted by version  [v3.0.4]
-// on Sun Jul 05 18:41:23 CEST 2026
+// on Sun Jul 05 20:29:50 CEST 2026
 
 .package com/nuri/eth {
 	.aid 0x4E:0x55:0x52:0x49:0x45:0x54:0x48;
@@ -48,9 +48,9 @@
 		// 14
 		instanceFieldRef byte[] NuriEcdsaSigner/gcdTemp;
 		// 15
-		staticMethodRef Biginteger/mult_rsa_trick([BS[BSS[BS)S;
-		// 16
 		staticMethodRef Biginteger/mod([BSS[BSS)S;
+		// 16
+		staticMethodRef 1.16.1([BS[BSS)S;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 		// 17
 		.classRef 1.13;		// javacard/framework/SystemException
 		// 18
@@ -150,19 +150,19 @@
 		// 59
 		staticMethodRef Biginteger/init()V;
 		// 60
-		staticMethodRef 1.16.1([BS[BSS)S;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-		// 61
-		staticMethodRef Biginteger/add_carry([BS[BSS)Z;
-		// 62
 		staticFieldRef byte[] BigIntegerWrapper/SECP256K1_N;
-		// 63
+		// 61
 		staticMethodRef Biginteger/lessThan([BS[BSS)Z;
-		// 64
+		// 62
 		staticMethodRef Biginteger/subtract([BS[BSS)Z;
-		// 65
+		// 63
+		staticMethodRef Biginteger/add_carry([BS[BSS)Z;
+		// 64
 		staticMethodRef 1.16.3([BSSB)S;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
-		// 66
+		// 65
 		staticFieldRef boolean Biginteger/FLAG_FAST_MULT_VIA_RSA;
+		// 66
+		staticMethodRef Biginteger/mult_rsa_trick([BS[BSS[BS)S;
 		// 67
 		virtualMethodRef 1.3.3()Z;		// selectingApplet()Z
 		// 68
@@ -192,56 +192,52 @@
 			.descriptor	Ljavacard/framework/APDU;	1.10;
 
 		// 75
-		staticMethodRef NuriEcdsaSigner/dbgSignK(Ljavacard/framework/APDU;)V;
-			.descriptor	Ljavacard/framework/APDU;	1.10;
-
-		// 76
 		staticMethodRef NuriEcdsaSigner/dbgKG(Ljavacard/framework/APDU;)V;
 			.descriptor	Ljavacard/framework/APDU;	1.10;
 
-		// 77
+		// 76
 		staticMethodRef 1.7.1(S)V;		// javacard/framework/ISOException.throwIt(S)V
-		// 78
+		// 77
 		staticFieldRef byte[] NuriEcdsaSigner/APPLET_VERSION;
-		// 79
+		// 78
 		virtualMethodRef 1.10.8(SS)V;		// setOutgoingAndSend(SS)V
-		// 80
+		// 79
 		virtualMethodRef 2.14.1([BSS)V;		// generateData([BSS)V
-		// 81
+		// 80
 		staticMethodRef BigIntegerMod/reduce([BS[BS)V;
-		// 82
+		// 81
 		staticMethodRef NuriEcdsaSigner/isZero([BS)Z;
-		// 83
+		// 82
 		virtualMethodRef 2.22.1(Ljavacard/security/PrivateKey;)V;		// init(Ljavacard/security/PrivateKey;)V
 			.descriptor	Ljavacard/security/PrivateKey;	2.2;
 
-		// 84
+		// 83
 		virtualMethodRef 2.22.3([BSS[BS)S;		// generateSecret([BSS[BS)S
-		// 85
+		// 84
 		staticMethodRef NuriEcdsaSigner/compressPubkey([BS[BS)V;
-		// 86
+		// 85
 		virtualMethodRef 1.10.6()S;		// setIncomingAndReceive()S
-		// 87
+		// 86
 		staticMethodRef BigIntegerWrapper/mulMod([BS[BS[BS[BSS)V;
-		// 88
+		// 87
 		staticMethodRef NuriEcdsaSigner/modInverse([BS[BS)V;
-		// 89
+		// 88
 		staticMethodRef BigIntegerWrapper/addMod([BS[BS[BSS)V;
-		// 90
+		// 89
 		staticMethodRef NuriEcdsaSigner/isHighS([BS)Z;
-		// 91
+		// 90
 		staticMethodRef BigIntegerWrapper/negateMod([BS[BSS)V;
-		// 92
+		// 91
 		staticMethodRef NuriEcdsaSigner/isOne([BS)Z;
-		// 93
+		// 92
 		staticMethodRef NuriEcdsaSigner/isEven([BS)Z;
-		// 94
+		// 93
 		staticMethodRef NuriEcdsaSigner/shiftRight1([BS)V;
-		// 95
+		// 94
 		staticMethodRef NuriEcdsaSigner/halveMod([BS)V;
-		// 96
+		// 95
 		staticMethodRef BigIntegerWrapper/subMod([BS[BS[BSS)V;
-		// 97
+		// 96
 		staticFieldRef byte[] NuriEcdsaSigner/HALF_N;
 	}
 
@@ -728,69 +724,126 @@
 
 		.method public static addMod([BS[BS[BSS)V 2 {
 			.stack 5;
-			.locals 1;
+			.locals 3;
 
-				L0:	aload_0;
-					sload_1;
-					aload 4;
-					sload 5;
+				L0:	sconst_0;
+					sstore 7;
 					sload 6;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					aload 4;
-					sload 5;
+					sconst_1;
+					ssub;
+					sstore 8;
+				L1:	sload 8;
+					iflt L3;
+				L2:	aload_0;
+					sload_1;
+					sload 8;
+					sadd;
+					baload;
+					sspush 255;
+					sand;
 					aload_2;
 					sload_3;
-					sload 6;
-					invokestatic 61;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
-					sstore 7;
+					sload 8;
+					sadd;
+					baload;
+					sspush 255;
+					sand;
+					sadd;
 					sload 7;
-					ifne L2;
-				L1:	aload 4;
+					sadd;
+					sstore 9;
+					aload 4;
 					sload 5;
-					getstatic_a 62;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
+					sload 8;
+					sadd;
+					sload 9;
+					s2b;
+					bastore;
+					sload 9;
+					bspush 8;
+					sshr;
+					sstore 7;
+					sinc 8 -1;
+					goto L1;
+				L3:	sload 7;
+					ifne L5;
+				L4:	aload 4;
+					sload 5;
+					getstatic_a 60;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
 					sconst_0;
 					sload 6;
-					invokestatic 63;		// com/nuri/eth/Biginteger.lessThan([BS[BSS)Z
-					ifne L3;
-				L2:	aload 4;
+					invokestatic 61;		// com/nuri/eth/Biginteger.lessThan([BS[BSS)Z
+					ifne L6;
+				L5:	aload 4;
 					sload 5;
-					getstatic_a 62;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
+					getstatic_a 60;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
 					sconst_0;
 					sload 6;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					pop;
-				L3:	return;
+				L6:	return;
 		}
 
 		.method public static subMod([BS[BS[BSS)V 3 {
 			.stack 5;
-			.locals 1;
+			.locals 3;
 
-				L0:	aload_0;
-					sload_1;
-					aload 4;
-					sload 5;
+				L0:	sconst_0;
+					sstore 7;
 					sload 6;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					aload 4;
-					sload 5;
+					sconst_1;
+					ssub;
+					sstore 8;
+				L1:	sload 8;
+					iflt L6;
+				L2:	aload_0;
+					sload_1;
+					sload 8;
+					sadd;
+					baload;
+					sspush 255;
+					sand;
 					aload_2;
 					sload_3;
-					sload 6;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
-					sstore 7;
+					sload 8;
+					sadd;
+					baload;
+					sspush 255;
+					sand;
+					ssub;
 					sload 7;
-					ifeq L2;
-				L1:	aload 4;
+					ssub;
+					sstore 9;
+					sload 9;
+					ifge L4;
+				L3:	sload 9;
+					sspush 256;
+					sadd;
+					sstore 9;
+					sconst_1;
+					sstore 7;
+					goto L5;
+				L4:	sconst_0;
+					sstore 7;
+				L5:	aload 4;
 					sload 5;
-					getstatic_a 62;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
+					sload 8;
+					sadd;
+					sload 9;
+					s2b;
+					bastore;
+					sinc 8 -1;
+					goto L1;
+				L6:	sload 7;
+					ifeq L8;
+				L7:	aload 4;
+					sload 5;
+					getstatic_a 60;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
 					sconst_0;
 					sload 6;
-					invokestatic 61;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
+					invokestatic 63;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
 					pop;
-				L2:	return;
+				L8:	return;
 		}
 
 		.method public static mulMod([BS[BS[BS[BSS)V 4 {
@@ -801,9 +854,9 @@
 					sload 7;
 					bspush 96;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
-					getstatic_b 66;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
+					getstatic_b 65;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
 					ifeq L2;
 				L1:	aload_0;
 					sload_1;
@@ -812,7 +865,7 @@
 					sload 8;
 					aload 6;
 					sload 7;
-					invokestatic 15;		// com/nuri/eth/Biginteger.mult_rsa_trick([BS[BSS[BS)S
+					invokestatic 66;		// com/nuri/eth/Biginteger.mult_rsa_trick([BS[BSS[BS)S
 					pop;
 					goto L10;
 				L2:	sload 8;
@@ -890,10 +943,10 @@
 				L10:	aload 6;
 					sload 7;
 					bspush 96;
-					getstatic_a 62;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
+					getstatic_a 60;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
 					sconst_0;
 					sload 8;
-					invokestatic 16;		// com/nuri/eth/Biginteger.mod([BSS[BSS)S
+					invokestatic 15;		// com/nuri/eth/Biginteger.mod([BSS[BSS)S
 					pop;
 					aload 6;
 					sload 7;
@@ -902,7 +955,7 @@
 					aload 4;
 					sload 5;
 					sload 8;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					return;
 		}
@@ -911,19 +964,19 @@
 			.stack 5;
 			.locals 0;
 
-				L0:	getstatic_a 62;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
+				L0:	getstatic_a 60;		// reference com/nuri/eth/BigIntegerWrapper.SECP256K1_N
 					sconst_0;
 					aload_2;
 					sload_3;
 					sload 4;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_2;
 					sload_3;
 					aload_0;
 					sload_1;
 					sload 4;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					pop;
 					return;
 		}
@@ -1009,7 +1062,7 @@
 					invokestatic 31;		// javacardx/crypto/Cipher.getInstance(BZ)Ljavacardx/crypto/Cipher;
 					putstatic_a 32;		// reference com/nuri/eth/Biginteger.rsa_cipher
 					sconst_0;
-					putstatic_b 66;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
+					putstatic_b 65;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
 				L7:	getstatic_a 32;		// reference com/nuri/eth/Biginteger.rsa_cipher
 					getstatic_a 29;		// reference com/nuri/eth/Biginteger.rsa_pubkey_pow2
 					sconst_2;
@@ -1019,7 +1072,7 @@
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
 					bspush 6;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getstatic_a 32;		// reference com/nuri/eth/Biginteger.rsa_cipher
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
@@ -1031,7 +1084,7 @@
 					invokevirtual 34;		// doFinal([BSS[BS)S
 					pop;
 					sconst_1;
-					putstatic_b 66;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
+					putstatic_b 65;		// boolean com/nuri/eth/Biginteger.FLAG_FAST_MULT_VIA_RSA
 				L8:	goto L10;
 				L9:	astore_0;
 				L10:	return;
@@ -1455,7 +1508,7 @@
 					sload_1;
 					sload_2;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					return;
 		}
@@ -1718,7 +1771,7 @@
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
@@ -1742,7 +1795,7 @@
 					getstatic_a 21;		// reference com/nuri/eth/Biginteger.buffer2
 					arraylength;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					aload_2;
 					sload_3;
@@ -1757,7 +1810,7 @@
 					sconst_0;
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
-					invokestatic 61;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
+					invokestatic 63;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
 					sstore 9;
 					getstatic_a 32;		// reference com/nuri/eth/Biginteger.rsa_cipher
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
@@ -1783,14 +1836,14 @@
 					sconst_0;
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					sstore 9;
 					getstatic_a 21;		// reference com/nuri/eth/Biginteger.buffer2
 					sconst_0;
 					getstatic_a 21;		// reference com/nuri/eth/Biginteger.buffer2
 					arraylength;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getstatic_a 21;		// reference com/nuri/eth/Biginteger.buffer2
 					arraylength;
@@ -1819,7 +1872,7 @@
 					sconst_0;
 					getstatic_a 20;		// reference com/nuri/eth/Biginteger.buffer1
 					arraylength;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					sstore 9;
 					sconst_0;
 					sstore 10;
@@ -2418,14 +2471,13 @@
 			private byte[] gcdX2 13;		// [B
 			private byte[] gcdTemp 14;		// [B
 			public static final byte[] SECP256K1 0 = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-2,-1,-1,-4,47,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-2,-70,-82,-36,-26,-81,72,-96,59,-65,-46,94,-116,-48,54,65,65,4,121,-66,102,126,-7,-36,-69,-84,85,-96,98,-107,-50,-121,11,7,2,-101,-4,-37,45,-50,40,-39,89,-14,-127,91,22,-8,23,-104,72,58,-38,119,38,-93,-60,101,93,-92,-5,-4,14,17,8,-88,-3,23,-76,72,-90,-123,84,25,-100,71,-48,-113,-5,16,-44,-72};		// [B
-			private static final byte[] APPLET_VERSION = {1,2};		// [B
+			private static final byte[] APPLET_VERSION = {1,3};		// [B
 			private static final byte INS_GET_VERSION = 1;		// B
 			private static final byte INS_GET_PUBKEY = 2;		// B
 			private static final byte INS_KEYGEN = 3;		// B
 			private static final byte INS_SIGN = 4;		// B
 			private static final byte INS_DBG_MULMOD = 5;		// B
 			private static final byte INS_DBG_MODINV = 6;		// B
-			private static final byte INS_DBG_SIGNK = 7;		// B
 			private static final byte INS_DBG_KG = 8;		// B
 			private static final short SW_NOT_INITIALIZED = 27014;		// S
 			private static final short SW_SIGN_FAILED = 27016;		// S
@@ -2635,42 +2687,38 @@
 					aload_2;
 					sconst_1;
 					baload;
-					stableswitch L11 1 8 L3 L4 L5 L6 L7 L8 L9 L10;
+					stableswitch L10 1 8 L3 L4 L5 L6 L7 L8 L10 L9;
 				L3:	aload_0;
 					aload_1;
 					invokespecial 69;		// com/nuri/eth/NuriEcdsaSigner.getVersion(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L4:	aload_0;
 					aload_1;
 					invokespecial 70;		// com/nuri/eth/NuriEcdsaSigner.getPublicKey(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L5:	aload_0;
 					aload_1;
 					invokespecial 71;		// com/nuri/eth/NuriEcdsaSigner.keygen(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L6:	aload_0;
 					aload_1;
 					invokespecial 72;		// com/nuri/eth/NuriEcdsaSigner.sign(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L7:	aload_0;
 					aload_1;
 					invokespecial 73;		// com/nuri/eth/NuriEcdsaSigner.dbgMulMod(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L8:	aload_0;
 					aload_1;
 					invokespecial 74;		// com/nuri/eth/NuriEcdsaSigner.dbgModInv(Ljavacard/framework/APDU;)V
-					goto L12;
+					goto L11;
 				L9:	aload_0;
 					aload_1;
-					invokespecial 75;		// com/nuri/eth/NuriEcdsaSigner.dbgSignK(Ljavacard/framework/APDU;)V
-					goto L12;
-				L10:	aload_0;
-					aload_1;
-					invokespecial 76;		// com/nuri/eth/NuriEcdsaSigner.dbgKG(Ljavacard/framework/APDU;)V
-					goto L12;
-				L11:	sspush 27904;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
-				L12:	return;
+					invokespecial 75;		// com/nuri/eth/NuriEcdsaSigner.dbgKG(Ljavacard/framework/APDU;)V
+					goto L11;
+				L10:	sspush 27904;
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
+				L11:	return;
 		}
 
 		.method private getVersion(Ljavacard/framework/APDU;)V {
@@ -2682,12 +2730,12 @@
 				L0:	aload_1;
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
-					getstatic_a 78;		// reference com/nuri/eth/NuriEcdsaSigner.APPLET_VERSION
+					getstatic_a 77;		// reference com/nuri/eth/NuriEcdsaSigner.APPLET_VERSION
 					sconst_0;
 					aload_2;
 					sconst_0;
 					sconst_2;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_2;
 					sconst_2;
@@ -2712,7 +2760,7 @@
 					aload_1;
 					sconst_0;
 					bspush 7;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -2729,16 +2777,16 @@
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					bspush 32;
-					invokevirtual 80;		// generateData([BSS)V
+					invokevirtual 79;		// generateData([BSS)V
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 					aload_0;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
-					invokespecial 82;		// com/nuri/eth/NuriEcdsaSigner.isZero([BS)Z
+					invokespecial 81;		// com/nuri/eth/NuriEcdsaSigner.isZero([BS)Z
 					ifne L1;
 				L2:	getfield_a_this 0;		// reference com/nuri/eth/NuriEcdsaSigner.privKey
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
@@ -2747,37 +2795,37 @@
 					invokeinterface 4 48 18;		// javacard/security/ECPrivateKey
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getfield_a_this 0;		// reference com/nuri/eth/NuriEcdsaSigner.privKey
-					invokevirtual 83;		// init(Ljavacard/security/PrivateKey;)V
+					invokevirtual 82;		// init(Ljavacard/security/PrivateKey;)V
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getstatic_a 51;		// reference com/nuri/eth/NuriEcdsaSigner.SECP256K1
 					sspush 128;
 					bspush 65;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
-					invokevirtual 84;		// generateSecret([BSS[BS)S
+					invokevirtual 83;		// generateSecret([BSS[BS)S
 					sstore_3;
 					aload_0;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sload_3;
 					aload_2;
 					sconst_0;
-					invokespecial 85;		// com/nuri/eth/NuriEcdsaSigner.compressPubkey([BS[BS)V
+					invokespecial 84;		// com/nuri/eth/NuriEcdsaSigner.compressPubkey([BS[BS)V
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
 					bspush 65;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					aload_1;
 					sconst_0;
 					bspush 33;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -2791,31 +2839,31 @@
 					invokeinterface 1 48 3;		// javacard/security/ECPrivateKey
 					ifne L2;
 				L1:	sspush 27014;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L2:	aload_1;
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getfield_a_this 0;		// reference com/nuri/eth/NuriEcdsaSigner.privKey
-					invokevirtual 83;		// init(Ljavacard/security/PrivateKey;)V
+					invokevirtual 82;		// init(Ljavacard/security/PrivateKey;)V
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getstatic_a 51;		// reference com/nuri/eth/NuriEcdsaSigner.SECP256K1
 					sspush 128;
 					bspush 65;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
-					invokevirtual 84;		// generateSecret([BSS[BS)S
+					invokevirtual 83;		// generateSecret([BSS[BS)S
 					sstore_3;
 					aload_0;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sload_3;
 					aload_2;
 					sconst_0;
-					invokespecial 85;		// com/nuri/eth/NuriEcdsaSigner.compressPubkey([BS[BS)V
+					invokespecial 84;		// com/nuri/eth/NuriEcdsaSigner.compressPubkey([BS[BS)V
 					aload_1;
 					sconst_0;
 					bspush 33;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -2829,26 +2877,26 @@
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
 					aload_1;
-					invokevirtual 86;		// setIncomingAndReceive()S
+					invokevirtual 85;		// setIncomingAndReceive()S
 					sstore_3;
 					sload_3;
 					bspush 64;
 					if_scmpeq L2;
 				L1:	sspush 26368;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L2:	aload_2;
 					sconst_5;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_2;
 					bspush 37;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
@@ -2859,18 +2907,18 @@
 					getfield_a_this 9;		// reference com/nuri/eth/NuriEcdsaSigner.mulWorkspace
 					sconst_0;
 					bspush 32;
-					invokestatic 87;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
+					invokestatic 86;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
 					sconst_0;
 					aload_2;
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_1;
 					sconst_0;
 					bspush 32;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -2884,194 +2932,37 @@
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
 					aload_1;
-					invokevirtual 86;		// setIncomingAndReceive()S
+					invokevirtual 85;		// setIncomingAndReceive()S
 					sstore_3;
 					sload_3;
 					bspush 32;
 					if_scmpeq L2;
 				L1:	sspush 26368;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L2:	aload_2;
 					sconst_5;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
-					invokespecial 88;		// com/nuri/eth/NuriEcdsaSigner.modInverse([BS[BS)V
+					invokespecial 87;		// com/nuri/eth/NuriEcdsaSigner.modInverse([BS[BS)V
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					aload_2;
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_1;
 					sconst_0;
 					bspush 32;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
-					return;
-		}
-
-		.method private dbgSignK(Ljavacard/framework/APDU;)V {
-			.stack 9;
-			.locals 3;
-
-			.descriptor	Ljavacard/framework/APDU;	1.10;
-
-				L0:	getfield_a_this 0;		// reference com/nuri/eth/NuriEcdsaSigner.privKey
-					invokeinterface 1 48 3;		// javacard/security/ECPrivateKey
-					ifne L2;
-				L1:	sspush 27014;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
-				L2:	aload_1;
-					invokevirtual 68;		// getBuffer()[B
-					astore_2;
-					aload_1;
-					invokevirtual 86;		// setIncomingAndReceive()S
-					sstore_3;
-					sload_3;
-					bspush 64;
-					if_scmpeq L4;
-				L3:	sspush 26368;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
-				L4:	aload_2;
-					sconst_5;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
-					aload_2;
-					bspush 37;
-					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
-					sconst_0;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
-					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
-					sconst_0;
-					bspush 32;
-					invokeinterface 4 48 18;		// javacard/security/ECPrivateKey
-					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
-					getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
-					invokevirtual 83;		// init(Ljavacard/security/PrivateKey;)V
-					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
-					getstatic_a 51;		// reference com/nuri/eth/NuriEcdsaSigner.SECP256K1
-					sspush 128;
-					bspush 65;
-					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
-					sconst_0;
-					invokevirtual 84;		// generateSecret([BSS[BS)S
-					sstore 4;
-					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
-					sconst_1;
-					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
-					sconst_0;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
-					sconst_0;
-					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
-					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
-					getfield_a_this 0;		// reference com/nuri/eth/NuriEcdsaSigner.privKey
-					getfield_a_this 14;		// reference com/nuri/eth/NuriEcdsaSigner.gcdTemp
-					sconst_0;
-					invokeinterface 3 48 19;		// javacard/security/ECPrivateKey
-					pop;
-					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
-					sconst_0;
-					getfield_a_this 14;		// reference com/nuri/eth/NuriEcdsaSigner.gcdTemp
-					sconst_0;
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					getfield_a_this 9;		// reference com/nuri/eth/NuriEcdsaSigner.mulWorkspace
-					sconst_0;
-					bspush 32;
-					invokestatic 87;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					aload_2;
-					bspush 32;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
-					sconst_0;
-					aload_2;
-					sconst_0;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					bspush 32;
-					invokestatic 89;		// com/nuri/eth/BigIntegerWrapper.addMod([BS[BS[BSS)V
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					aload_2;
-					bspush 64;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					aload_0;
-					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
-					sconst_0;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					invokespecial 88;		// com/nuri/eth/NuriEcdsaSigner.modInverse([BS[BS)V
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					aload_2;
-					bspush 96;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
-					sconst_0;
-					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
-					sconst_0;
-					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
-					sconst_0;
-					getfield_a_this 9;		// reference com/nuri/eth/NuriEcdsaSigner.mulWorkspace
-					sconst_0;
-					bspush 32;
-					invokestatic 87;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
-					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
-					sconst_0;
-					aload_2;
-					sspush 128;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					getfield_a_this 14;		// reference com/nuri/eth/NuriEcdsaSigner.gcdTemp
-					sconst_0;
-					aload_2;
-					sspush 160;
-					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
-					pop;
-					aload_1;
-					sconst_0;
-					sspush 192;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -3085,19 +2976,19 @@
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
 					aload_1;
-					invokevirtual 86;		// setIncomingAndReceive()S
+					invokevirtual 85;		// setIncomingAndReceive()S
 					sstore_3;
 					sload_3;
 					bspush 32;
 					if_scmpeq L2;
 				L1:	sspush 26368;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L2:	aload_2;
 					sconst_5;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
@@ -3106,14 +2997,14 @@
 					invokeinterface 4 48 18;		// javacard/security/ECPrivateKey
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
-					invokevirtual 83;		// init(Ljavacard/security/PrivateKey;)V
+					invokevirtual 82;		// init(Ljavacard/security/PrivateKey;)V
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getstatic_a 51;		// reference com/nuri/eth/NuriEcdsaSigner.SECP256K1
 					sspush 128;
 					bspush 65;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
-					invokevirtual 84;		// generateSecret([BSS[BS)S
+					invokevirtual 83;		// generateSecret([BSS[BS)S
 					sstore 4;
 					aload_2;
 					sconst_0;
@@ -3125,14 +3016,14 @@
 					aload_2;
 					sconst_1;
 					sload 4;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_1;
 					sconst_0;
 					sload 4;
 					sconst_1;
 					sadd;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -3146,44 +3037,44 @@
 					invokeinterface 1 48 3;		// javacard/security/ECPrivateKey
 					ifne L2;
 				L1:	sspush 27014;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L2:	aload_1;
 					invokevirtual 68;		// getBuffer()[B
 					astore_2;
 					aload_1;
-					invokevirtual 86;		// setIncomingAndReceive()S
+					invokevirtual 85;		// setIncomingAndReceive()S
 					sstore_3;
 					sload_3;
 					bspush 32;
 					if_scmpeq L4;
 				L3:	sspush 26368;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L4:	aload_2;
 					sconst_5;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 				L5:	getfield_a_this 2;		// reference com/nuri/eth/NuriEcdsaSigner.rng
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
-					invokevirtual 80;		// generateData([BSS)V
+					invokevirtual 79;		// generateData([BSS)V
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 					aload_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
-					invokespecial 82;		// com/nuri/eth/NuriEcdsaSigner.isZero([BS)Z
+					invokespecial 81;		// com/nuri/eth/NuriEcdsaSigner.isZero([BS)Z
 					ifne L5;
 				L6:	getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
@@ -3192,14 +3083,14 @@
 					invokeinterface 4 48 18;		// javacard/security/ECPrivateKey
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getfield_a_this 1;		// reference com/nuri/eth/NuriEcdsaSigner.nonceKey
-					invokevirtual 83;		// init(Ljavacard/security/PrivateKey;)V
+					invokevirtual 82;		// init(Ljavacard/security/PrivateKey;)V
 					getfield_a_this 3;		// reference com/nuri/eth/NuriEcdsaSigner.keyAgreement
 					getstatic_a 51;		// reference com/nuri/eth/NuriEcdsaSigner.SECP256K1
 					sspush 128;
 					bspush 65;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
-					invokevirtual 84;		// generateSecret([BSS[BS)S
+					invokevirtual 83;		// generateSecret([BSS[BS)S
 					sstore 4;
 					sload 4;
 					bspush 65;
@@ -3214,7 +3105,7 @@
 					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					goto L12;
 				L9:	sload 4;
@@ -3225,16 +3116,16 @@
 					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					goto L12;
 				L11:	sspush 27016;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L12:	getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
 					sconst_0;
 					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
 					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 					sconst_0;
 					sstore 5;
 					sload 4;
@@ -3265,7 +3156,7 @@
 					getfield_a_this 9;		// reference com/nuri/eth/NuriEcdsaSigner.mulWorkspace
 					sconst_0;
 					bspush 32;
-					invokestatic 87;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
+					invokestatic 86;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
@@ -3273,13 +3164,13 @@
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
 					sconst_0;
 					bspush 32;
-					invokestatic 89;		// com/nuri/eth/BigIntegerWrapper.addMod([BS[BS[BSS)V
+					invokestatic 88;		// com/nuri/eth/BigIntegerWrapper.addMod([BS[BS[BSS)V
 					aload_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
-					invokespecial 88;		// com/nuri/eth/NuriEcdsaSigner.modInverse([BS[BS)V
+					invokespecial 87;		// com/nuri/eth/NuriEcdsaSigner.modInverse([BS[BS)V
 					getfield_a_this 5;		// reference com/nuri/eth/NuriEcdsaSigner.scratchA
 					sconst_0;
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
@@ -3289,24 +3180,24 @@
 					getfield_a_this 9;		// reference com/nuri/eth/NuriEcdsaSigner.mulWorkspace
 					sconst_0;
 					bspush 32;
-					invokestatic 87;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
+					invokestatic 86;		// com/nuri/eth/BigIntegerWrapper.mulMod([BS[BS[BS[BSS)V
 					aload_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
-					invokespecial 90;		// com/nuri/eth/NuriEcdsaSigner.isHighS([BS)Z
+					invokespecial 89;		// com/nuri/eth/NuriEcdsaSigner.isHighS([BS)Z
 					ifeq L17;
 				L16:	getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
 					sconst_0;
 					bspush 32;
-					invokestatic 91;		// com/nuri/eth/BigIntegerWrapper.negateMod([BS[BSS)V
+					invokestatic 90;		// com/nuri/eth/BigIntegerWrapper.negateMod([BS[BSS)V
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
 					sconst_0;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					sload 5;
 					sconst_1;
@@ -3317,14 +3208,14 @@
 					aload_2;
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					aload_2;
 					bspush 32;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_2;
 					bspush 64;
@@ -3334,36 +3225,36 @@
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 6;		// reference com/nuri/eth/NuriEcdsaSigner.scratchB
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 7;		// reference com/nuri/eth/NuriEcdsaSigner.scratchC
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 4;		// reference com/nuri/eth/NuriEcdsaSigner.ecdhOut
 					sconst_0;
 					bspush 65;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 8;		// reference com/nuri/eth/NuriEcdsaSigner.rStore
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					aload_1;
 					sconst_0;
 					bspush 65;
-					invokevirtual 79;		// setOutgoingAndSend(SS)V
+					invokevirtual 78;		// setOutgoingAndSend(SS)V
 					return;
 		}
 
@@ -3375,19 +3266,19 @@
 					sload_2;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 					getstatic_a 50;		// reference com/nuri/eth/BigIntegerMod.SECP256K1_N
 					sconst_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					bspush 31;
@@ -3397,67 +3288,67 @@
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					sconst_0;
 					sstore 5;
 				L1:	aload_0;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
-					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
+					invokespecial 91;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
 					ifne_w L12;
 				L2:	aload_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
-					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
+					invokespecial 91;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
 					ifne_w L12;
 				L3:	sinc 5 1;
 					sload 5;
 					sspush 3000;
 					if_scmple L5;
 				L4:	sspush 27016;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L5:	aload_0;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
-					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
+					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
 					ifeq L7;
 				L6:	aload_0;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
-					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
+					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
 					aload_0;
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					sconst_0;
-					invokespecial 95;		// com/nuri/eth/NuriEcdsaSigner.halveMod([BS)V
+					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.halveMod([BS)V
 					goto L5;
 				L7:	aload_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
-					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
+					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
 					ifeq L9;
 				L8:	aload_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
-					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
+					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
 					aload_0;
 					getfield_a_this 13;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX2
 					sconst_0;
-					invokespecial 95;		// com/nuri/eth/NuriEcdsaSigner.halveMod([BS)V
+					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.halveMod([BS)V
 					goto L7;
 				L9:	getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
 					bspush 32;
-					invokestatic 63;		// com/nuri/eth/Biginteger.lessThan([BS[BSS)Z
+					invokestatic 61;		// com/nuri/eth/Biginteger.lessThan([BS[BSS)Z
 					ifne L11;
 				L10:	getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
 					bspush 32;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					pop;
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					sconst_0;
@@ -3466,14 +3357,14 @@
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					sconst_0;
 					bspush 32;
-					invokestatic 96;		// com/nuri/eth/BigIntegerWrapper.subMod([BS[BS[BSS)V
+					invokestatic 95;		// com/nuri/eth/BigIntegerWrapper.subMod([BS[BS[BSS)V
 					goto_w L1;
 				L11:	getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
 					bspush 32;
-					invokestatic 64;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
+					invokestatic 62;		// com/nuri/eth/Biginteger.subtract([BS[BSS)Z
 					pop;
 					getfield_a_this 13;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX2
 					sconst_0;
@@ -3482,12 +3373,12 @@
 					getfield_a_this 13;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX2
 					sconst_0;
 					bspush 32;
-					invokestatic 96;		// com/nuri/eth/BigIntegerWrapper.subMod([BS[BS[BSS)V
+					invokestatic 95;		// com/nuri/eth/BigIntegerWrapper.subMod([BS[BS[BSS)V
 					goto_w L1;
 				L12:	aload_0;
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
-					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
+					invokespecial 91;		// com/nuri/eth/NuriEcdsaSigner.isOne([BS)Z
 					ifeq L14;
 				L13:	getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					goto L15;
@@ -3496,36 +3387,36 @@
 					aload_3;
 					sload 4;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					aload_3;
 					sload 4;
 					aload_3;
 					sload 4;
-					invokestatic 81;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
+					invokestatic 80;		// com/nuri/eth/BigIntegerMod.reduce([BS[BS)V
 					getfield_a_this 10;		// reference com/nuri/eth/NuriEcdsaSigner.gcdU
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 11;		// reference com/nuri/eth/NuriEcdsaSigner.gcdV
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 12;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX1
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					getfield_a_this 13;		// reference com/nuri/eth/NuriEcdsaSigner.gcdX2
 					sconst_0;
 					bspush 32;
 					sconst_0;
-					invokestatic 65;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
+					invokestatic 64;		// javacard/framework/Util.arrayFillNonAtomic([BSSB)S
 					pop;
 					return;
 		}
@@ -3630,24 +3521,24 @@
 				L0:	aload_0;
 					aload_1;
 					sload_2;
-					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
+					invokespecial 92;		// com/nuri/eth/NuriEcdsaSigner.isEven([BS)Z
 					ifeq L2;
 				L1:	aload_0;
 					aload_1;
 					sload_2;
-					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
+					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
 					return;
 				L2:	aload_1;
 					sload_2;
 					getstatic_a 50;		// reference com/nuri/eth/BigIntegerMod.SECP256K1_N
 					sconst_0;
 					bspush 32;
-					invokestatic 61;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
+					invokestatic 63;		// com/nuri/eth/Biginteger.add_carry([BS[BSS)Z
 					sstore_3;
 					aload_0;
 					aload_1;
 					sload_2;
-					invokespecial 94;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
+					invokespecial 93;		// com/nuri/eth/NuriEcdsaSigner.shiftRight1([BS)V
 					sload_3;
 					ifeq L4;
 				L3:	aload_1;
@@ -3700,7 +3591,7 @@
 					sspush 255;
 					sand;
 					sstore 4;
-					getstatic_a 97;		// reference com/nuri/eth/NuriEcdsaSigner.HALF_N
+					getstatic_a 96;		// reference com/nuri/eth/NuriEcdsaSigner.HALF_N
 					sload_3;
 					baload;
 					sspush 255;
@@ -3753,7 +3644,7 @@
 					sconst_1;
 					sadd;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					goto L9;
 				L6:	sload_2;
@@ -3770,11 +3661,11 @@
 					sconst_1;
 					sadd;
 					bspush 32;
-					invokestatic 60;		// javacard/framework/Util.arrayCopy([BS[BSS)S
+					invokestatic 16;		// javacard/framework/Util.arrayCopy([BS[BSS)S
 					pop;
 					goto L9;
 				L8:	sspush 27265;
-					invokestatic 77;		// javacard/framework/ISOException.throwIt(S)V
+					invokestatic 76;		// javacard/framework/ISOException.throwIt(S)V
 				L9:	return;
 		}
 

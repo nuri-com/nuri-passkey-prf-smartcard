@@ -25,18 +25,32 @@ public class BigIntegerWrapper {
     /**
      * Add modulo n
      * result = (a + b) mod n
-     * Can handle aliasing (result can be same as a or b)
+     * Aliasing-safe: result may overlap with a and/or b.
+     *
+     * The previous version did `Util.arrayCopy(a, result)` first, which
+     * clobbered b when result==b — so addMod(z, rd, rd) computed 2*z instead of
+     * z+rd, producing wrong ECDSA s on every signature. We now copy a into
+     * result via a byte-wise loop that reads a[i] and b[i] together per index,
+     * so neither operand is destroyed before it is read.
      */
     public static void addMod(byte[] a, short a_offset,
                              byte[] b, short b_offset,
                              byte[] result, short result_offset,
                              short size) {
-        // Add a + b
-        Util.arrayCopy(a, a_offset, result, result_offset, size);
-        boolean carry = Biginteger.add_carry(result, result_offset, b, b_offset, size);
-        
+        // Add a + b into result, index by index, so aliasing of result with a
+        // or b is safe (each byte of a and b is read before the corresponding
+        // byte of result is written).
+        short carry = 0;
+        for (short i = (short)(size - 1); i >= 0; i--) {
+            short sum = (short)((a[(short)(a_offset + i)] & 0xFF)
+                             + (b[(short)(b_offset + i)] & 0xFF)
+                             + carry);
+            result[(short)(result_offset + i)] = (byte)sum;
+            carry = (short)(sum >> 8);
+        }
+
         // If carry or result >= n, subtract n
-        if (carry || !Biginteger.lessThan(result, result_offset, SECP256K1_N, (short)0, size)) {
+        if (carry != 0 || !Biginteger.lessThan(result, result_offset, SECP256K1_N, (short)0, size)) {
             Biginteger.subtract(result, result_offset, SECP256K1_N, (short)0, size);
         }
     }
@@ -44,19 +58,31 @@ public class BigIntegerWrapper {
     /**
      * Subtract modulo n
      * result = (a - b) mod n
-     * Can handle aliasing (result can be same as a or b)
+     * Aliasing-safe: result may overlap with a and/or b (same rationale as
+     * addMod — the previous `Util.arrayCopy(a, result)` clobbered b when
+     * result==b).
      */
     public static void subMod(byte[] a, short a_offset,
                              byte[] b, short b_offset,
                              byte[] result, short result_offset,
                              short size) {
-        // Copy a to result
-        Util.arrayCopy(a, a_offset, result, result_offset, size);
-        // Subtract b from result
-        boolean borrow = Biginteger.subtract(result, result_offset, b, b_offset, size);
-        
-        // If borrow (negative), add n
-        if (borrow) {
+        // Subtract b from a into result, index by index (aliasing-safe).
+        short borrow = 0;
+        for (short i = (short)(size - 1); i >= 0; i--) {
+            short diff = (short)((a[(short)(a_offset + i)] & 0xFF)
+                              - (b[(short)(b_offset + i)] & 0xFF)
+                              - borrow);
+            if (diff < 0) {
+                diff += 256;
+                borrow = 1;
+            } else {
+                borrow = 0;
+            }
+            result[(short)(result_offset + i)] = (byte)diff;
+        }
+
+        // If borrow (result negative), add n
+        if (borrow != 0) {
             Biginteger.add_carry(result, result_offset, SECP256K1_N, (short)0, size);
         }
     }

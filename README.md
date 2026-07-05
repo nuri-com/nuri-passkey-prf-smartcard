@@ -181,6 +181,15 @@ Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log 
   reader/OS bug; it was applet code. v1.1 fixes the algorithm (verified
   off-card against `pow(a,-1,n)` for 5000+ inputs first). Same doc, section
   "Resolved: INS_SIGN".
+- **ETH signer v1.0–v1.2 produced wrong ECDSA signatures** (valid sig for the
+  wrong key Q, Q ≠ keygen pubkey, Q varied per call). `BigIntegerWrapper.addMod`
+  was not aliasing-safe when `result == b`: the `Util.arrayCopy(a, result)`
+  prologue clobbered `b` before it was read, so `addMod(z, rd, rd)` computed
+  `2z` instead of `z+rd` — every signature had wrong `s`. v1.3 makes
+  `addMod`/`subMod` index-by-index (aliasing-safe). Verified end-to-end:
+  `keygen → sign(5 hashes) → ecrecover → matches card pubkey` (5/5, v-bit
+  correct, low-s enforced). Same doc, section "Resolved: INS_SIGN produced
+  wrong signatures".
 
 ---
 
@@ -365,6 +374,24 @@ clearing the path for.
 Requirements: **Node 20+**, **Java 17** (FIDO2 simulator), **Python 3.10+**, **git**.
 A physical card is only needed for the `card:*` / `cosign:real-card` / `nuri:wallet:*`
 commands; everything else runs against simulators.
+
+### Card dashboard (physical card + reader, fastest way to see it work)
+
+A single-file Python server that talks to the card via PC/SC and serves a small
+web UI at <http://127.0.0.1:8788/>. Shows card ATR, all four applets, the on-card
+secp256k1 key's ETH address + BTC P2PKH address (one key, two chains), and
+signs/verifies messages for both:
+
+```bash
+python3 scripts/card-dashboard-server.py
+# open http://127.0.0.1:8788/  in a browser
+# buttons: card status, ETH version, pubkey+addresses, keygen,
+#          sign ETH message, sign BTC message, MuSig2/TOTP/FIDO2 select
+```
+
+Requires `pyscard` (already installed in the system Python on this machine) and
+the card in the reader (T=0 is forced for the OMNIKEY 5422). The server is
+~400 lines, no external web framework, pure stdlib + pyscard.
 
 ```bash
 npm install

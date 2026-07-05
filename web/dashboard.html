@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nuri card dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 820px; margin: 1.5rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; border-bottom: 1px solid #8884; padding-bottom: .2rem; }
+  .lead { opacity: .8; margin-top: .2rem; }
+  section { border: 1px solid #8884; border-radius: 10px; margin: 1rem 0; padding: 1rem; }
+  button { font: inherit; padding: .5rem 1rem; border-radius: 8px; border: 1px solid #8884; cursor: pointer; margin: .15rem .2rem; }
+  button.primary { background: #f7931a; color: #111; border-color: #f7931a; font-weight: 600; }
+  button.eth { background: #627EEA; color: #fff; border-color: #627EEA; font-weight: 600; }
+  button.btc { background: #f7931a; color: #111; border-color: #f7931a; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  label { display: inline-block; margin: .5rem .8rem .1rem 0; font-size: .85rem; opacity: .8; }
+  input, textarea { font: inherit; padding: .45rem; border-radius: 6px; border: 1px solid #8884; box-sizing: border-box; width: 100%; }
+  input[type=text] { width: 100%; }
+  pre { background: #8881; padding: .7rem; border-radius: 8px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: .3rem 0; }
+  .addr { font-size: 1.05rem; font-weight: 600; word-break: break-all; }
+  .ok { color: #1a9d4b; font-weight: 600; }
+  .err { color: #d23; font-weight: 600; }
+  code { background: #8882; padding: .1rem .3rem; border-radius: 4px; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .chip { display: inline-block; padding: .2rem .6rem; border-radius: 12px; font-size: .8rem; font-weight: 600; }
+  .chip.on { background: #1a9d4b22; color: #1a9d4b; border: 1px solid #1a9d4b; }
+  .chip.off { background: #d23322; color: #d23; border: 1px solid #d23; }
+  .muted { opacity: .65; font-size: .85rem; }
+</style>
+</head>
+<body>
+  <h1>Nuri card dashboard</h1>
+  <p class="lead">
+    One physical card, four applets: FIDO2, MuSig2 (Bitcoin Taproot),
+    OATH-TOTP, and the ETH/EVM ECDSA signer. Same secp256k1 key for BTC and ETH.
+    Tap a button — the host never sees any private key.
+  </p>
+
+  <section>
+    <h2>Card status</h2>
+    <div class="row">
+      <button class="primary" onclick="api('/api/card/status').then(renderStatus)">Refresh status</button>
+    </div>
+    <pre id="status">click "Refresh status"…</pre>
+    <div id="chips" style="margin-top:.5rem"></div>
+  </section>
+
+  <section>
+    <h2>Ethereum / EVM signer <span class="muted">(secp256k1 ECDSA, v1.3)</span></h2>
+    <div class="row">
+      <button class="eth" onclick="api('/api/eth/version').then(render)">Get version</button>
+      <button class="eth" onclick="api('/api/eth/pubkey').then(renderPubkey)">Get pubkey + addresses</button>
+      <button class="eth" onclick="confirmKeygen()">Generate new key</button>
+    </div>
+    <pre id="eth-version"></pre>
+    <div id="eth-pubkey" class="addr"></div>
+    <div id="eth-addr" class="addr" style="opacity:.85"></div>
+    <p class="muted" style="margin-top:.5rem">
+      One on-card key → two addresses (ETH keccak256, BTC hash160+base58check).
+      The same key signs for both chains — only the host-side hash differs.
+    </p>
+    <hr style="border:none;border-top:1px solid #8884;margin:.8rem 0">
+    <label>Message to sign (host hashes; card signs the 32-byte hash):</label>
+    <input type="text" id="eth-msg" placeholder="hello ethereum" value="hello ethereum" />
+    <div class="row" style="margin-top:.4rem">
+      <button class="eth" onclick="signEth()">Sign message (ETH-style)</button>
+    </div>
+    <pre id="eth-sign"></pre>
+  </section>
+
+  <section>
+    <h2>Bitcoin signer <span class="muted">(same key, double-SHA256)</span></h2>
+    <p class="muted">
+      Bitcoin Legacy/SegWit uses the same secp256k1 ECDSA as Ethereum —
+      only the host-side hash differs (double-SHA256 instead of keccak256).
+      The card signs the hash; the host derives the BTC address. (MuSig2
+      Taproot is a separate applet — see "MuSig2" below.)
+    </p>
+    <label>Message to sign:</label>
+    <input type="text" id="btc-msg" placeholder="hello bitcoin" value="hello bitcoin" />
+    <div class="row" style="margin-top:.4rem">
+      <button class="btc" onclick="signBtc()">Sign message (BTC)</button>
+    </div>
+    <pre id="btc-sign"></pre>
+  </section>
+
+  <section>
+    <h2>Other applets on the card</h2>
+    <div class="row">
+      <button onclick="api('/api/musig2/version').then(renderMuSig2)">MuSig2 version</button>
+      <button onclick="api('/api/totp/select').then(renderTotp)">OATH-TOTP select</button>
+      <button onclick="api('/api/fido2/select').then(renderFido2)">FIDO2 select</button>
+    </div>
+    <pre id="other"></pre>
+  </section>
+
+<script>
+async function api(url, opts) {
+  const r = await fetch(url, opts || {});
+  return r.json();
+}
+function renderStatus(s) {
+  document.getElementById('status').textContent = JSON.stringify(s, null, 2);
+  const chips = document.getElementById('chips');
+  chips.innerHTML = '';
+  for (const [name, info] of Object.entries(s.applets || {})) {
+    const span = document.createElement('span');
+    span.className = 'chip ' + (info.present ? 'on' : 'off');
+    span.textContent = name + ': ' + (info.present ? 'present' : 'absent');
+    chips.appendChild(span);
+  }
+}
+function render(d) {
+  document.getElementById('eth-version').textContent = JSON.stringify(d, null, 2);
+}
+function renderPubkey(d) {
+  document.getElementById('eth-version').textContent = '';
+  document.getElementById('eth-pubkey').textContent = 'pubkey: ' + (d.pubkey_hex || '');
+  let html = 'ETH addr: <span class="addr">' + (d.eth_address || '') + '</span><br>';
+  html += 'BTC P2PKH: <span class="addr">' + (d.btc_p2pkh_address || '') + '</span>';
+  html += ' <span class="muted">(hash160 ' + (d.btc_hash160_hex || '') + ')</span>';
+  document.getElementById('eth-addr').innerHTML = html;
+}
+function confirmKeygen() {
+  if (confirm('Generate a NEW on-card key? The old key is lost forever (non-exportable).')) {
+    api('/api/eth/keygen', {method:'POST'}).then(renderPubkey);
+  }
+}
+async function signEth() {
+  const msg = document.getElementById('eth-msg').value;
+  // host hashes with keccak256 if available; else sha256 (demo only)
+  let hashHex;
+  if (window.keccak256) {
+    hashHex = keccak256(msg);
+  } else {
+    // fall back: sha256 of message — NOT a real ETH hash, just for card demo
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+    hashHex = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  const r = await fetch('/api/eth/sign', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({hash: hashHex})});
+  const d = await r.json();
+  const el = document.getElementById('eth-sign');
+  el.textContent = JSON.stringify(d, null, 2);
+  el.innerHTML = el.innerHTML.replace(/"verified": (true|false)/, (_,v)=>`"verified": ${v=='true'?'<span class="ok">true ✓ ecrecover matches card pubkey</span>':'<span class="err">false ✗</span>'}`);
+}
+async function signBtc() {
+  const msg = document.getElementById('btc-msg').value;
+  const r = await fetch('/api/btc/sign', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({message: msg})});
+  const d = await r.json();
+  const el = document.getElementById('btc-sign');
+  el.textContent = JSON.stringify(d, null, 2);
+  if (d.verified) el.innerHTML += '\n<span class="ok">✓ ecrecover matches card pubkey (same key as ETH)</span>';
+  else el.innerHTML += '\n<span class="err">✗ verification failed</span>';
+}
+function renderMuSig2(d) { document.getElementById('other').textContent = 'MuSig2: ' + JSON.stringify(d); }
+function renderTotp(d) { document.getElementById('other').textContent = 'OATH-TOTP: ' + JSON.stringify(d); }
+function renderFido2(d) { document.getElementById('other').textContent = 'FIDO2: ' + JSON.stringify(d); }
+
+// On load, fetch status
+api('/api/card/status').then(renderStatus);
+</script>
+</body>
+</html>
