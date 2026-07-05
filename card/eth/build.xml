@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="NuriEcdsaSigner" default="build" basedir=".">
+    <description>Build NuriEcdsaSigner applet CAP</description>
+
+    <property name="ajc.jar" location="/Users/eminmahrt/Developer/nuri-smartcard-musig2/java-applet/ant-javacard-working.jar"/>
+    <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ajc.jar}"/>
+
+    <property name="jckit.path" value="/Users/eminmahrt/Developer/FIDO2Applet-working-idex-backup/sdks/jc304_kit"/>
+
+    <target name="build">
+        <mkdir dir="../dist"/>
+        <javacard jckit="${jckit.path}">
+            <cap aid="4E555249455448" version="1.0" output="../dist/nuri-eth-signer.cap" sources="." jca="3.0.4">
+                <applet class="com.nuri.eth.NuriEcdsaSigner" aid="4E55524945544801"/>
+            </cap>
+        </javacard>
+    </target>
+</project>

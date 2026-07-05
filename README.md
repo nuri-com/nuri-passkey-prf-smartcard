@@ -11,17 +11,20 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [The vision](#the-vision)
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
-- [Status & latest findings](#status--latest-findings-2026-06-30)
+- [Status & latest findings](#status-latest-findings-2026-07-05)
 - [How it works](#how-it-works)
-- [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa--nuri-expo)
+- [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa-nuri-expo)
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
 - [Roadmap to the vision](#roadmap-to-the-vision)
 - [Quick start](#quick-start)
+- [From scratch: clone, install, run your own card](#from-scratch-clone-install-run-your-own-card)
 - [Capability reference](#capability-reference)
+- [SSH with the smartcard](#fido2-ssh-security-key)
+- [Ethereum / EVM signing](#ethereum-evm-signing)
 - [Hardware: which card to buy](#hardware-which-card-to-buy)
 - [Flashing a real card](#flashing-a-real-card)
 - [What we can and cannot claim](#what-we-can-and-cannot-claim)
-- [Repo layout & references](#repo-layout--references)
+- [Repo layout & references](#repo-layout-references)
 
 ---
 
@@ -86,7 +89,8 @@ graph TB
 | **Card-as-wallet** | `musig2(client, card)` Taproot wallet with a client+CSV recovery leaf — looks like one key on-chain. | ✅ Real signet + mainnet addresses |
 | **Arkade / Lightning identity** | Card PRF is the root of the Nuri/Arkade client key; supports the VTXO tree-round tweak. | ✅ Key + tweak proven; app wiring pending |
 | **OATH-TOTP** | Stores a 2FA secret, computes HMAC-SHA1 on-card (e.g. Hetzner). Secret never read back. | ✅ Real-card, RFC 6238 verified |
-| **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa` hardware key. | 🧪 Experimental (host bridge in `scripts/`) |
+| **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
+| **Ethereum / EVM signing** | secp256k1 ECDSA sign on-card. The card generates the key, the host hashes the tx (keccak256), the card signs. Makes the card a hardware Ethereum wallet. | 🔧 Spec written — applet + ethers.js signer planned (`docs/eth-signing-spec.md`) |
 | **Fingerprint unlock (match-on-card)** | Replace PIN with a fingerprint. Feitian confirms the API; SDK is NDA-gated. | 🔒 Hardware path identified, not integrated |
 | **NFC tap-to-pay / POS** | Tap card to terminal to pay. | 🗺️ Vision — not built |
 
@@ -121,6 +125,9 @@ installed side by side, did the following:
   returning two 32-byte `hmac-secret` outputs.
 - **Derived the Nuri/Arkade client identity key** byte-for-byte identically to the
   phone (`CARD_ARKADE_IDENTITY_STABLE_OK`).
+- **Logged into a real server over SSH** using the card as a hardware key
+  (`ssh nuri-wirex` → `root@89.167.91.99`, confirmed 2026-07-05). The private
+  key never left the card; every login required a tap.
 
 Full transcripts and explorer links: [`docs/real-card-signet-proof.md`](docs/real-card-signet-proof.md),
 [`docs/nuri-card-wallet-proof-report.md`](docs/nuri-card-wallet-proof-report.md),
@@ -131,11 +138,17 @@ inserted) with the commands in [Capability reference](#capability-reference).
 
 ---
 
-## Status & latest findings (2026-06-30)
+## Status & latest findings (2026-07-05)
 
 Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log in
 [`CHANGELOG.md`](CHANGELOG.md). Headlines:
 
+- **The card is a real SSH hardware key.** `ssh nuri-wirex` → logged into
+  `root@89.167.91.99` (Hetzner) using only the card. Private key generated
+  on-card, never exported; every login required a tap. One-command installer
+  (`scripts/install-ssh-card-host.sh`) + full docs
+  ([`docs/ssh-smartcard.md`](docs/ssh-smartcard.md)). See
+  [SSH with the smartcard](#fido2-ssh-security-key) below.
 - **One card can be the whole wallet.** [`web/card-wallet.html`](web/card-wallet.html)
   + `POST /api/wallet/{address,utxos,spend}`: client key from the card's FIDO2 PRF,
   cosigner from the same card's MuSig2 applet — `musig2(client,card)` + CSV(52500).
@@ -155,6 +168,19 @@ Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log 
   `hmac-secret` (assertion ED flag true), but **Safari returns `prf:null` for
   external security keys**, and Chrome can't see a PC/SC contact reader. Browser
   PRF works only via a native-NFC app or Windows. Card-as-passkey *login* works.
+- **"gp can't find the reader" was a broken gp snapshot build — not macOS, not
+  the reader, not the card.** The official release (v26.06.04) worked first try
+  and installed the ETH signer. Rules learned the hard way: only use gp
+  *release* jars; never hand-roll SCP02 against the ISD (failed auths can brick
+  it); force **T=0** on the OMNIKEY 5422 contact slot; never kill a process
+  mid-APDU on macOS (it wedges PC/SC system-wide until the card is re-seated).
+  Full post-mortem: [`docs/gp-macos-troubleshooting.md`](docs/gp-macos-troubleshooting.md).
+- **ETH signer v1.0 hung on every SIGN — an infinite loop in the applet's
+  software `modInverse`** (plus wrong-endian parity checks and a broken
+  odd-value halving). A mute card + wedged macOS PC/SC stack *looks like* a
+  reader/OS bug; it was applet code. v1.1 fixes the algorithm (verified
+  off-card against `pow(a,-1,n)` for 5000+ inputs first). Same doc, section
+  "Resolved: INS_SIGN".
 
 ---
 
@@ -368,6 +394,124 @@ index defaults to `GP_READER=2`; override in the environment if yours differs. R
 
 ---
 
+## From scratch: clone, install, run your own card
+
+A linear path from zero to a working card that does SSH, Bitcoin, and TOTP.
+Follow in order. You need: a blank/unlocked Java Card (see
+[Hardware](#hardware-which-card-to-buy)), a PC/SC reader, the seller's
+GlobalPlatform transport key, and this repo.
+
+### 1. Clone and install host dependencies
+
+```bash
+git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git
+cd nuri-passkey-prf-smartcard
+npm install
+```
+
+Requirements: **Node 20+**, **Java 17** (FIDO2 simulator), **Python 3.10+**,
+**git**. A physical card is only needed for the `card:*` / `cosign:real-card` /
+`nuri:wallet:*` steps; everything else runs against simulators.
+
+Install [GlobalPlatformPro](https://github.com/martinpaljak/GlobalPlatformPro)
+(`gp`) — needed to install applets on the card:
+
+```bash
+# macOS:
+brew install gp
+# or: download the latest JAR from https://github.com/martinpaljak/GlobalPlatformPro/releases
+```
+
+### 2. Verify the host toolkit (no card needed)
+
+```bash
+npm test            # MuSig2 simulator tests vs @scure/btc-signer
+npm run musig2:demo # prints verified=true
+npm run cosign:demo # prints NURI_CARD_COSIGN_FLOW_OK, final_signature_verified=true
+npm run e2e         # full host-side end-to-end (clones FIDO2Applet, builds jCardSim, PRF test)
+```
+
+### 3. Flash the card (one-time, per card)
+
+Insert the **blank card** into the PC/SC reader. Get the transport key from the
+seller. Then install the three applets:
+
+```bash
+# FIDO2 / passkey / WebAuthn PRF applet (required for SSH + passkey + wallet PRF)
+GP_READER_INDEX=2 GP_KEY="your-card-transport-key" npm run card:install
+npm run card:test                                   # expect REAL_CARD_WEBAUTHN_PRF_OK
+
+# MuSig2 cosigner applet (required for Bitcoin signing — needs 2025-05-14 OS)
+npm run card:musig2:install
+npm run cosign:real-card:keygen                     # expect REAL_CARD_COSIGN_FLOW_OK
+
+# OATH-TOTP applet (required for on-card 2FA codes)
+npm run card:totp:build && npm run card:totp:install
+```
+
+> **secp256k1 check:** MuSig2 only works on cards with OS `2025-05-14`
+> (ATR `3b:81:80:01:80:80`). The older `2023-03-30` OS returns `6A81` on keygen
+> because it lacks `ALG_EC_SVDP_DH_PLAIN_XY`. The OS is mask-ROM — not
+> upgradable. Screen each batch with `gp -i` before relying on MuSig2. SSH and
+> TOTP work on either OS.
+
+### 4. Set up SSH on your machine
+
+```bash
+bash scripts/install-ssh-card-host.sh
+# This builds the provider .so, sets up the Python venv, writes ~/.ssh/config.
+# Edit ~/.ssh/config → replace REPLACE_ME.example.com with your server's IP.
+```
+
+### 5. Generate an SSH key on the card
+
+```bash
+PROVIDER=$(pwd)/dist/nuri-pcsc-sk-provider.so
+SSH_KEYGEN=ssh-keygen
+command -v /opt/homebrew/bin/ssh-keygen >/dev/null 2>&1 && SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen
+
+$SSH_KEYGEN -t ecdsa-sk -w "$PROVIDER" -f ~/.ssh/id_nuri_pcsc_sk -C "nuri-card"
+# → tap the card when prompted. The card generates the key; only the public key comes back.
+```
+
+### 6. Authorize the key on your server
+
+```bash
+PUBKEY=$(cat ~/.ssh/id_nuri_pcsc_sk.pub)
+ssh -i ~/.ssh/EXISTING_KEY root@YOUR_SERVER "echo '$PUBKEY' >> ~/.ssh/authorized_keys"
+```
+
+### 7. Log in with the card
+
+```bash
+ssh nuri-card-host      # or: ssh -i ~/.ssh/id_nuri_pcsc_sk root@YOUR_SERVER
+# → tap the card. You're in. The private key never left the card.
+```
+
+### 8. Add a backup card (second independent key, NOT a clone)
+
+A FIDO2 credential cannot be cloned — the private key is non-exportable by
+design. The backup is a **second card** with its own key, both authorized on
+the same server:
+
+```bash
+# Insert the second card, then:
+$SSH_KEYGEN -t ecdsa-sk -w "$PROVIDER" -f ~/.ssh/id_nuri_pcsc_sk_backup -C "nuri-backup"
+# → tap the second card
+
+# Add its public key to the server:
+PUBKEY_B=$(cat ~/.ssh/id_nuri_pcsc_sk_backup.pub)
+ssh root@YOUR_SERVER "echo '$PUBKEY_B' >> ~/.ssh/authorized_keys"
+```
+
+If card A is lost, log in with card B and remove card A's pubkey from
+`authorized_keys`. The stolen card is now useless.
+
+Full SSH guide with architecture, decision log, troubleshooting:
+[`docs/ssh-smartcard.md`](docs/ssh-smartcard.md).
+
+---
+
 ## Capability reference
 
 > Convention: `cosign:*` / `card:*` / `nuri:wallet:*` / `bitcoin:card:*` talk to a
@@ -491,11 +635,182 @@ The card has no clock, so the host sends the time counter; the secret is written
 and never read out. Verified against the RFC 6238 vector
 (`python3 scripts/card-totp.py --selfcheck`).
 
-### FIDO2 SSH security key (experimental)
+### FIDO2 SSH security key
 
-`scripts/ssh-pcsc-sk-provider.c` / `ssh-pcsc-sk-helper.py` /
-`dist/nuri-pcsc-sk-provider.so` let OpenSSH use the card as an `sk-ecdsa-sha2-nistp256`
-hardware key over PC/SC. Untracked/experimental — a "fun extra," not a product track.
+Use the card as a **hardware SSH key** — the private key is generated inside
+the card's secure element and never leaves it. No key file on disk can be
+stolen; the card *is* the key. Every SSH login requires the card in the
+reader and a tap (user presence). Proven against a real Hetzner server.
+
+**The plain-English version (what's actually going on):**
+
+Three things are involved. That's all:
+
+1. **The card.** It holds the private key — made *inside* the card, and there
+   is no command anywhere to read it out. The card does the actual signing.
+   Without the card, nothing can sign. This is the whole point: the secret
+   lives in a piece of silicon you can hold in your hand.
+
+2. **Two files in `~/.ssh/`.**
+   - `id_nuri_pcsc_sk.pub` — the **public key**. Safe to share. This is what
+     goes in the server's `authorized_keys`. The server checks signatures
+     against it.
+   - `id_nuri_pcsc_sk` — looks like a "private key" but **contains no secret**.
+     It holds the public key + a *credential ID* (a ~100-byte name tag telling
+     the card "use credential #X"). Knowing this number does **not** let
+     anyone sign — they still need the physical card. This file is safe to copy
+     to other machines. Without the card it's inert.
+
+3. **The provider** (`dist/nuri-pcsc-sk-provider.so` + the Python helper it
+   calls). This is a **translator**, nothing more. OpenSSH has built-in support
+   for hardware SSH keys (`ssh-keygen -t ecdsa-sk`), but it only knows how to
+   talk to **USB security keys** (YubiKey-style devices that plug in over
+   USB). Your card is **not** a USB device — it's a smartcard reached through a
+   PC/SC reader. OpenSSH has no idea how to talk to a smartcard reader. The
+   provider sits in between and translates:
+
+   ```
+   ssh says "sign this"  →  provider .so  →  python helper  →  PC/SC reader  →  card signs
+   ```
+
+   The provider **does no crypto and holds no key**. It's a wire: it carries
+   the sign request to the card and carries the signature back. The signing
+   always happens on the card. That's why every host machine needs the
+   provider installed **once** — without it, OpenSSH can't reach the card
+   through the reader. After that one-time install, `ssh user@host` works
+   normally and you tap the card.
+
+**One-command setup on any machine:**
+
+```bash
+git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git
+cd nuri-passkey-prf-smartcard
+bash scripts/install-ssh-card-host.sh
+# edit ~/.ssh/config → replace REPLACE_ME.example.com with your server
+```
+
+This builds the provider `.so`, sets up the Python venv with the `fido2`
+library, and writes the ssh_config snippet.
+
+**Enroll a new SSH key on the card** (first time, or a new card):
+
+```bash
+PROVIDER=$(pwd)/dist/nuri-pcsc-sk-provider.so
+SSH_KEYGEN=ssh-keygen
+command -v /opt/homebrew/bin/ssh-keygen >/dev/null 2>&1 && SSH_KEYGEN=/opt/homebrew/bin/ssh-keygen
+
+$SSH_KEYGEN -t ecdsa-sk -w "$PROVIDER" -f ~/.ssh/id_nuri_pcsc_sk -C "nuri-card"
+# tap the card when prompted — the card generates the key; only the public key comes back
+```
+
+**Add the key to a server's `authorized_keys`:**
+
+The public key is safe to share — it's just the card's public half. Copy it
+to the server using any existing working key (or password):
+
+```bash
+PUBKEY=$(cat ~/.ssh/id_nuri_pcsc_sk.pub)
+ssh -i ~/.ssh/EXISTING_KEY root@YOUR_SERVER "echo '$PUBKEY' >> ~/.ssh/authorized_keys"
+```
+
+**Connect to a server** (two ways):
+
+```bash
+# Way 1 — using the ssh_config alias (cleanest):
+ssh nuri-card-host
+# tap the card when prompted
+
+# Way 2 — explicit, no config needed:
+ssh -i ~/.ssh/id_nuri_pcsc_sk \
+    -o SecurityKeyProvider=/path/to/nuri-pcsc-sk-provider.so \
+    root@YOUR_SERVER
+# tap the card when prompted
+```
+
+**Add the card to multiple servers:** the same public key works on any number
+of servers. Just add the public key line to each server's `authorized_keys`:
+
+```bash
+# For each server:
+PUBKEY=$(cat ~/.ssh/id_nuri_pcsc_sk.pub)
+ssh -i ~/.ssh/EXISTING_KEY root@SERVER_1 "echo '$PUBKEY' >> ~/.ssh/authorized_keys"
+ssh -i ~/.ssh/EXISTING_KEY root@SERVER_2 "echo '$PUBKEY' >> ~/.ssh/authorized_keys"
+ssh -i ~/.ssh/EXISTING_KEY root@SERVER_3 "echo '$PUBKEY' >> ~/.ssh/authorized_keys"
+```
+
+Then add an alias per server in `~/.ssh/config`:
+
+```
+Host my-server-1
+  HostName 1.2.3.4
+  User root
+  IdentityFile ~/.ssh/id_nuri_pcsc_sk
+  SecurityKeyProvider /path/to/nuri-pcsc-sk-provider.so
+  IdentitiesOnly yes
+```
+
+Now `ssh my-server-1` + tap the card = you're in. Same card, same key, many
+servers.
+
+**Backup card (a second card is NOT a clone):**
+
+A FIDO2 credential **cannot be cloned** — the private key is non-exportable by
+design; that *is* the security. The backup pattern is a **second independent
+card** with its own key, both authorized on the same server:
+
+```
+card A (pocket)    → pubkey A → authorized_keys line 1
+card B (home safe) → pubkey B → authorized_keys line 2
+```
+
+- Both cards log into the same server independently.
+- If card A is lost, log in with card B and **remove pubkey A** from
+  `authorized_keys`. The stolen card is now useless.
+- Enroll the backup: insert card B, run
+  `ssh-keygen -t ecdsa-sk -w $PROVIDER -f ~/.ssh/id_nuri_pcsc_sk_backup -C nuri-backup`,
+  add its `.pub` to the server.
+
+Full guide, architecture diagram, decision log, troubleshooting:
+[`docs/ssh-smartcard.md`](docs/ssh-smartcard.md).
+
+---
+
+## Ethereum / EVM signing
+
+The card can become a **hardware Ethereum wallet** — secp256k1 ECDSA signing
+with the private key in the secure element, same as Bitcoin and SSH. The card
+already has the hard part (secp256k1 in the secure element, proven by the
+MuSig2 applet). Adding Ethereum is **simpler than MuSig2** — standard ECDSA
+(`s = k⁻¹(z + r·d) mod n`) is less complex than a MuSig2 partial
+(`s = k + e·a·sk`).
+
+**The plain-English version:**
+
+The phone builds an Ethereum transaction and hashes it with keccak256 (the
+Ethereum hash function). It sends the 32-byte hash to the card. The card
+signs it with the private key (which never leaves the card) and returns the
+signature `(r, s, v)`. The phone broadcasts the signed transaction. This is
+exactly how Ledger, Trezor, and all hardware wallets do it — the hash is on
+the phone, the signature is on the card.
+
+```
+Phone: keccak256(tx) → 32-byte hash z
+  ↓ (sent to card over NFC/reader)
+Card: ECDSA sign(z) → (r, s, v)   [private key d never leaves]
+  ↓ (returned to phone)
+Phone: broadcast signed tx to Ethereum
+```
+
+**Why keccak256 is on the host, not the card:** keccak256 is not in the Java
+Card standard API (Java Card has SHA-256 and SHA-3, but not Ethereum's
+Keccak-256 variant). Every hardware wallet hashes on the host and sends the
+hash to the card. The card protects the *key*; the host computes the *hash*.
+This is the standard security model — a compromised host could sign a
+malicious tx, but can never steal the key, and the tap-to-sign requirement
+means the user must approve each transaction.
+
+**Full specification, APDU reference, ethers.js signer code, implementation
+plan, and testing:** [`docs/eth-signing-spec.md`](docs/eth-signing-spec.md).
 
 ---
 
@@ -595,8 +910,10 @@ an upstream reference, or write a clean-room minimal signer.
 
 - `card/` — `NuriOathTotp.java` and the Java Card build (`ant`).
 - `src/musig2/` — method-level and APDU-level MuSig2 simulators (`@scure`-compatible).
-- `scripts/` — every real-card and host flow (wallet, cosign, PRF, Arkade, MCP, TOTP).
-- `dist/` — prebuilt CAPs + checksums + provenance.
+- `scripts/` — every real-card and host flow (wallet, cosign, PRF, Arkade, MCP, TOTP,
+  SSH). `scripts/ssh-pcsc-sk-provider.c` + `ssh-pcsc-sk-helper.py` are the OpenSSH
+  FIDO→PC/SC bridge; `scripts/install-ssh-card-host.sh` is the one-command host setup.
+- `dist/` — prebuilt CAPs + `nuri-pcsc-sk-provider.so` + checksums + provenance.
 - `web/` — `card-wallet.html` (browser wallet UI), `passkey-wallet.html`,
   `prf-test.html`, `cosign-demo.html`, PWA manifest/service-worker.
 - `mobile/expo-nfc-prf-probe/` — native Android/iOS ISO-DEP NFC PRF probe.
@@ -605,7 +922,9 @@ an upstream reference, or write a clean-room minimal signer.
 - `CHANGELOG.md` — release log; `docs/logbook.md` — session notes (Q&A, card state, next steps).
 - `docs/` — architecture & security pitch (`card-architecture.md`), Arkade plan
   (`nuri-arkade-card-cosigner-plan.md`, `arkade-lightning.md`), FIDO2 user-presence
-  fix (`fido2-user-presence.md`), real-card proofs, hardware spec, card research.
+  fix (`fido2-user-presence.md`), SSH guide (`ssh-smartcard.md`), card capability
+  summary for suppliers (`card-capability-summary.md`), Ethereum signing spec
+  (`eth-signing-spec.md`), real-card proofs, hardware spec, card research.
 
 This repo does **not** vendor the FIDO2Applet source; `npm run fido2:prepare` clones
 [Bryan Jacobs' FIDO2Applet](https://github.com/BryanJacobs/FIDO2Applet) at a pinned
