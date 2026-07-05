@@ -3,6 +3,37 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-05 — ETH signer on-card; gp post-mortem; SIGN infinite-loop fix
+
+### Added
+- **`card/eth/`** (`NuriEcdsaSigner.java` + Satochip bignum classes) +
+  **`dist/nuri-eth-signer.cap`**: secp256k1 ECDSA signer applet for
+  Ethereum/EVM — key generated on-card, signs 32-byte hashes, returns
+  `r(32)‖s(32)‖v(1)` with EIP-2 low-s. AID `4E55524945544801` ("NURIETH1").
+  Spec: `docs/eth-signing-spec.md`; host test: `scripts/card-eth-test.py`.
+- **`docs/gp-macos-troubleshooting.md`**: full post-mortem of a lost day —
+  "gp can't find the reader" was a broken gp *snapshot* build (jnasmartcardio
+  card-present detection); release v26.06.04 worked first try. Plus the macOS
+  PC/SC wedge pattern (stalled APDU → system-wide `SCardConnect` hang → re-seat
+  the card) and the OMNIKEY 5422 T=0 requirement.
+
+### Fixed
+- **ETH applet v1.1: `INS_SIGN` hung the card forever (v1.0).** Three bugs in
+  the software `modInverse` (binary extended GCD): guaranteed infinite loop
+  (`u` hits 0, `while(isEven(u))` spins on zero; termination waited for `v==0`
+  which is unreachable), parity checked on the big-endian MSB instead of the
+  LSB, and odd-value halving computed `(x+n) mod n` (a no-op) instead of the
+  257-bit integer `(x+n)/2`. New loop terminates on `u==1 || v==1`, halves via
+  `add_carry` with the carry re-inserted, reduces the result into `[0,n)`, and
+  the iteration cap now throws `6988` instead of never firing. Verified
+  off-card against `pow(a,-1,n)` (5000+ cases) before flashing.
+- `scripts/card-eth-test.py`: force **T=0** (OMNIKEY 5422 contact slot fails
+  T=1 transmits with `0x80100016`).
+
+### Changed
+- `~/bin/gp.jar` (dev machine): snapshot `f2af9ef` → **release v26.06.04**
+  (backup kept as `gp.jar.f2af9ef.bak`). Rule: only gp release jars.
+
 ## 2026-06-30 — Card-as-wallet (browser + reader), FIDO2 user-presence, hardware findings
 
 ### Added

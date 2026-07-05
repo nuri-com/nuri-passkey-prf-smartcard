@@ -102,3 +102,52 @@ This logbook is the distilled context; the raw transcript is the fallback if you
 need the full reasoning behind a decision. The transcript is intentionally **not**
 committed (it's already backed up locally, and it's large/noisy for a public repo).
 </content>
+
+---
+
+## 2026-07-05 — gp reader "bug", ETH signer install, SIGN infinite loop
+
+**Q: gp can't connect to the OMNIKEY reader that has the card — every `-r`
+value fails. Reader bug? macOS bug?**
+A: Neither. The gp in use was a **snapshot build (`f2af9ef`)** with broken
+card-present detection in its jnasmartcardio layer — it filtered the reader out
+*before* name matching, so no `-r` spelling could ever work. The official
+**release v26.06.04 worked on the first try with no `-r` at all**. Upstream had
+already fixed the snapshot bug on 2026-06-21 (gp `1ae44dc`), unreleased at the
+time. A hand-rolled SCP02 client was attempted before this was found — don't do
+that: failed EXTERNAL AUTHs (`6982`) count toward the ISD velocity counter and
+can brick the Security Domain. Full write-up:
+[`gp-macos-troubleshooting.md`](gp-macos-troubleshooting.md).
+
+**Q: Do the new applets/scripts crash the card? It keeps needing re-seats.**
+A: The card never crashed — it survived every re-seat with all applets intact.
+Two separate host/applet problems stacked:
+1. **ETH applet v1.0's `INS_SIGN` had a guaranteed infinite loop** in its
+   software `modInverse` (binary xGCD: termination waited for `v==0` which is
+   unreachable; `u` hits 0 and `while(isEven(u))` spins on zero forever). Plus
+   two more latent bugs: parity checked on the wrong end of the big-endian
+   buffers, and odd-value halving lost its `+n` (`addMod(x,n)` is a no-op).
+   SELECT/VERSION/KEYGEN/GET_PUBKEY were all fine — only SIGN hung.
+2. **macOS PC/SC does not recover from a stalled APDU**: once SIGN went mute,
+   every later `SCardConnect` hung system-wide (even `opensc-tool`), which
+   *looked like* the card dying. Only re-seating the card clears it.
+Fixed in **v1.1** (new xGCD verified off-card against `pow(a,-1,n)`, 5000+
+cases, before flashing; iteration cap now throws `6988` instead of hanging).
+
+**Q: Why did the test script fail with `0x80100016` even when the stack was healthy?**
+A: The OMNIKEY 5422 contact slot + this card fail **T=1** transmits; force
+**T=0** (`conn.connect(CardConnection.T0_protocol)` — now in
+`scripts/card-eth-test.py`).
+
+### State
+- Card: FIDO2/MuSig2/OATH untouched; ETH applet **v1.0** installed via gp
+  v26.06.04 (KEYGEN works, pubkey
+  `0266ee75…9a05`); **v1.1 CAP built + verified, flash pending** (needs one
+  more card re-seat, then `gp --delete 4E55524945544801 --delete 4E555249455448
+  && gp --install dist/nuri-eth-signer.cap`).
+- Host: `~/bin/gp.jar` is now release v26.06.04 (snapshot kept as `.bak`).
+
+### Next steps
+- Re-seat card → flash v1.1 → run `python3 scripts/card-eth-test.py`
+  (expects VERSION `01 01`, then SIGN + ecrecover green).
+- Wire the signer into an ethers.js `Signer` (per `docs/eth-signing-spec.md`).
