@@ -94,7 +94,7 @@ graph TB
 | **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
 | **Ethereum / EVM signing** | secp256k1 ECDSA signing on-card. One key → ETH address (keccak256) + BTC P2PKH address (hash160). Card signs, host verifies. **v1.3 proven: 5/5 ecrecover via `python-ecdsa`.** | ✅ Real-card proven (ecrecover green) |
 | **Fingerprint unlock (match-on-card)** | Replace PIN with a fingerprint. Feitian confirms the API; SDK is NDA-gated. | 🔒 Hardware path identified, not integrated |
-| **NFC tap-to-pay / POS** | Tap card to terminal to pay. | 🗺️ Vision — not built |
+| **NFC tap-to-pay / POS** | Tap card to phone (Scenario C) or a Bitcoin POS terminal (Scenario B) to pay. Card holds keys, phone/terminal is a dumb terminal with internet. Card-side PIN via CTAP2. | 🗺️ Vision — concept doc + implementation plan in [`docs/tap-to-pay-concept.md`](docs/tap-to-pay-concept.md) |
 
 Two design rules hold throughout:
 
@@ -362,12 +362,27 @@ Feitian confirms a Java applet can call the match-on-card fingerprint API to gat
 private-key operation, but the BioCARD SDK is NDA-gated. Until then: FIDO2 PIN/UV, or
 Feitian's preloaded biometric FIDO2 stack.
 
-**4. Phone-optional tap-to-pay — _the headline, not built._**
-Tap the card to a phone or a Bitcoin POS terminal to pay. Building blocks: the
-contactless ISO-14443 interface (works), Lightning via Arkade+Boltz (wired), and a
-Boltcard/LNURLW-style tap profile (to design). The end state — a Bitcoin debit-card
-form factor where the card alone is the wallet — is the north star this repo is
-clearing the path for.
+**4. Phone-optional tap-to-pay — _the headline, not built, concept spec'd._**
+Tap the card to a phone or a Bitcoin POS terminal and pay. The card holds the
+keys; the phone/terminal is a dumb terminal with internet (it fetches the
+invoice, builds the tx, gets a signature from the card, broadcasts). The
+card-side PIN is card-enforced via CTAP2 `clientPin` — the phone/terminal
+cannot bypass it.
+
+There is **no "card alone with no internet device" scenario** — the card
+cannot broadcast, no hardware wallet can. The realistic paths are:
+- **Scenario C (today, buildable):** your card + a phone running our app
+  (yours or anyone's — the phone holds no keys). Every primitive is proven
+  in this repo (ISO-DEP NFC PRF, CTAP2 PIN, MuSig2 partial sign, Boltz
+  swap-ready tx building).
+- **Scenario B (vision):** your card + a merchant's Bitcoin POS terminal
+  running our firmware. Real debit-card UX — you carry only the card.
+  Needs a reference terminal implementation and a PIN gate on the MuSig2
+  applet; the APDU spec already exists.
+
+Full concept, UX flows, security model, APDU/CBOR details, and an 8-step
+implementation order:
+[`docs/tap-to-pay-concept.md`](docs/tap-to-pay-concept.md).
 
 ---
 
@@ -1041,7 +1056,9 @@ an upstream reference, or write a clean-room minimal signer.
   (`nuri-arkade-card-cosigner-plan.md`, `arkade-lightning.md`), FIDO2 user-presence
   fix (`fido2-user-presence.md`), SSH guide (`ssh-smartcard.md`), card capability
   summary for suppliers (`card-capability-summary.md`), Ethereum signing spec
-  (`eth-signing-spec.md`), real-card proofs, hardware spec, card research.
+  (`eth-signing-spec.md`), tap-to-pay concept & implementation plan
+  (`tap-to-pay-concept.md`), gp/macOS troubleshooting, real-card proofs, hardware
+  spec, card research.
 
 This repo does **not** vendor the FIDO2Applet source; `npm run fido2:prepare` clones
 [Bryan Jacobs' FIDO2Applet](https://github.com/BryanJacobs/FIDO2Applet) at a pinned
