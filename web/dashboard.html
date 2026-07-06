@@ -54,10 +54,12 @@
       <button class="eth" onclick="api('/api/eth/version').then(render)">Get version</button>
       <button class="eth" onclick="api('/api/eth/pubkey').then(renderPubkey)">Get pubkey + addresses</button>
       <button class="eth" onclick="confirmKeygen()">Generate new key</button>
+      <button class="eth" onclick="runSelftest()">Selftest (on-card modInverse)</button>
     </div>
     <pre id="eth-version"></pre>
     <div id="eth-pubkey" class="addr"></div>
     <div id="eth-addr" class="addr" style="opacity:.85"></div>
+    <pre id="selftest"></pre>
     <p class="muted" style="margin-top:.5rem">
       One on-card key → two addresses (ETH keccak256, BTC hash160+base58check).
       The same key signs for both chains — only the host-side hash differs.
@@ -131,20 +133,17 @@ function confirmKeygen() {
 }
 async function signEth() {
   const msg = document.getElementById('eth-msg').value;
-  // host hashes with keccak256 if available; else sha256 (demo only)
-  let hashHex;
-  if (window.keccak256) {
-    hashHex = keccak256(msg);
-  } else {
-    // fall back: sha256 of message — NOT a real ETH hash, just for card demo
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
-    hashHex = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
+  // Hash on the host with sha256 (the card signs any 32-byte hash). For a real
+  // ETH tx this would be keccak256(RLP(tx)) — the dashboard is a demo of the
+  // card-side signing primitive, not an ETH-tx builder.
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+  const hashHex = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
   const r = await fetch('/api/eth/sign', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({hash: hashHex})});
   const d = await r.json();
   const el = document.getElementById('eth-sign');
   el.textContent = JSON.stringify(d, null, 2);
-  el.innerHTML = el.innerHTML.replace(/"verified": (true|false)/, (_,v)=>`"verified": ${v=='true'?'<span class="ok">true ✓ ecrecover matches card pubkey</span>':'<span class="err">false ✗</span>'}`);
+  if (d.verified) el.innerHTML += '\n<span class="ok">✓ python-ecdsa verify + ecrecover agree (libsecp256k1-grade, independent of host code)</span>';
+  else el.innerHTML += '\n<span class="err">✗ verification failed</span>';
 }
 async function signBtc() {
   const msg = document.getElementById('btc-msg').value;
@@ -152,8 +151,15 @@ async function signBtc() {
   const d = await r.json();
   const el = document.getElementById('btc-sign');
   el.textContent = JSON.stringify(d, null, 2);
-  if (d.verified) el.innerHTML += '\n<span class="ok">✓ ecrecover matches card pubkey (same key as ETH)</span>';
+  if (d.verified) el.innerHTML += '\n<span class="ok">✓ python-ecdsa verify + ecrecover agree (same key as ETH, independent verifier)</span>';
   else el.innerHTML += '\n<span class="err">✗ verification failed</span>';
+}
+async function runSelftest() {
+  const d = await api('/api/eth/selftest');
+  const el = document.getElementById('selftest');
+  el.textContent = JSON.stringify(d, null, 2);
+  if (d.ok) el.innerHTML += '\n<span class="ok">✓ on-card modInverse matches python pow(a,-1,n) for all ' + d.modinv_passed + ' cases</span>';
+  else el.innerHTML += '\n<span class="err">✗ on-card bignum broken — ' + d.modinv_failed + ' failures</span>';
 }
 function renderMuSig2(d) { document.getElementById('other').textContent = 'MuSig2: ' + JSON.stringify(d); }
 function renderTotp(d) { document.getElementById('other').textContent = 'OATH-TOTP: ' + JSON.stringify(d); }

@@ -380,18 +380,25 @@ commands; everything else runs against simulators.
 A single-file Python server that talks to the card via PC/SC and serves a small
 web UI at <http://127.0.0.1:8788/>. Shows card ATR, all four applets, the on-card
 secp256k1 key's ETH address + BTC P2PKH address (one key, two chains), and
-signs/verifies messages for both:
+signs/verifies messages for both. **The card is the only signer; the host only
+hashes and verifies** — verification uses proven libraries (`python-ecdsa` for
+ecrecover + signature verify, `pycryptodome` for keccak256, `base58` for P2PKH,
+`hashlib` for sha256/ripemd160), not hand-rolled crypto, so `verified:true`
+means an independent library agrees, not our code agreeing with itself.
 
 ```bash
 python3 scripts/card-dashboard-server.py
 # open http://127.0.0.1:8788/  in a browser
 # buttons: card status, ETH version, pubkey+addresses, keygen,
-#          sign ETH message, sign BTC message, MuSig2/TOTP/FIDO2 select
+#          selftest (on-card modInverse vs python pow), sign ETH, sign BTC,
+#          MuSig2/TOTP/FIDO2 select
 ```
 
-Requires `pyscard` (already installed in the system Python on this machine) and
-the card in the reader (T=0 is forced for the OMNIKEY 5422). The server is
-~400 lines, no external web framework, pure stdlib + pyscard.
+Requires `pyscard` (PC/SC), `python-ecdsa`, `pycryptodome`, `base58`. Install
+the latter three with `pip3 install ecdsa pycryptodome base58` (coincurve
+preferred for libsecp256k1-grade speed but has no wheel for Python 3.14 yet;
+`python-ecdsa` is pure-python and works everywhere). T=0 is forced for the
+OMNIKEY 5422 contact slot.
 
 ```bash
 npm install
