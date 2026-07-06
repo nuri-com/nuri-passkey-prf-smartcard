@@ -74,63 +74,78 @@ difference is purely what the other end of the NFC link is.
 
 You tap your card to a phone running the Nuri app. The phone is a dumb
 terminal: it provides NFC transport, internet, UI, and Lightning plumbing.
-It holds **no keys**. The card is the only signer.
+It holds **no keys**. The card is the client signer; the Arkade ASP is the
+cosigner. No PRF, no derived key in phone RAM. (See
+[`docs/signing-architecture.md`](signing-architecture.md) Model A for why
+this is simpler and stronger than the PRF path.)
 
 ### UX flow
 
 ```
 ┌─────────────┐   NFC (ISO-DEP)    ┌──────────────┐    internet    ┌────────────┐
-│   your card │ ←────────────────→ │  phone (app) │ ←────────────→ │ ASP/Boltz  │
-│  (keys)     │                    │ (no keys)     │                │ /mempool   │
+│   your card │ ←────────────────→ │  phone (app) │ ←────────────→ │  Arkade ASP│
+│  (client sk)│                    │  (no keys)   │                │  (ASP sk)  │
 └─────────────┘                    └──────────────┘                └────────────┘
 
-1. Tap card → phone reads card pubkey over NFC (no PIN) → shows your
-   BTC address + ETH address + balance. Read-only, harmless.
+1. Tap card → phone reads card MuSig2 pubkey over NFC (no PIN) →
+   registers with the ASP → shows your BTC address + balance.
+   Read-only, harmless.
 
 2. You (or the merchant) enter a Lightning invoice / amount on the phone.
 
 3. Tap 2 → phone sends CTAP2 clientPin APDU → you type the card PIN on
-   the phone → card verifies PIN (card-enforced) → card releases the PRF
-   output and, in a second APDU, the MuSig2 partial signature.
+   the phone → card verifies PIN (card-enforced) → card is now authorized
+   to sign for this session.
 
-4. Phone derives the client key from PRF, aggregates the MuSig2 partial,
-   verifies BIP340 locally, then drives the Boltz submarine swap
-   (on-chain → Lightning) and pays the invoice.
+4. Phone relays the MuSig2 exchange: card INS_NONCE_GEN → pub nonce →
+   ASP; ASP returns (a, b, e); card INS_PARTIAL_SIGN → partial; ASP
+   partial → aggregate → BIP340 sig. Card's sk never leaves the card;
+   phone holds no key material at any point.
 
-5. Card forgets everything. Phone forgets the client key. Done.
+5. Phone drives the Boltz submarine swap (on-chain → Lightning) with the
+   signed transaction → pays the invoice.
+
+6. Card forgets the session. Done.
 ```
 
 ### Who does what
 
-| Step | Card (card-side, self-custody) | Phone (dumb terminal) | ASP / Boltz |
+| Step | Card (client signer) | Phone (dumb terminal) | Arkade ASP / Boltz |
 |---|---|---|---|
 | NFC transport | responds to APDUs | opens ISO-DEP session | — |
-| PRF derivation | releases PRF only after PIN | HKDF → BIP86 → client key (RAM, wiped) | — |
-| Pubkey / balance | answers `INS_GET_PUBKEY` | displays address, fetches UTXOs | mempool |
+| Key material | client sk, never leaves | **holds none** | ASP sk, never leaves |
+| Pubkey / balance | `INS_GET_INDIVIDUAL_PUBKEY` | displays address, fetches VTXO state | ASP serves VTXO state |
 | Amount policy | none (blind signing) | enforces "above X → require PIN" | — |
 | PIN gate | CTAP2 `clientPin` — card-enforced | sends `pinAuth`, cannot bypass | — |
-| Signing | MuSig2 partial `s = k + e·a·sk` (sk never leaves) | aggregates + BIP340 verify | — |
-| Lightning | nothing | builds Boltz swap tx, pays invoice | ASP / Boltz swap |
+| Signing | MuSig2 partial `s = k + e·a·sk` (sk never leaves) | relays partials both ways, aggregates + BIP340 verify | ASP partial |
+| Lightning | nothing | builds Boltz swap tx, pays invoice | ASP round + Boltz swap |
 
-The card only does two things: gate on PIN, and sign. Everything else is
-the phone. The phone holds no key material — the PRF output is a one-way
-derivation, the client key lives in phone RAM only for the duration of the
-sign and is wiped after.
+The card holds the client signing key. The phone holds nothing. The ASP
+holds the cosigner key. To sign a transaction you need both the card's
+partial AND the ASP's partial — 2-of-2, real self-custody. A compromised
+phone cannot steal funds (it has no key and cannot forge the card's
+partial). A stolen card cannot steal funds (it has no ASP partial).
 
 ### Why this is the realistic path today
 
 Every primitive in the table above is already proven on a real card in this
 repo:
 
-- ISO-DEP NFC + CTAP2 `hmac-secret` PRF — `mobile/expo-nfc-prf-probe/`
-  (Android APK, verified).
+- ISO-DEP NFC + CTAP2 transport — `mobile/expo-nfc-prf-probe/`
+  (Android APK, verified). The probe already speaks ISO-DEP and CTAP2;
+  switching the AID to the MuSig2 applet (`4E5552494D554701`) and wrapping
+  the MuSig2 APDUs is plumbing, not new research.
 - CTAP2 `clientPin` PIN protocol — `scripts/manage-fido2-pin.py` (set /
   change / verify / get_pin_token, all proven over PC/SC; the NFC probe
   already does the `getKeyAgreement` ECDH step).
 - MuSig2 partial signing — `dist/nuri-musig2-v20-keygen.cap`, on-chain
-  proven (Signet tx `c85a73fa…`).
-- PRF → client key — `scripts/card-arkade-identity.mjs`
-  (`CARD_ARKADE_IDENTITY_STABLE_OK`).
+  proven (Signet tx `c85a73fa…`). The card as *client signer* (Model A)
+  uses the exact same protocol as the card as *cosigner* (Model B) — only
+  the role changes, not the APDUs.
+- Arkade ASP + Boltz swap — wired in `nuri-expo` (`@arkade-os/sdk`,
+  `@arkade-os/boltz-swap`). The ASP expects a client pubkey + partial;
+  the card produces both. The registration flow needs to accept a
+  card-generated pubkey instead of a phone-derived one.
 - Boltz-swap-ready tx building — `scripts/card-cosign-tweaked.py`,
   `scripts/nuri-card-wallet.mjs` (receive/spend/broadcast over PC/SC).
 
