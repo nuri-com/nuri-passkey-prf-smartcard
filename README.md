@@ -21,6 +21,7 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [Capability reference](#capability-reference)
 - [SSH with the smartcard](#fido2-ssh-security-key)
 - [Ethereum / EVM signing](#ethereum-evm-signing)
+- [Security model & caveats — read this before trusting the card with real funds](#security-model--caveats--read-this-before-trusting-the-card-with-real-funds)
 - [Hardware: which card to buy](#hardware-which-card-to-buy)
 - [Flashing a real card](#flashing-a-real-card)
 - [What we can and cannot claim](#what-we-can-and-cannot-claim)
@@ -69,7 +70,7 @@ for where it diverges.
 
 ## What it is today
 
-One physical card, a secure element running **three independent applets**, each
+One physical card, a secure element running **four independent applets**, each
 behind its own AID, plus a full host-side toolkit that turns the card into a real
 Bitcoin wallet.
 
@@ -79,6 +80,7 @@ graph TB
   Card --> FIDO2["FIDO2 / Passkey applet<br/>AID A0000006472F0001<br/>WebAuthn auth + hmac-secret / PRF"]
   Card --> MS2["MuSig2 applet<br/>AID 4E5552494D554701<br/>on-card cosigner key, non-exportable"]
   Card --> TOTP["OATH-TOTP applet<br/>AID 4E555249544F5450<br/>2FA codes computed on-card"]
+  Card --> ETH["ETH / EVM signer applet<br/>AID 4E55524945544801<br/>secp256k1 ECDSA, one key → ETH + BTC addr"]
   Card -.->|"every key op needs the card physically present"| Tap(("tap / insert"))
 ```
 
@@ -90,7 +92,7 @@ graph TB
 | **Arkade / Lightning identity** | Card PRF is the root of the Nuri/Arkade client key; supports the VTXO tree-round tweak. | ✅ Key + tweak proven; app wiring pending |
 | **OATH-TOTP** | Stores a 2FA secret, computes HMAC-SHA1 on-card (e.g. Hetzner). Secret never read back. | ✅ Real-card, RFC 6238 verified |
 | **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
-| **Ethereum / EVM signing** | secp256k1 ECDSA sign on-card. The card generates the key, the host hashes the tx (keccak256), the card signs. Makes the card a hardware Ethereum wallet. | 🔧 Spec written — applet + ethers.js signer planned (`docs/eth-signing-spec.md`) |
+| **Ethereum / EVM signing** | secp256k1 ECDSA signing on-card. One key → ETH address (keccak256) + BTC P2PKH address (hash160). Card signs, host verifies. **v1.3 proven: 5/5 ecrecover via `python-ecdsa`.** | ✅ Real-card proven (ecrecover green) |
 | **Fingerprint unlock (match-on-card)** | Replace PIN with a fingerprint. Feitian confirms the API; SDK is NDA-gated. | 🔒 Hardware path identified, not integrated |
 | **NFC tap-to-pay / POS** | Tap card to terminal to pay. | 🗺️ Vision — not built |
 
@@ -468,7 +470,7 @@ npm run e2e         # full host-side end-to-end (clones FIDO2Applet, builds jCar
 ### 3. Flash the card (one-time, per card)
 
 Insert the **blank card** into the PC/SC reader. Get the transport key from the
-seller. Then install the three applets:
+seller. Then install the four applets:
 
 ```bash
 # FIDO2 / passkey / WebAuthn PRF applet (required for SSH + passkey + wallet PRF)
@@ -481,6 +483,11 @@ npm run cosign:real-card:keygen                     # expect REAL_CARD_COSIGN_FL
 
 # OATH-TOTP applet (required for on-card 2FA codes)
 npm run card:totp:build && npm run card:totp:install
+
+# ETH / EVM ECDSA signer applet (required for Ethereum + plain-Bitcoin signing)
+cd card/eth && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build && cd ../..
+java -jar ~/bin/gp.jar --install card/dist/nuri-eth-signer.cap
+python3 scripts/card-eth-test.py                    # expect "ECDSA SIGNATURE VERIFIED"
 ```
 
 > **secp256k1 check:** MuSig2 only works on cards with OS `2025-05-14`
@@ -811,40 +818,105 @@ Full guide, architecture diagram, decision log, troubleshooting:
 
 ## Ethereum / EVM signing
 
-The card can become a **hardware Ethereum wallet** — secp256k1 ECDSA signing
-with the private key in the secure element, same as Bitcoin and SSH. The card
-already has the hard part (secp256k1 in the secure element, proven by the
-MuSig2 applet). Adding Ethereum is **simpler than MuSig2** — standard ECDSA
-(`s = k⁻¹(z + r·d) mod n`) is less complex than a MuSig2 partial
-(`s = k + e·a·sk`).
-
-**The plain-English version:**
-
-The phone builds an Ethereum transaction and hashes it with keccak256 (the
-Ethereum hash function). It sends the 32-byte hash to the card. The card
-signs it with the private key (which never leaves the card) and returns the
-signature `(r, s, v)`. The phone broadcasts the signed transaction. This is
-exactly how Ledger, Trezor, and all hardware wallets do it — the hash is on
-the phone, the signature is on the card.
+**Status: built and proven on a real card (v1.3).** The card runs secp256k1
+ECDSA signing — the same algorithm Bitcoin Legacy/SegWit and Ethereum use. One
+on-card key produces **two addresses**: an ETH address (keccak256 of the pubkey)
+and a BTC P2PKH address (hash160 + base58check). The card signs the hash; the
+host hashes and verifies.
 
 ```
-Phone: keccak256(tx) → 32-byte hash z
-  ↓ (sent to card over NFC/reader)
-Card: ECDSA sign(z) → (r, s, v)   [private key d never leaves]
-  ↓ (returned to phone)
-Phone: broadcast signed tx to Ethereum
+Host: hash the message  →  32-byte hash z   (ETH: keccak256, BTC: double-SHA256)
+  ↓ (send z to card over PC/SC)
+Card: ECDSA sign(z)     →  r ‖ s ‖ v         [private key d never leaves the card]
+  ↓ (return to host)
+Host: verify with python-ecdsa  →  verified: true   [independent library, not our code]
 ```
 
-**Why keccak256 is on the host, not the card:** keccak256 is not in the Java
-Card standard API (Java Card has SHA-256 and SHA-3, but not Ethereum's
-Keccak-256 variant). Every hardware wallet hashes on the host and sends the
-hash to the card. The card protects the *key*; the host computes the *hash*.
-This is the standard security model — a compromised host could sign a
-malicious tx, but can never steal the key, and the tap-to-sign requirement
-means the user must approve each transaction.
+**What's on the card** (`card/eth/NuriEcdsaSigner.java`, AID `4E55524945544801`,
+v1.3): `INS_KEYGEN` (on-card keygen, returns compressed pubkey), `INS_GET_PUBKEY`,
+`INS_SIGN` (takes 32-byte hash, returns `r‖s‖v` with EIP-2 low-s). Private key
+generated on-card via `RandomData.ALG_SECURE_RANDOM` (TRNG), stored as
+`ECPrivateKey`, non-exportable. Debug INS 05/06/08 remain for diagnostics
+(`mulMod`/`modInverse`/`kG` — no key leak); the `d`-leaking INS 0x07 was removed.
 
-**Full specification, APDU reference, ethers.js signer code, implementation
-plan, and testing:** [`docs/eth-signing-spec.md`](docs/eth-signing-spec.md).
+**What's on the host** (`scripts/card-dashboard-server.py` + `web/dashboard.html`):
+a small web UI at <http://127.0.0.1:8788/>. **Host crypto uses proven libraries,
+not hand-rolled code** — `python-ecdsa` for ecrecover + signature verify,
+`pycryptodome` for keccak256, `base58` for P2PKH, `hashlib` for sha256/ripemd160.
+`verified:true` means `python-ecdsa` agrees, not our code agreeing with itself.
+A `/api/eth/selftest` endpoint cross-checks the on-card `modInverse` against
+Python's `pow(a,-1,n)` for 10 random values per call — so on-card bignum
+breakage is caught immediately.
+
+**The bug history (honest, because it's the best argument for the security
+caveats below):** v1.0 hung on every `SIGN` (infinite loop in `modInverse`),
+v1.1/v1.2 produced wrong signatures (aliasing bug in `addMod` — `addMod(z, rd, rd)`
+computed `2z` instead of `z+rd`), v1.3 fixed both and is the first verifiable
+version. Three bugs in 24 hours in hand-rolled on-card bignum — that's exactly
+why the security section below is loud about it. Full post-mortem:
+[`docs/gp-macos-troubleshooting.md`](docs/gp-macos-troubleshooting.md).
+
+Full spec, APDU reference, ethers.js signer plan:
+[`docs/eth-signing-spec.md`](docs/eth-signing-spec.md).
+
+---
+
+## Security model & caveats — read this before trusting the card with real funds
+
+This is research-grade code, **not a production hardware wallet**. The on-card
+crypto is partly hand-rolled (unavoidable on JavaCard for secp256k1) and has
+broken three times in 24 hours. Be honest with yourself about what it is.
+
+### What's genuinely safe
+
+| Component | Why |
+|---|---|
+| secp256k1 EC point math (`k·G`, keygen) | Done by the card's hardware crypto engine (`KeyAgreement.ALG_EC_SVDP_DH_PLAIN_XY`). Same path MuSig2 uses, on-chain proven. Not our code. |
+| Private key storage | `ECPrivateKey` in the card key store, non-exportable. No `getS`-to-host APDU exists. |
+| Nonce RNG | `RandomData.ALG_SECURE_RANDOM` — the card's TRNG, not a host or software PRNG. |
+| Workspace zeroization | All scratch buffers are `CLEAR_ON_DESELECT` transient + explicitly zeroed at end of `sign()`. `k` and `d` don't persist. |
+| Host-side verification | `python-ecdsa` (independent library). The card signs, an audited library verifies. |
+
+### What is NOT safe — and what we cannot claim
+
+1. **The on-card `modInverse` is hand-rolled bignum code.** JavaCard has no
+   built-in modular inverse for secp256k1's order `n`, and no built-in
+   ECDSA-over-secp256k1 (the card's `Signature.ALG_ECDSA` is P-256 only). So
+   `modInverse` (binary extended GCD) is genuinely hand-written in
+   `card/eth/NuriEcdsaSigner.java`. It's correct *now* (v1.3, verified off-card
+   against `pow(a,-1,n)` for 5000+ cases, plus the `/api/eth/selftest` guard on
+   every dashboard load). But it broke 3 times in 24 hours (v1.0 infinite loop,
+   v1.1 wrong parity, v1.2 wrong halving). **This is the single highest-risk file
+   in the project.** Touch it only with the off-card oracle running.
+
+2. **Side-channel resistance: unverified.** The hand-rolled `modInverse` and the
+   Satochip-derived `BigIntegerWrapper.mulMod`/`addMod` are **not constant-time**
+   (data-dependent branches, variable-time multiplies). The card's *native* EC
+   ops are side-channel-hardened by the silicon; the *software* bignum ops we
+   layered on top are not. A power/EM attack could in principle recover `d` from
+   the `r·d` multiply. Fine for research; **not** safe for a production wallet
+   holding real value.
+
+3. **No user-presence check on `INS_SIGN`.** The spec says `INS_SIGN` requires a
+   tap; the code doesn't enforce it — any hash sent over PC/SC is signed
+   silently. A malicious host process could sign transactions without the user
+   knowing. The FIDO2 applet enforces UP; this ETH applet does not. **Fix this
+   before any production use.**
+
+4. **Blind signing.** The card signs an opaque 32-byte hash with no idea whether
+   it's a benign message, a real ETH tx, or a malicious tx from a compromised
+   host. The card has no screen. This is the standard hardware-wallet trade-off
+   (Ledger/Trezor display the tx first; this card cannot).
+
+5. **No audit, no EAL certification.** The Feitian dev card is not
+   EAL-certified. The applet is ~440 lines of Java Card written by an LLM across
+   two sessions, debugged live, never third-party reviewed.
+
+**Bottom line:** safe for research, demos, learning, throwaway testnet
+transactions, proving the card can do secp256k1 ECDSA. **Not safe for a
+production hardware wallet protecting real funds** without (a) a user-presence
+gate on `INS_SIGN`, (b) constant-time bignum or a hardware modular-inverse
+primitive, (c) third-party security review, and (d) an EAL-certified chip.
 
 ---
 
@@ -877,8 +949,9 @@ CLI; optionally an **ACR122U** NFC reader for APDU/NFC experiments.
 ## Flashing a real card
 
 Prebuilt CAPs ship in `dist/` (`FIDO2.cap`, `nuri-musig2-v20-keygen.cap`,
-`nuri-oath-totp.cap`) with checksums in `dist/SHA256SUMS` and provenance in
-[`dist/README.md`](dist/README.md). Rebuild with `npm run card:build`.
+`nuri-oath-totp.cap`, `nuri-eth-signer.cap`) with checksums in `dist/SHA256SUMS`
+and provenance in [`dist/README.md`](dist/README.md). Rebuild with
+`npm run card:build` (ETH applet: `cd card/eth && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build`).
 
 ```bash
 # install the FIDO2 applet with the key your seller supplied
@@ -919,17 +992,27 @@ fingerprint UV replaces it once the Feitian biometric applet path is integrated.
 - The card derives the *same* wallet/identity key the Nuri app derives.
 - Real WebAuthn PRF works over desktop PC/SC and native phone NFC.
 - The MuSig2 simulator matches `@scure/btc-signer` and rejects nonce reuse.
+- The ETH/EVM signer (v1.3) produces verifiable ECDSA signatures on-card —
+  confirmed by `python-ecdsa` (an independent, audited library) via both
+  signature verify and ecrecover, 5/5 across different hashes, with the same
+  key producing both an ETH address and a BTC P2PKH address.
 
 **We cannot claim (yet):**
 
-- That mobile-**browser** NFC WebAuthn PRF works for this card — the native NFC app
-  works; the OS/browser-routed path does not reliably pass PRF through.
-- That fingerprint unlock is integrated into *our* applet — Feitian confirms the API
-  exists, but the SDK is NDA-gated; today it's PIN/UV or Feitian's own FIDO2 bio stack.
+- That the on-card `modInverse` is side-channel safe — it's hand-rolled,
+  variable-time, and broke 3 times in 24 hours during development. See
+  [Security model & caveats](#security-model--caveats--read-this-before-trusting-the-card-with-real-funds).
+- That `INS_SIGN` enforces user presence — it signs any hash sent over PC/SC
+  without a tap. **Fix this before production.**
+- That mobile-**browser** NFC WebAuthn PRF works for this card — the native NFC
+  app works; the OS/browser-routed path does not reliably pass PRF through.
+- That fingerprint unlock is integrated into *our* applet — Feitian confirms the
+  API exists, but the SDK is NDA-gated; today it's PIN/UV or Feitian's own FIDO2
+  bio stack.
 - That the MuSig2 applet is audited or production-ready — it's a proven device
-  *primitive*, not a reviewed product signer (nonce policy, PIN/fingerprint policy,
-  and a final host flow against the exact nuri-expo `@scure/btc-signer` session still
-  need hardening).
+  *primitive*, not a reviewed product signer (nonce policy, PIN/fingerprint
+  policy, and a final host flow against the exact nuri-expo `@scure/btc-signer`
+  session still need hardening).
 - Physical tamper resistance from a blank dev card — production needs an
   EAL-certified chip with documented keys.
 
