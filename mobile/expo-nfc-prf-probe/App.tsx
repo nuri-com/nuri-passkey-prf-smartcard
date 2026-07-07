@@ -108,5 +108,5 @@ const styles = StyleSheet.create({
   navTabActive: { backgroundColor: '#eef1f4' },
   navTabText: { fontSize: 15, fontWeight: '600', color: '#657080' },
   navTabTextActive: { color: '#17202a' },
-  content: { padding: 20, paddingTop: 36, paddingBottom: 60 },
+  content: { padding: 20, paddingTop: 50, paddingBottom: 60 },
 });
