@@ -1002,7 +1002,15 @@ async function claimReceiveVHTLCs() {
 // Send: Ark -> Lightning submarine swap. Pays a BOLT11 merchant invoice from
 // the card's settled Ark VTXO balance. Same card+ASP MuSig2 round as claim,
 // just swaps.sendLightningPayment instead of swaps.claimVHTLC.
-async function payMerchantInvoice(invoice, pinOverride) {
+// Read the Nuri account's available sats (read-only, no card).
+async function cardAvailableSats(cardPk33, serverPk33) {
+  try {
+    const r = await spawnClaimRunner({ mode: 'balance', cardPk33, serverPk33, nodeUrl: 'https://arkade.computer' });
+    return Number(r?.balance?.available ?? 0);
+  } catch { return 0; }
+}
+
+async function payMerchantInvoice(invoice, pinOverride, amountSats = 0) {
   const pin = pinOverride || CARD_PIN;
   if (!pin) {
     return { skipped: 'pin-not-set' };
@@ -1014,6 +1022,18 @@ async function payMerchantInvoice(invoice, pinOverride) {
   const profile = await readCardReceiveProfile();
   if (!profile) throw new Error('card receive profile missing');
   const receiveOwner = cardReceiveOwnerFromProfile(identity, profile);
+
+  // Fast strategy: if the balance already covers the payment (+ swap fee buffer),
+  // pay now and top up in the background afterward. If it's short, claim any
+  // pending Lightning receives FIRST so we spend one funded VTXO (avoids a
+  // failed send + a duplicate Boltz swap on retry).
+  const needSats = Number(amountSats || 0) + 60;
+  if (amountSats > 0) {
+    const avail = await cardAvailableSats(identity.card_client_pk33, serverPk33);
+    if (avail < needSats) {
+      try { await claimReceiveVHTLCs(); } catch { /* proceed; send fails clearly if still short */ }
+    }
+  }
 
   const v4 = signerV4Url();
   const base = signerOriginUrl();
@@ -1038,7 +1058,13 @@ async function payMerchantInvoice(invoice, pinOverride) {
     nodeUrl: 'https://arkade.computer',
     boltzNetwork: 'bitcoin',
   };
-  return await spawnClaimRunner(cfg);
+  const result = await spawnClaimRunner(cfg);
+  // After a successful payment, claim any newly-arrived receives in the
+  // background (best-effort; needs the card still on the reader).
+  if (result?.status === 'NURI_CARD_ARKADE_SEND_OK') {
+    claimReceiveVHTLCs().catch(() => {});
+  }
+  return result;
 }
 
 // Pure-Arkade send: card + a locally-held key (LOCAL_DEMO_ASP_SECRET32), no Nuri.
@@ -1332,7 +1358,7 @@ async function handleCheckoutConfirm(req, res) {
     const account = body.account === 'pure' ? 'pure' : 'nuri';
     const send = account === 'pure'
       ? await payMerchantInvoicePureArkade(session.invoice, body.pin || '')
-      : await payMerchantInvoice(session.invoice, body.pin || '');
+      : await payMerchantInvoice(session.invoice, body.pin || '', session.amount_sats);
     if (send.skipped) {
       broadcast = { attempted: false, account, skipped: send.skipped };
     } else {
