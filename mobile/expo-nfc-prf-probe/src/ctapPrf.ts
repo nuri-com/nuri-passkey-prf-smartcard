@@ -340,3 +340,68 @@ export async function derivePrfOverNfc(params: {
     };
   });
 }
+
+// WebAuthn assertion (CTAP2 getAssertion) for the Arkade send/prepare challenge.
+// Produces client_data_b64u, auth_data_b64u, sig_b64u — same fields the Python
+// bridge returns for the server's send/prepare flow.
+export type WebAuthnAssertion = {
+  credentialIdB64u: string;
+  clientDataB64u: string;
+  authDataB64u: string;
+  sigB64u: string;
+};
+
+export async function webauthnAssert(params: {
+  rpId: string;
+  origin: string;
+  credentialIdB64u: string;
+  challengeB64u: string;
+  log?: LogSink;
+}): Promise<WebAuthnAssertion> {
+  const log = params.log || (() => {});
+  return withIsoDep(async () => {
+    await selectFido(log);
+    const credentialId = credentialIdToBytes(params.credentialIdB64u);
+    const challenge = credentialIdToBytes(params.challengeB64u);
+    const clientDataJson = JSON.stringify({
+      type: 'webauthn.get',
+      challenge: params.challengeB64u,
+      origin: params.origin,
+      crossOrigin: false,
+    });
+    const clientDataHash = sha256(utf8(clientDataJson));
+    const allowList = [
+      new Map<string, unknown>([
+        ['type', 'public-key'],
+        ['id', credentialId],
+      ]),
+    ];
+    const request = new Map<number, unknown>([
+      [1, params.rpId],
+      [2, clientDataHash],
+      [3, allowList],
+      [5, new Map<string, unknown>([['uv', true]])],
+    ]);
+    const response = await sendCbor(0x02, request, log);
+    const authData = mapGet(response, 2);
+    if (!(authData instanceof Uint8Array) || authData.length < 37) {
+      throw new Error('getAssertion returned invalid authenticatorData.');
+    }
+    const sig = mapGet(response, 3);
+    if (!(sig instanceof Uint8Array)) {
+      throw new Error('getAssertion returned no signature.');
+    }
+    return {
+      credentialIdB64u: params.credentialIdB64u,
+      clientDataB64u: uint8ArrayToB64u(new TextEncoder().encode(clientDataJson)),
+      authDataB64u: uint8ArrayToB64u(authData),
+      sigB64u: uint8ArrayToB64u(sig),
+    };
+  });
+}
+
+function uint8ArrayToB64u(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
