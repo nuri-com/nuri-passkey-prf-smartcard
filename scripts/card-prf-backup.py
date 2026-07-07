@@ -39,6 +39,9 @@ except Exception:  # pragma: no cover - only absent when fido2[pcsc] is unavaila
 PROFILE_SCHEMA = "nuri-card-prf-profile-v1"
 DEFAULT_PROFILE_DIR = Path(".nuri-card-prf")
 DEFAULT_SALT = "nuri-offline-backup-v1"
+P256_SPKI_PREFIX = bytes.fromhex(
+    "3059301306072A8648CE3D020106082A8648CE3D030107034200"
+)
 
 
 class CliUserInteraction(UserInteraction):
@@ -98,6 +101,28 @@ def credential_id(value):
     if hasattr(response, "attestation_object"):
         return response.attestation_object.auth_data.credential_data.credential_id
     return response.auth_data.credential_data.credential_id
+
+
+def credential_public_key(value):
+    response = credential_response(value)
+    if hasattr(response, "attestation_object"):
+        return response.attestation_object.auth_data.credential_data.public_key
+    return response.auth_data.credential_data.public_key
+
+
+def p256_uncompressed_public_key(cose_key) -> bytes:
+    try:
+        x = output_bytes(cose_key[-2])
+        y = output_bytes(cose_key[-3])
+    except Exception as error:
+        raise ValueError(f"unsupported credential public key format: {error}") from error
+    if len(x) != 32 or len(y) != 32:
+        raise ValueError("P-256 credential public key coordinates must be 32 bytes")
+    return b"\x04" + x + y
+
+
+def p256_spki_public_key(cose_key) -> bytes:
+    return P256_SPKI_PREFIX + p256_uncompressed_public_key(cose_key)
 
 
 def prf_enabled(value):
@@ -308,6 +333,9 @@ def command_enroll(args):
         return 5
 
     cred_id = credential_id(credential)
+    public_key = credential_public_key(credential)
+    public_key_uncompressed = p256_uncompressed_public_key(public_key)
+    public_key_spki = p256_spki_public_key(public_key)
     profile = {
         "schema": PROFILE_SCHEMA,
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -321,6 +349,9 @@ def command_enroll(args):
         "registration_prf": args.registration_prf,
         "credential_id": b64u_encode(cred_id),
         "credential_id_hex": cred_id.hex(),
+        "credential_public_key_uncompressed_hex": public_key_uncompressed.hex(),
+        "credential_public_key_spki_b64u": b64u_encode(public_key_spki),
+        "credential_public_key_spki_hex": public_key_spki.hex(),
         "note": "Not secret, but required to derive the same PRF unless the credential is discoverable and recovered separately.",
     }
     write_profile(path, profile)
@@ -329,6 +360,8 @@ def command_enroll(args):
             "profile": str(path),
             "credential_id": profile["credential_id"],
             "credential_id_hex": profile["credential_id_hex"],
+            "credential_public_key_spki_b64u": profile["credential_public_key_spki_b64u"],
+            "credential_public_key_uncompressed_hex": profile["credential_public_key_uncompressed_hex"],
             "prf_enabled": prf_enabled(credential),
             "hmac_create_secret_enabled": hmac_create_secret_enabled(credential),
             "registration_prf": args.registration_prf,
@@ -455,6 +488,58 @@ def command_selftest(args):
     return 0 if stable and separated else 6
 
 
+def command_webauthn_assert(args):
+    """Produce a WebAuthn assertion over a server-supplied challenge.
+
+    Used for the Arkade receive-claim approval, which requires a real UV
+    assertion from the card's registered credential (not a software passkey)."""
+    profile = None
+    try:
+        profile = read_profile(profile_path(args))
+    except (FileNotFoundError, ValueError):
+        profile = None
+    rp_id = args.rp_id or (profile and profile.get("rp_id"))
+    origin = args.origin or (profile and profile.get("origin"))
+    cred_b64u = args.credential_id or (profile and profile.get("credential_id"))
+    if not (rp_id and origin and cred_b64u):
+        raise ValueError("need --rp-id, --origin and --credential-id (or a saved --profile)")
+
+    challenge = b64u_decode(args.challenge_b64u)
+    device = select_device(args)
+    client = client_for(args, device, origin)
+    request_options = PublicKeyCredentialRequestOptions(
+        challenge=challenge,
+        rp_id=rp_id,
+        allow_credentials=[
+            {"type": PublicKeyCredentialType.PUBLIC_KEY, "id": b64u_decode(cred_b64u)}
+        ],
+        user_verification=user_verification(args.user_verification or "required"),
+    )
+    assertion = client.get_assertion(request_options).get_response(0)
+    resp = getattr(assertion, "response", assertion)
+    client_data = bytes(getattr(resp, "client_data", None) or getattr(resp, "client_data_json"))
+    auth_data = bytes(getattr(resp, "authenticator_data", None) or getattr(resp, "auth_data"))
+    signature = bytes(resp.signature)
+    raw_id = getattr(assertion, "raw_id", None) or getattr(assertion, "credential_id", None)
+    if raw_id is None and getattr(assertion, "id", None):
+        raw_id = b64u_decode(assertion.id)
+    credential_id = bytes(raw_id) if raw_id else b64u_decode(cred_b64u)
+
+    print_json(
+        {
+            "status": "CARD_WEBAUTHN_ASSERT_OK",
+            "rp_id": rp_id,
+            "origin": origin,
+            "user_verification": args.user_verification or "required",
+            "credential_id_b64u": b64u_encode(credential_id),
+            "client_data_b64u": b64u_encode(client_data),
+            "auth_data_b64u": b64u_encode(auth_data),
+            "sig_b64u": b64u_encode(signature),
+        }
+    )
+    return 0
+
+
 def add_device_args(parser):
     parser.add_argument("--transport", choices=["pcsc", "hid"], default=os.environ.get("FIDO2_BACKUP_TRANSPORT", "pcsc"))
     parser.add_argument("--device-index", type=int, default=None)
@@ -514,6 +599,21 @@ def build_parser():
     selftest.add_argument("--registration-prf", choices=["prf", "hmacCreateSecret", "disabled"], default="prf")
     selftest.add_argument("--force", action="store_true")
     selftest.set_defaults(func=command_selftest)
+
+    wassert = subparsers.add_parser(
+        "webauthn-assert",
+        help="Produce a WebAuthn assertion over a server challenge (Arkade receive-claim approval).",
+    )
+    add_device_args(wassert)
+    add_profile_args(wassert)
+    wassert.add_argument("--challenge-b64u", required=True)
+    wassert.add_argument("--rp-id", default=None)
+    wassert.add_argument("--origin", default=None)
+    wassert.add_argument("--credential-id", default=None)
+    wassert.add_argument(
+        "--user-verification", choices=["required", "preferred", "discouraged"], default="required"
+    )
+    wassert.set_defaults(func=command_webauthn_assert)
 
     return parser
 

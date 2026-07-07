@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nuri Card Profile</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f5f6f8;
+    --panel: #fff;
+    --ink: #17202a;
+    --muted: #657080;
+    --line: #d8dde5;
+    --accent: #274c77;
+    --good: #0f7a4f;
+    --bad: #a52820;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav { max-width: 1120px; margin: 0 auto; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  nav strong { font-size: 17px; }
+  nav a { color: var(--muted); text-decoration: none; font-weight: 650; margin-left: 18px; }
+  nav a[aria-current="page"] { color: var(--ink); }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 40px; }
+  .toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 18px; }
+  .toolbar > div { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+  button { border: 1px solid var(--accent); background: var(--accent); color: white; border-radius: 6px; padding: 11px 14px; font: inherit; font-weight: 750; cursor: pointer; }
+  button.secondary { border-color: var(--line); background: #fff; color: var(--ink); }
+  button:disabled { opacity: .55; cursor: default; }
+  input { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 11px 12px; font: inherit; background: #fff; color: var(--ink); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .receive-grid { display: grid; grid-template-columns: minmax(0, 180px) auto auto; gap: 12px; align-items: end; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+  h2 { margin: 0 0 14px; font-size: 18px; }
+  .label { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; margin-top: 13px; }
+  .value { overflow-wrap: anywhere; margin-top: 4px; }
+  .address { font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border: 1px solid var(--line); border-radius: 6px; background: #fafbfc; padding: 12px; overflow-wrap: anywhere; word-break: break-all; }
+  .qr { margin-top: 12px; text-align: center; }
+  .qr[hidden] { display: none; }
+  .qr img { width: 240px; max-width: 100%; height: auto; image-rendering: pixelated; background: #fff; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .balance { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+  .metric { min-width: 128px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .metric strong { display: block; font-size: 24px; }
+  .receive-list { display: grid; gap: 10px; margin-top: 12px; }
+  .receive-row { border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #fafbfc; }
+  .receive-row strong { display: block; }
+  .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .muted { color: var(--muted); }
+  .ok { color: var(--good); font-weight: 800; }
+  .bad { color: var(--bad); font-weight: 800; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #101820; color: #e8edf2; border-radius: 6px; padding: 14px; font-size: 12px; max-height: 320px; overflow: auto; }
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: 1fr; }
+    .receive-grid { grid-template-columns: 1fr; }
+    .toolbar { align-items: stretch; flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <strong>Nuri Card</strong>
+    <div>
+      <a href="/terminal">Terminal</a>
+      <a href="/profile" aria-current="page">Profile</a>
+    </div>
+  </nav>
+</header>
+<main>
+  <div class="toolbar">
+    <h1>Card profile</h1>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label class="label" for="accountSelect" style="margin:0">Account</label>
+      <select id="accountSelect" style="padding:6px 10px;border-radius:8px">
+        <option value="nuri">Nuri · card@nuri.com</option>
+        <option value="pure">Pure Arkade (no Nuri)</option>
+      </select>
+      <button id="readAll">Read card account</button>
+      <button id="refresh" class="secondary">Refresh card</button>
+      <button id="copyLogsTop" class="secondary">Copy logs</button>
+    </div>
+  </div>
+  <section style="margin-bottom:14px">
+    <div class="label">Selected account</div>
+    <div id="accountLabel" class="value">Nuri · <strong>card@nuri.com</strong></div>
+    <div class="label" style="margin-top:6px">Ark address</div>
+    <div id="accountAddress" class="address">-</div>
+  </section>
+  <section style="margin-bottom:18px">
+    <h2>Lightning receive</h2>
+    <div class="receive-grid">
+      <div>
+        <div class="label">Amount, sats</div>
+        <input id="receiveAmount" inputmode="numeric" type="number" min="1" value="1000" />
+      </div>
+      <button id="createInvoice">Create invoice</button>
+      <button id="registerReceive" class="secondary">Register owner</button>
+    </div>
+    <div class="label">Receive owner</div>
+    <div id="receiveOwner" class="value muted">Not loaded</div>
+    <div class="balance">
+      <div class="metric"><span class="label">Card wallet</span><strong id="cardWalletBalance">-</strong></div>
+      <div class="metric"><span class="label">Lightning claimable</span><strong id="lightningClaimable">-</strong></div>
+      <div class="metric"><span class="label">Open invoices</span><strong id="lightningOpen">-</strong></div>
+    </div>
+    <div class="label">BOLT11 invoice</div>
+    <div id="receiveInvoice" class="address">Not created</div>
+    <div id="receiveQr" class="qr" hidden><img id="receiveQrImg" alt="Invoice QR code" /></div>
+    <div class="inline-actions">
+      <button id="refreshReceives" class="secondary">Refresh receives</button>
+      <span id="autoSyncStatus" class="muted">Auto sync starting...</span>
+    </div>
+    <div id="receiveList" class="receive-list"></div>
+  </section>
+  <div class="grid">
+    <section id="mainnetCard">
+      <h2>Local Taproot proof</h2>
+      <div class="label">Proof address</div>
+      <div id="mainnetAddress" class="address">Not loaded</div>
+      <div class="label">Internal aggregate address</div>
+      <div id="mainnetInternal" class="address">Not loaded</div>
+      <div class="balance">
+        <div class="metric"><span class="label">Confirmed</span><strong id="mainnetConfirmed">-</strong></div>
+        <div class="metric"><span class="label">Pending</span><strong id="mainnetPending">-</strong></div>
+      </div>
+      <div class="label">Keys</div>
+      <div id="mainnetKeys" class="value muted">Not loaded</div>
+    </section>
+  </div>
+  <section style="margin-top:18px">
+    <h2>Status</h2>
+    <div class="inline-actions">
+      <button id="copyLogs" class="secondary">Copy logs</button>
+    </div>
+    <div id="status" class="muted">Ready.</div>
+    <pre id="out" hidden></pre>
+  </section>
+</main>
+<script src="/vendor/qrcode.js"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const networks = ['mainnet'];
+const logs = [];
+const state = {
+  account: null,
+  receives: null,
+  invoice: null,
+  lastError: null,
+};
+let syncInFlight = false;
+let claimInFlight = false;
+let autoClaimDisabled = false;
+let autoSyncTimer = null;
+
+function logEvent(type, data = {}) {
+  logs.push({
+    at: new Date().toISOString(),
+    type,
+    data,
+  });
+  while (logs.length > 120) logs.shift();
+}
+
+async function getJson(path) {
+  const res = await fetch(path, { cache: 'no-store' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+  return data;
+}
+
+async function post(path, body) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) {
+    const error = new Error(data.error || JSON.stringify(data));
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function renderNetwork(network, account) {
+  const entry = account.addresses[network];
+  $(`${network}Address`).textContent = entry.address;
+  $(`${network}Internal`).textContent = entry.internal_address;
+  $(`${network}Confirmed`).textContent = `${entry.confirmed_sats} sats`;
+  $(`${network}Pending`).textContent = entry.balance_error ? 'unavailable' : `${entry.pending_sats} sats`;
+  const liveServer = account.lightning && account.lightning.live_server_pubkey;
+  $(`${network}Keys`).textContent = `card client ${account.card_client_pk33} / live server ${liveServer || 'not registered'} / local demo ASP ${account.asp_pk33}`;
+}
+
+function renderAccount(account) {
+  state.account = account;
+  logEvent('account_rendered', {
+    card_client_pk33: account.card_client_pk33,
+    registered: Boolean(account.lightning?.recovery?.registered),
+  });
+  for (const network of networks) renderNetwork(network, account);
+  const receive = account.lightning && account.lightning.receive_owner;
+  const recovery = account.lightning && account.lightning.recovery;
+  if (receive) {
+    const registered = recovery && recovery.registered ? 'registered' : 'not registered';
+    $('receiveOwner').textContent = `${registered}: ${receive.cred_id_b64u} / card ${receive.client_public_key_33_hex}`;
+  } else {
+    $('receiveOwner').textContent = 'Not registered yet';
+  }
+  $('status').textContent = 'Card Arkade account loaded.';
+  $('status').className = 'ok';
+  $('out').hidden = false;
+  $('out').textContent = JSON.stringify(account, null, 2);
+}
+
+function renderReceives(result) {
+  state.receives = result;
+  const receives = Array.isArray(result.lightning) ? result.lightning : [];
+  const claimableSats = receives
+    .filter((receive) => receive.status === 'claimable')
+    .reduce((sum, receive) => sum + Math.floor(Number(receive.amount_msat || 0) / 1000), 0);
+  const openCount = receives.filter((receive) => receive.status !== 'claimable').length;
+  $('lightningClaimable').textContent = `${claimableSats} sats`;
+  $('lightningOpen').textContent = `${openCount}`;
+  $('autoSyncStatus').textContent = `Auto sync on · last ${new Date().toLocaleTimeString()}`;
+  logEvent('receives_synced', {
+    claimable_sats: claimableSats,
+    open_count: openCount,
+    swaps: receives.map((receive) => ({
+      swap_id: receive.swap_id,
+      status: receive.status,
+      sats: Math.floor(Number(receive.amount_msat || 0) / 1000),
+      boltz_status: receive.boltz_status,
+    })),
+  });
+  if (!receives.length) {
+    $('receiveList').innerHTML = '<div class="muted">No Lightning receives yet.</div>';
+    return;
+  }
+  $('receiveList').innerHTML = receives.map((receive) => {
+    const sats = Math.floor(Number(receive.amount_msat || 0) / 1000);
+    const tx = receive.boltz_status_response && receive.boltz_status_response.transaction;
+    const txLine = tx && tx.id ? `<div class="value">Lockup tx ${tx.id}${tx.eta ? `, eta ${tx.eta}` : ''}</div>` : '';
+    return `
+      <div class="receive-row">
+        <strong>${receive.status} · ${sats} sats</strong>
+        <div class="value">Swap ${receive.swap_id || receive.id}</div>
+        <div class="value">Boltz ${receive.boltz_status || 'unknown'}</div>
+        ${txLine}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderQr(text) {
+  const wrap = $('receiveQr');
+  const img = $('receiveQrImg');
+  if (!text || typeof window.qrcode !== 'function') { wrap.hidden = true; return; }
+  try {
+    const qr = window.qrcode(0, 'L');
+    qr.addData(text);
+    qr.make();
+    img.src = qr.createDataURL(4, 8);
+    wrap.hidden = false;
+  } catch (error) {
+    wrap.hidden = true;
+    logEvent('qr_error', { error: error.message });
+  }
+}
+
+function selectedAccount() {
+  return $('accountSelect')?.value === 'pure' ? 'pure' : 'nuri';
+}
+
+function renderAccountLabel() {
+  const acct = selectedAccount();
+  $('accountLabel').innerHTML = acct === 'pure'
+    ? 'Pure Arkade · <strong>card + local key, no Nuri</strong>'
+    : 'Nuri · <strong>card@nuri.com</strong>';
+}
+
+async function refreshWalletBalance() {
+  const acct = selectedAccount();
+  try {
+    const data = await getJson(`/api/card/wallet-balance?account=${acct}`);
+    const sats = data.balance?.available ?? data.balance?.total ?? 0;
+    $('cardWalletBalance').textContent = `${sats} sats`;
+    $('accountAddress').textContent = data.ark_address || '-';
+    state.balance = data;
+    logEvent('wallet_balance', { account: acct, available: data.balance?.available, total: data.balance?.total });
+  } catch (error) {
+    $('cardWalletBalance').textContent = 'n/a';
+    logEvent('wallet_balance_error', { account: acct, error: error.data || error.message });
+  }
+}
+
+async function loadAccount() {
+  $('readAll').disabled = true;
+  $('refresh').disabled = true;
+  $('status').textContent = 'Waiting for card...';
+  $('status').className = 'muted';
+  try {
+    renderAccount(await getJson('/api/card/account'));
+    await refreshWalletBalance();
+  } catch (error) {
+    state.lastError = error.message;
+    logEvent('account_error', { error: error.message });
+    $('status').textContent = error.message;
+    $('status').className = 'bad';
+  } finally {
+    $('readAll').disabled = false;
+    $('refresh').disabled = false;
+  }
+}
+
+async function maybeAutoClaim(result) {
+  if (claimInFlight || autoClaimDisabled) return;
+  if (selectedAccount() !== 'nuri') return; // Nuri LNURL receives only
+  const claimable = (result.lightning || []).filter((r) => r.status === 'claimable');
+  if (!claimable.length) return;
+  claimInFlight = true;
+  $('status').textContent = `Auto-claiming ${claimable.length} Lightning receive(s) into the card wallet…`;
+  $('status').className = 'muted';
+  logEvent('auto_claim_start', { count: claimable.length, swaps: claimable.map((r) => r.swap_id) });
+  try {
+    const res = await post('/api/card/lightning-claim', {});
+    logEvent('auto_claim_done', {
+      claimed_ok: res.claimed_ok,
+      claims: (res.claims || []).map((c) => ({ swap_id: c.swap_id, status: c.status, ark_address: c.ark_address, error: c.error })),
+    });
+    $('status').textContent = res.claimed_ok
+      ? `Claimed ${res.claimed_ok} Lightning receive(s) into the card wallet.`
+      : 'Claim attempted — see logs.';
+    $('status').className = res.claimed_ok ? 'ok' : 'bad';
+    $('out').hidden = false;
+    $('out').textContent = JSON.stringify(res, null, 2);
+    await refreshReceives({ silent: true });
+    await refreshWalletBalance();
+  } catch (error) {
+    logEvent('auto_claim_error', { error: error.data || error.message });
+    if (error.data?.next_step) autoClaimDisabled = true; // e.g. PIN not set — stop auto-retrying
+    $('status').textContent = error.data?.next_step || error.message;
+    $('status').className = 'bad';
+  } finally {
+    claimInFlight = false;
+  }
+}
+
+async function refreshReceives({ silent = false } = {}) {
+  if (syncInFlight) return;
+  syncInFlight = true;
+  if (!silent) autoClaimDisabled = false; // manual refresh re-enables auto-claim
+  $('refreshReceives').disabled = true;
+  if (!silent) {
+    $('status').textContent = 'Syncing Lightning receives...';
+    $('status').className = 'muted';
+  }
+  try {
+    const result = await post('/api/card/lightning-sync', {});
+    renderReceives(result);
+    const claimable = result.lightning.filter((item) => item.status === 'claimable').length;
+    if (!silent) {
+      $('status').textContent = claimable ? `${claimable} Lightning receive is claimable.` : 'Lightning receives synced.';
+      $('status').className = 'ok';
+      $('out').hidden = false;
+      $('out').textContent = JSON.stringify(result, null, 2);
+    }
+    await maybeAutoClaim(result);
+  } catch (error) {
+    state.lastError = error.data || error.message;
+    logEvent('receives_error', { error: error.data || error.message });
+    $('autoSyncStatus').textContent = `Auto sync error · ${new Date().toLocaleTimeString()}`;
+    if (!silent) {
+      $('status').textContent = error.data?.next_step || error.message;
+      $('status').className = 'bad';
+    }
+  } finally {
+    syncInFlight = false;
+    $('refreshReceives').disabled = false;
+  }
+}
+
+async function refreshProfile() {
+  await loadAccount();
+  await refreshReceives();
+}
+
+async function registerReceiveOwner() {
+  $('registerReceive').disabled = true;
+  $('createInvoice').disabled = true;
+  $('status').textContent = 'Registering card receive owner...';
+  $('status').className = 'muted';
+  try {
+    const result = await post('/api/card/register-receive-owner', {});
+    logEvent('receive_owner_registered', {
+      enrolled_new_credential: result.enrolled_new_credential,
+      receive_owner: result.receive_owner,
+      recovery: result.recovery,
+    });
+    const owner = result.receive_owner;
+    $('receiveOwner').textContent = `registered: ${owner.cred_id_b64u} / card ${owner.client_public_key_33_hex}`;
+    $('status').textContent = 'Card receive owner registered on Nuri Arkade.';
+    $('status').className = 'ok';
+    $('out').hidden = false;
+    $('out').textContent = JSON.stringify(result, null, 2);
+  } catch (error) {
+    state.lastError = error.data || error.message;
+    logEvent('receive_owner_error', { error: error.data || error.message });
+    $('status').textContent = error.data?.next_step || error.message;
+    $('status').className = 'bad';
+  } finally {
+    $('registerReceive').disabled = false;
+    $('createInvoice').disabled = false;
+  }
+}
+
+async function createReceiveInvoice() {
+  $('createInvoice').disabled = true;
+  $('registerReceive').disabled = true;
+  $('status').textContent = 'Registering card owner and creating Lightning invoice...';
+  $('status').className = 'muted';
+  try {
+    const result = await post('/api/card/lightning-invoice', {
+      amountSats: Number($('receiveAmount').value),
+      memo: 'Nuri card receive',
+    });
+    state.invoice = result;
+    logEvent('invoice_created', {
+      amount_sats: result.amount_sats,
+      swap_id: result.swap_id,
+      payment_hash_hex: result.payment_hash_hex,
+      expires_at_ms: result.expires_at_ms,
+    });
+    $('receiveInvoice').textContent = result.invoice;
+    renderQr(result.invoice);
+    const owner = result.account && result.account.receive_owner;
+    if (owner) $('receiveOwner').textContent = `registered: ${owner.cred_id_b64u} / card ${owner.client_public_key_33_hex}`;
+    $('status').textContent = `Lightning invoice ready: ${result.payment_hash_hex || result.swap_id || 'created'}`;
+    $('status').className = 'ok';
+    $('out').hidden = false;
+    $('out').textContent = JSON.stringify(result, null, 2);
+    await refreshReceives({ silent: true });
+  } catch (error) {
+    state.lastError = error.data || error.message;
+    logEvent('invoice_error', { error: error.data || error.message });
+    $('status').textContent = error.data?.next_step || error.message;
+    $('status').className = 'bad';
+  } finally {
+    $('createInvoice').disabled = false;
+    $('registerReceive').disabled = false;
+  }
+}
+
+function shareBundle() {
+  return {
+    generated_at: new Date().toISOString(),
+    page: location.href,
+    user_agent: navigator.userAgent,
+    visible: {
+      status: $('status').textContent,
+      card_wallet: $('cardWalletBalance').textContent,
+      lightning_claimable: $('lightningClaimable').textContent,
+      open_invoices: $('lightningOpen').textContent,
+      auto_sync: $('autoSyncStatus').textContent,
+    },
+    latest: state,
+    events: logs,
+  };
+}
+
+async function copyLogs() {
+  const text = JSON.stringify(shareBundle(), null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    $('status').textContent = 'Logs copied.';
+    $('status').className = 'ok';
+    logEvent('logs_copied', { bytes: text.length });
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+    $('status').textContent = 'Logs copied.';
+    $('status').className = 'ok';
+    logEvent('logs_copied_fallback', { bytes: text.length });
+  }
+}
+
+function startAutoSync() {
+  if (autoSyncTimer) clearInterval(autoSyncTimer);
+  autoSyncTimer = setInterval(() => refreshReceives({ silent: true }), 8000);
+  $('autoSyncStatus').textContent = 'Auto sync on';
+  logEvent('auto_sync_started', { interval_ms: 8000 });
+}
+
+$('readAll').addEventListener('click', loadAccount);
+$('refresh').addEventListener('click', refreshProfile);
+$('registerReceive').addEventListener('click', registerReceiveOwner);
+$('createInvoice').addEventListener('click', createReceiveInvoice);
+$('refreshReceives').addEventListener('click', refreshReceives);
+$('copyLogs').addEventListener('click', copyLogs);
+$('copyLogsTop').addEventListener('click', copyLogs);
+$('accountSelect').addEventListener('change', () => { renderAccountLabel(); refreshWalletBalance(); });
+renderAccountLabel();
+startAutoSync();
+refreshProfile();
+</script>
+</body>
+</html>

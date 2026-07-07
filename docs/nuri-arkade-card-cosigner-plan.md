@@ -1,5 +1,12 @@
 # Nuri Arkade Card Cosigner Plan
 
+> Current direction, 2026-07-06: do not treat this historical option map as the
+> source of truth. The implemented proof is now the simpler model where the card
+> is the Arkade **client signer** and the Arkade ASP/server remains the second
+> MuSig2 signer plus Lightning/payment infrastructure. See
+> [`arkade-card-signer-proof.md`](arkade-card-signer-proof.md) for the code-backed
+> contract, simulator proof, and real-card PC/SC adapter.
+
 This document maps the current Nuri Arkade MuSig2 signing flow to a smartcard
 cosigner. It is based on the local sibling checkouts inspected on 2026-06-13:
 

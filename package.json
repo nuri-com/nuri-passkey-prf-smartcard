@@ -16,6 +16,7 @@
     "cosign:demo": "node scripts/local-card-cosign-server.mjs --selftest",
     "cosign:web": "node scripts/local-card-cosign-server.mjs",
     "cosign:web:real-card": "node scripts/local-card-cosign-server.mjs --backend=real-card",
+    "checkout:web": "node scripts/local-card-cosign-server.mjs --backend=real-card",
     "cosign:web:real-card:selftest": "node scripts/local-card-cosign-server.mjs --backend=real-card --selftest",
     "cosign:real-card": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/real-card-cosign-proof.py --use-existing-card-key",
     "cosign:real-card:keygen": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/real-card-cosign-proof.py",
@@ -62,14 +63,20 @@
     "card:full-round-proof": "bash scripts/card-full-round-proof.sh",
     "card:arkade:key": "node scripts/card-arkade-key.mjs",
     "card:arkade:identity": "node scripts/card-arkade-identity.mjs",
+    "card:arkade:signer:sim": "node scripts/arkade-card-signer-proof.mjs",
+    "card:arkade:signer:real": "/private/tmp/nuri-fido2-real-card-venv/bin/python scripts/real-card-arkade-signer-proof.py",
     "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
     "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
     "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend"
   },
   "dependencies": {
+    "@arkade-os/boltz-swap": "^0.3.43",
+    "@arkade-os/sdk": "^0.4.38",
     "@noble/curves": "^1.9.7",
     "@scure/base": "^1.2.6",
     "@scure/bip32": "^1.7.0",
-    "@scure/btc-signer": "^2.0.1"
+    "@scure/btc-signer": "^2.0.1",
+    "eventsource": "^4.1.0",
+    "qrcode-generator": "^2.0.4"
   }
 }
