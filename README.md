@@ -11,6 +11,7 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [The vision](#the-vision)
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
+- [**Bitcoin debit card: tap-to-pay Lightning** (the flagship demo)](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
 - [Status & latest findings](#status-latest-findings-2026-07-05)
 - [How it works](#how-it-works)
 - [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa-nuri-expo)
@@ -56,9 +57,12 @@ The direction this is heading — the part worth building toward:
 > real on-chain/Arkade wallet, not a custodial balance. Eventually: leave the
 > phone at home.
 
-That last mile (NFC tap-to-pay, terminal/POS flows, a Bitcoin debit-card form
-factor) is **not built yet** — see [Roadmap](#roadmap-to-the-vision). Everything
-below it *is*.
+The last mile is now **built and proven on mainnet**: a Visa-style terminal where
+you tap the card, enter a PIN, and pay a Lightning invoice from a self-custodial
+Bitcoin (Ark) balance — the card signs, no custodian can move the funds. See
+[Bitcoin debit card: tap-to-pay Lightning](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri).
+The remaining vision item is a *phone-optional* standalone terminal (today a
+laptop + reader drives it); see [Roadmap](#roadmap-to-the-vision).
 
 This grew out of the same lineage as [Bitkey](https://bitkey.world),
 [Keycard](https://keycard.tech), [Tangem](https://tangem.com),
@@ -94,7 +98,7 @@ graph TB
 | **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
 | **Ethereum / EVM signing** | secp256k1 ECDSA signing on-card. One key → ETH address (keccak256) + BTC P2PKH address (hash160). Card signs, host verifies. **v1.3 proven: 5/5 ecrecover via `python-ecdsa`.** | ✅ Real-card proven (ecrecover green) |
 | **Fingerprint unlock (match-on-card)** | Replace PIN with a fingerprint. Feitian confirms the API; SDK is NDA-gated. | 🔒 Hardware path identified, not integrated |
-| **NFC tap-to-pay / POS** | Tap card to phone (Scenario C) or a Bitcoin POS terminal (Scenario B) to pay. Card holds keys, phone/terminal is a dumb terminal with internet. Card-side PIN via CTAP2. | 🗺️ Vision — concept doc + implementation plan in [`docs/tap-to-pay-concept.md`](docs/tap-to-pay-concept.md) |
+| **Tap-to-pay Lightning terminal** | Visa-style terminal: tap card + PIN → pay a Lightning invoice from the card's Ark balance. Card signs (MuSig2), terminal holds no keys. Two wallets: Nuri (`card@nuri.com`, recoverable) and pure-Arkade (no server). | ✅ **Real-card proven on mainnet** — see [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri). Phone-optional standalone terminal still on the [roadmap](#roadmap-to-the-vision). |
 
 Two design rules hold throughout:
 
@@ -155,6 +159,37 @@ Lightning (`ark_txid e6af75b5…`, `NURI_CARD_ARKADE_SEND_OK`).
 > end-to-end walkthrough of what the card does, how the terminal and profile work,
 > why it was hard, and why a self-custodial tap-to-pay Bitcoin card is genuinely new.
 
+### The pieces, at a glance
+
+```mermaid
+flowchart LR
+  subgraph you["In your hands"]
+    card["💳 Smartcard<br/>MuSig2 key · non-exportable"]
+    reader["PC/SC reader"]
+    card --- reader
+  end
+  subgraph host["Terminal / phone · holds no keys"]
+    term["Terminal + checkout web pages"]
+    server["local cosigner server<br/>relays APDUs, builds tx"]
+    term --- server
+  end
+  subgraph net["Bitcoin"]
+    nuri["Nuri server<br/>2nd MuSig2 key + cosign"]
+    ark["arkade.computer<br/>Ark operator"]
+    boltz["Boltz<br/>submarine swap"]
+    ln["⚡ Lightning merchant"]
+  end
+  reader <-->|APDU| server
+  server <-->|send/prepare · cosign| nuri
+  server <-->|VTXO spend| ark
+  server <-->|create swap| boltz
+  boltz -->|pays invoice| ln
+  card -. "signs, key never leaves" .-> nuri
+```
+
+The card + Nuri hold one MuSig2 key each: **2-of-2, neither side can move funds
+alone**. The terminal and server hold **no** keys — they only relay and build.
+
 ### Two wallets on one card
 
 Both are the same physical card key (`card_client_pk33 = 022589ad…`), aggregated
@@ -209,12 +244,57 @@ sendLightningPayment (Arkade SDK, arkade.computer)
   └─ send/complete → Boltz pays the merchant's BOLT11 invoice
 ```
 
+Same thing as a sequence — one PIN+tap, then the 2-of-2 signing round:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as 💳 Card
+  participant T as Terminal/server
+  participant B as Boltz
+  participant N as Nuri server
+  participant A as arkade.computer
+  T->>B: createSubmarineSwap(invoice)
+  B-->>T: Ark lockup address + amount
+  T->>N: swap-intent/create
+  N-->>T: send_intent_id
+  T->>N: send/prepare (funding PSBT + sighashes)
+  N-->>T: challenge_token + challenge
+  T->>C: FIDO2 assert (present + PIN) over challenge
+  C-->>T: assertion ✓
+  loop each input (funding, then checkpoints)
+    C->>T: MuSig2 nonce
+    T->>N: send/cosign (nonce)
+    N-->>T: server partial
+    C->>C: FINALIZE → aggregate BIP340 sig
+  end
+  T->>A: submit signed VTXO spend
+  T->>N: send/complete
+  B->>B: sees funded swap → pays ⚡ invoice
+  T-->>T: Approved ✅ (optimistic, on funding)
+```
+
 The server re-derives every `msg32` from the PSBT (`verifyArkadePsbtSignRequests`)
 and the card signs that exact sighash — so the aggregate signature the card +
 server produce is valid for the real VTXO spend. The card only ever does two
 things: a FIDO2 UV assertion (presence + PIN) and MuSig2 `GET_NONCES` +
 `FINALIZE`. It never exports a key, never parses the transaction, never learns
 the amount or recipient.
+
+### At the terminal (what the customer sees)
+
+```mermaid
+flowchart TD
+  A[Merchant enters amount → Charge] --> B[Approval screen:<br/>pick card, enter 4-digit PIN]
+  B -->|4th digit| C{{Scanning… 21s countdown}}
+  C -->|card + right PIN| D[💳 Card read → sign + broadcast]
+  C -->|card + wrong PIN| E[🔒 Wrong PIN] --> B
+  C -->|no card in 21s| F[😔 No card detected] --> B
+  D --> G[✅ Approved — receipt<br/>amount · card · Ark txid]
+```
+
+The scan **doesn't fail fast** — it keeps trying for 21s so you can demo
+"nothing happens without the card… now I place it… approved."
 
 ### Run the wallet + terminal locally
 
@@ -501,12 +581,14 @@ Feitian confirms a Java applet can call the match-on-card fingerprint API to gat
 private-key operation, but the BioCARD SDK is NDA-gated. Until then: FIDO2 PIN/UV, or
 Feitian's preloaded biometric FIDO2 stack.
 
-**4. Phone-optional tap-to-pay — _the headline, not built, concept spec'd._**
-Tap the card to a phone or a Bitcoin POS terminal and pay. The card holds the
-keys; the phone/terminal is a dumb terminal with internet (it fetches the
-invoice, builds the tx, gets a signature from the card, broadcasts). The
-card-side PIN is card-enforced via CTAP2 `clientPin` — the phone/terminal
-cannot bypass it.
+**4. Tap-to-pay Lightning — _built and proven on mainnet (Scenario C)._**
+A Visa-style terminal fetches the invoice, builds the tx, gets the card's
+signature (2-of-2 MuSig2), and broadcasts; the card holds the key and enforces
+the PIN via CTAP2 `clientPin`. Real card-signed Lightning payments settle over
+Boltz. See [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri).
+**Still on the roadmap:** a *phone-optional standalone* POS terminal (Scenario B)
+— today a laptop + PC/SC reader drives it — and PIN-gating the MuSig2 sign APDU
+on the applet itself.
 
 There is **no "card alone with no internet device" scenario** — the card
 cannot broadcast, no hardware wallet can. The realistic paths are:
@@ -790,8 +872,9 @@ Open:
 
 Chrome does not expose raw smartcard APDUs to web pages, so this demo keeps the
 UI in the browser and uses the localhost Node bridge to talk to the attached
-PC/SC reader. The checkout signs a local proof package; real Lightning
-settlement still needs the Arkade/Boltz send path wired behind the approval.
+PC/SC reader. The checkout now performs a **real** card-signed Lightning payment
+(Arkade/Boltz send path wired behind the PIN + tap — see
+[Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)).
 Profile invoices call the Nuri Arkade receive server configured by
 `NURI_ARKADE_SIGNER_URL` (defaults to `https://arkade.nuri.com/v4`).
 
