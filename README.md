@@ -285,12 +285,12 @@ the amount or recipient.
 
 ```mermaid
 flowchart TD
-  A[Merchant enters amount → Charge] --> B[Approval screen:<br/>pick card, enter 4-digit PIN]
-  B -->|4th digit| C{{Scanning… 21s countdown}}
-  C -->|card + right PIN| D[💳 Card read → sign + broadcast]
-  C -->|card + wrong PIN| E[🔒 Wrong PIN] --> B
-  C -->|no card in 21s| F[😔 No card detected] --> B
-  D --> G[✅ Approved — receipt<br/>amount · card · Ark txid]
+  A["Merchant enters amount → Charge"] --> B["Approval screen:<br/>pick card, enter 4-digit PIN"]
+  B -->|"4th digit"| C{{"Scanning… 21s countdown"}}
+  C -->|"card + right PIN"| D["💳 Card read → sign + broadcast"]
+  C -->|"card + wrong PIN"| E["🔒 Wrong PIN"] --> B
+  C -->|"no card in 21s"| F["😔 No card detected"] --> B
+  D --> G["✅ Approved — receipt<br/>amount · card · Ark txid"]
 ```
 
 The scan **doesn't fail fast** — it keeps trying for 21s so you can demo
