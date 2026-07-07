@@ -1,5 +1,18 @@
 # Tap-to-pay: concept & implementation plan
 
+> **⚡ Status update (2026-07-07): the core is now BUILT and PROVEN ON MAINNET.**
+> The tap-to-pay Lightning **send** path, the Visa-style `/checkout` terminal, the
+> `card@nuri.com` receive/auto-claim, and the two wallets on one card key all work
+> — a card-signed payment settled real Lightning value (`NURI_CARD_ARKADE_SEND_OK`).
+> For the plain-English end-to-end walkthrough see
+> [`how-it-works.md`](how-it-works.md) and the main README's
+> [Bitcoin debit card](../README.md#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
+> section. This document is kept as the deeper design/APDU reference and the
+> record of the hardware boundary; treat its "buildable today / not built"
+> framing below as the historical planning view. The genuinely remaining open
+> items are the *phone-optional standalone* POS terminal (Scenario B) and
+> PIN-gating the MuSig2 sign APDU on the applet itself.
+
 > The vision: hold a Bitcoin debit card up to a phone or a Bitcoin POS terminal
 > and pay — backed by your own keys, self-custody, no seed phrase, no custodian.
 > This document is honest about which parts of that vision are buildable today,

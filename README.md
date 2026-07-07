@@ -12,7 +12,7 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
 - [**Bitcoin debit card: tap-to-pay Lightning** (the flagship demo)](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
-- [Status & latest findings](#status-latest-findings-2026-07-05)
+- [Status & latest findings](#status--latest-findings-2026-07-07)
 - [How it works](#how-it-works)
 - [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa-nuri-expo)
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
@@ -93,7 +93,7 @@ graph TB
 | **FIDO2 + WebAuthn PRF** | Acts as a passkey authenticator; CTAP2 `hmac-secret` gives WebAuthn `prf`. Patched so **every** passkey is PRF-capable. | ✅ Real-card proven (PC/SC + native NFC) |
 | **Bitcoin MuSig2 cosigner** | Generates a secp256k1 cosigner key on-card, returns only the pubkey, signs MuSig2 partials. | ✅ Real-card proven (live signet tx) |
 | **Card-as-wallet** | `musig2(client, card)` Taproot wallet with a client+CSV recovery leaf — looks like one key on-chain. | ✅ Real signet + mainnet addresses |
-| **Arkade / Lightning identity** | Card PRF is the root of the Nuri/Arkade client key; supports the VTXO tree-round tweak. | ✅ Key + tweak proven; app wiring pending |
+| **Arkade / Lightning identity** | Card PRF is the root of the Nuri/Arkade client key; supports the VTXO tree-round tweak. | ✅ Key + tweak proven; Ark→Lightning **send + receive now wired** (see [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)) |
 | **OATH-TOTP** | Stores a 2FA secret, computes HMAC-SHA1 on-card (e.g. Hetzner). Secret never read back. | ✅ Real-card, RFC 6238 verified |
 | **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
 | **Ethereum / EVM signing** | secp256k1 ECDSA signing on-card. One key → ETH address (keccak256) + BTC P2PKH address (hash160). Card signs, host verifies. **v1.3 proven: 5/5 ecrecover via `python-ecdsa`.** | ✅ Real-card proven (ecrecover green) |
@@ -359,11 +359,26 @@ arkade.computer — no Nuri account at all.
 
 ---
 
-## Status & latest findings (2026-07-05)
+## Status & latest findings (2026-07-07)
 
 Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log in
 [`CHANGELOG.md`](CHANGELOG.md). Headlines:
 
+- **✅ RESOLVED — the card is a working Bitcoin debit card, tap-to-pay Lightning
+  proven on mainnet.** The Ark→Lightning **send** path — the big missing piece —
+  is now fully wired and settled real value: a card-signed payment of 400 sats to
+  `emin@nuri.com` funded a Boltz submarine swap over Lightning
+  (`ark_txid e6af75b5…`, `NURI_CARD_ARKADE_SEND_OK`). A Visa-style `/checkout`
+  terminal (pick card → 4-digit PIN → 21-second scan ring → tap → sign +
+  broadcast) drives it. **Receive** works too (`card@nuri.com` LNURL-pay + profile
+  auto-claim), and there are **two wallets on one card key** — Nuri
+  (`musig2(card, Nuri-server)`, recoverable, Lightning address) and pure-Arkade
+  (`musig2(card, local key)`, zero Nuri). Full walkthrough:
+  [`docs/how-it-works.md`](docs/how-it-works.md) and
+  [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri).
+  *Still open:* a phone-optional standalone POS terminal (today a laptop + PC/SC
+  reader drives it) and PIN-gating the MuSig2 sign APDU on the applet itself — see
+  [Roadmap](#roadmap-to-the-vision).
 - **The card is a real SSH hardware key.** `ssh nuri-wirex` → logged into
   `root@89.167.91.99` (Hetzner) using only the card. Private key generated
   on-card, never exported; every login required a tap. One-command installer
@@ -532,7 +547,7 @@ Status and the exact wiring point: [`docs/arkade-lightning.md`](docs/arkade-ligh
 
 | | Form | Unlock | Signing model | Open | Same-as-app wallet | Tap-to-pay |
 |---|---|---|---|---|---|---|
-| **Nuri card** | NFC smartcard | **Fingerprint** (match-on-card) | **MuSig2 2-of-2**, looks like 1 key, CSV recovery | ✅ MIT host | ✅ **passkey PRF = phone wallet** | 🗺️ goal |
+| **Nuri card** | NFC smartcard | **Fingerprint** (match-on-card) | **MuSig2 2-of-2**, looks like 1 key, CSV recovery | ✅ MIT host | ✅ **passkey PRF = phone wallet** | ✅ **Lightning, proven on mainnet** |
 | Bitkey | fob + phone + server | phone biometric | 2-of-3 multisig | ✅ | app-paired | no |
 | Keycard | NFC smartcard | PIN | single-key BIP32 | ✅ | no (separate keys) | no |
 | Tangem | NFC card | card + phone | single-key (2/3 backup) | partial | no | no |
@@ -551,7 +566,8 @@ What is genuinely different here:
 - **MuSig2 key-path Taproot** — one key on-chain, full privacy, with a deterministic
   CSV recovery leaf instead of a seed-phrase backup. Boltcard gives you the tap but
   not the keys; Keycard/Tapsigner give you the keys but not the tap or the app-wallet
-  identity. Nuri aims at both ends.
+  identity. Nuri delivers both ends — a self-custodial tap-to-pay Lightning card,
+  proven on mainnet.
 
 ---
 
@@ -581,21 +597,29 @@ Feitian confirms a Java applet can call the match-on-card fingerprint API to gat
 private-key operation, but the BioCARD SDK is NDA-gated. Until then: FIDO2 PIN/UV, or
 Feitian's preloaded biometric FIDO2 stack.
 
-**4. Tap-to-pay Lightning — _built and proven on mainnet (Scenario C)._**
+**4. Tap-to-pay Lightning — _✅ DONE: built and proven on mainnet (Scenario C)._**
 A Visa-style terminal fetches the invoice, builds the tx, gets the card's
-signature (2-of-2 MuSig2), and broadcasts; the card holds the key and enforces
-the PIN via CTAP2 `clientPin`. Real card-signed Lightning payments settle over
-Boltz. See [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri).
-**Still on the roadmap:** a *phone-optional standalone* POS terminal (Scenario B)
-— today a laptop + PC/SC reader drives it — and PIN-gating the MuSig2 sign APDU
-on the applet itself.
+signature (2-of-2 MuSig2), and broadcasts; the card holds the key and the PIN is
+enforced by the reader + the FIDO2 UV assertion in the flow. Real card-signed
+Ark→Lightning payments settle over Boltz (`NURI_CARD_ARKADE_SEND_OK`), send +
+receive both work, and two wallets (Nuri-cosigned and pure-Arkade) share one card
+key. See [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
+and [`docs/how-it-works.md`](docs/how-it-works.md).
+
+**The only remaining open items** (everything else on the send/terminal path is done):
+1. A *phone-optional standalone* POS terminal (Scenario B) — today a laptop +
+   PC/SC reader drives it.
+2. PIN-gating the MuSig2 nonce/sign APDU on the applet itself — today presence +
+   PIN are enforced by the reader + the FIDO2 assertion in the flow, not by the
+   signing applet.
+3. Reconcile a ~997-sat Boltz lockup left by one early pre-fix send attempt.
+4. Fund + demo an end-to-end pure-Arkade send (the path is wired; needs a funded run).
 
 There is **no "card alone with no internet device" scenario** — the card
 cannot broadcast, no hardware wallet can. The realistic paths are:
-- **Scenario C (today, buildable):** your card + a phone running our app
-  (yours or anyone's — the phone holds no keys). Every primitive is proven
-  in this repo (ISO-DEP NFC PRF, CTAP2 PIN, MuSig2 partial sign, Boltz
-  swap-ready tx building).
+- **Scenario C (✅ built + proven on mainnet):** your card + a device running our
+  app (the device holds no keys). Every primitive is proven in this repo — and now
+  the full send/receive flow is wired end-to-end and settled real Lightning value.
 - **Scenario B (vision):** your card + a merchant's Bitcoin POS terminal
   running our firmware. Real debit-card UX — you carry only the card.
   Needs a reference terminal implementation and a PIN gate on the MuSig2
@@ -826,7 +850,7 @@ For the same wallet with a **browser UI** (receive / balance / send), run
 reader by default (`POST /api/wallet/{address,utxos,spend}`), and a spend refuses to
 sign unless the passkey/card owns the funded address. A `prfHex` field lets a
 browser-supplied PRF drive it instead, once the browser path is available (see
-[Status & latest findings](#status--latest-findings-2026-06-30)).
+[Status & latest findings](#status--latest-findings-2026-07-07)).
 
 ### MuSig2 cosigner (real card + simulators)
 
@@ -1252,6 +1276,11 @@ fingerprint UV replaces it once the Feitian biometric applet path is integrated.
 **We can claim:**
 
 - A physical card co-signed, broadcast, and confirmed real Bitcoin transactions.
+- A physical card **paid a real Lightning invoice on mainnet** — a self-custodial
+  tap-to-pay: the card signed a 2-of-2 MuSig2 Ark→Lightning send that funded a
+  Boltz submarine swap (`NURI_CARD_ARKADE_SEND_OK`), driven by a Visa-style
+  `/checkout` terminal that holds no keys. Receive (`card@nuri.com` LNURL) and two
+  independent wallets on one card key (Nuri-cosigned and pure-Arkade) also work.
 - The cosigner key was generated on-card and is non-exportable by API design.
 - The card derives the *same* wallet/identity key the Nuri app derives.
 - Real WebAuthn PRF works over desktop PC/SC and native phone NFC.

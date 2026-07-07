@@ -1,5 +1,15 @@
 # Arkade / Lightning Card Paths
 
+> **⚡ Status update (2026-07-07): the Ark→Lightning SEND path is now BUILT and
+> PROVEN ON MAINNET.** A card-signed 2-of-2 MuSig2 send funded a Boltz submarine
+> swap and settled real Lightning value (`NURI_CARD_ARKADE_SEND_OK`); receive via
+> `card@nuri.com` (LNURL) and two wallets on one card key (Nuri-cosigned and
+> pure-Arkade) also work. For the end-to-end walkthrough see
+> [`how-it-works.md`](how-it-works.md) and the README's
+> [Bitcoin debit card](../README.md#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
+> section. The design notes below remain the deeper reference for the signing
+> model and APDU flow.
+
 This file is a map, not the source of truth. For the implemented card-client
 signer proof, use [`arkade-card-signer-proof.md`](arkade-card-signer-proof.md)
 and the code it references.

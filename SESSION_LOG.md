@@ -38,7 +38,8 @@
 2. Decide whether the full Boltz *send* path is on the roadmap (tap-to-pay-concept.md step 6, 3–5 days). That gets the merchant paid; current state just makes the card's existing receive settle on-chain.
 3. Decide whether to do the profile/terminal UI rework later (presence pill, button gating, polished empty states).
 **Open questions:**
-1. None blocking. The send path is the big open question — want it built?
+1. ✅ RESOLVED (next entry, 2026-07-07): the send path was built and proven on
+   mainnet — see "Bitcoin debit card: real Nuri Lightning send" below.
 
 ## 2026-07-07 — Bitcoin debit card: real Nuri Lightning send + pure-Arkade wallet + Visa-style terminal
 
