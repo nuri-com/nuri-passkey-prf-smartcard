@@ -151,6 +151,10 @@ This was proven end-to-end on **mainnet** (2026-07-07): a card-signed payment of
 400 sats to `emin@nuri.com` funded a Boltz submarine swap and settled over
 Lightning (`ark_txid e6af75b5…`, `NURI_CARD_ARKADE_SEND_OK`).
 
+> **New here? Read [docs/how-it-works.md](docs/how-it-works.md)** — a plain-English,
+> end-to-end walkthrough of what the card does, how the terminal and profile work,
+> why it was hard, and why a self-custodial tap-to-pay Bitcoin card is genuinely new.
+
 ### Two wallets on one card
 
 Both are the same physical card key (`card_client_pk33 = 022589ad…`), aggregated
