@@ -269,9 +269,9 @@ const s = StyleSheet.create({
   pinView: { flexDirection: 'row', justifyContent: 'center', gap: 14, paddingVertical: 12, height: 36 },
   pinDot: { width: 12, height: 12, borderRadius: 6, borderColor: '#d7dce3', borderWidth: 1.5 },
   pinDotOn: { backgroundColor: '#17202a', borderColor: '#17202a' },
-  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 14 },
+  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 14, justifyContent: 'space-between' },
   padBtn: {
-    width: '32%', marginHorizontal: '1%', marginBottom: 10,
+    width: '32%', marginBottom: 10,
     borderRadius: 10, borderWidth: 1, borderColor: '#d7dce3',
     backgroundColor: '#fff', paddingVertical: 18, alignItems: 'center',
   },

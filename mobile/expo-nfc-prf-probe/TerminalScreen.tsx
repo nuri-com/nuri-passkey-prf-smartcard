@@ -91,9 +91,9 @@ const s = StyleSheet.create({
   unit: { fontSize: 22, fontWeight: '700', color: '#657080', marginLeft: 8 },
   pays: { color: '#657080', fontSize: 13, marginTop: 6 },
   paysBold: { fontWeight: '700', color: '#17202a' },
-  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 22 },
+  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 22, justifyContent: 'space-between' },
   padBtn: {
-    width: '32%', marginHorizontal: '1%', marginBottom: 10,
+    width: '32%', marginBottom: 10,
     borderRadius: 10, borderWidth: 1, borderColor: '#d7dce3',
     backgroundColor: '#fff', paddingVertical: 18, alignItems: 'center',
   },
