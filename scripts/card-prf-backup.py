@@ -540,6 +540,67 @@ def command_webauthn_assert(args):
     return 0
 
 
+def command_webauthn_probe(args):
+    """Fast, single-shot card + PIN check for the terminal. No retry loop.
+    Prints {"present": bool, "pin_ok": bool} so the UI can keep scanning until a
+    card with the right PIN appears. Never raises — all outcomes are JSON."""
+    profile = None
+    try:
+        profile = read_profile(profile_path(args))
+    except (FileNotFoundError, ValueError):
+        profile = None
+    rp_id = args.rp_id or (profile and profile.get("rp_id"))
+    origin = args.origin or (profile and profile.get("origin"))
+    cred_b64u = args.credential_id or (profile and profile.get("credential_id"))
+    if not (rp_id and origin and cred_b64u):
+        print_json({"present": False, "error": "profile incomplete"})
+        return 0
+
+    # Single-shot device enumeration — no waiting/retry (the browser polls us).
+    try:
+        devices = list(CtapPcscDevice.list_devices())
+    except Exception as error:  # reader/PCSC hiccup counts as "no card yet"
+        print_json({"present": False, "error": str(error)})
+        return 0
+    if not devices:
+        print_json({"present": False})
+        return 0
+    index = args.device_index if args.device_index is not None else 0
+    if index < 0 or index >= len(devices):
+        print_json({"present": False})
+        return 0
+
+    def pin_related(err) -> bool:
+        text = f"{getattr(err, 'code', '')} {err}".upper()
+        return any(k in text for k in ("PIN", "0X31", "UNAUTH", "UV_", "0X36", "0X37"))
+
+    try:
+        client = client_for(args, devices[index], origin)
+        request_options = PublicKeyCredentialRequestOptions(
+            challenge=b64u_decode(args.challenge_b64u),
+            rp_id=rp_id,
+            allow_credentials=[
+                {"type": PublicKeyCredentialType.PUBLIC_KEY, "id": b64u_decode(cred_b64u)}
+            ],
+            user_verification=user_verification("required"),
+        )
+        client.get_assertion(request_options).get_response(0)
+        print_json({"present": True, "pin_ok": True})
+    except CtapError as error:
+        print_json({"present": True, "pin_ok": not pin_related(error), "reason": str(error)})
+    except ClientError as error:
+        ctap = next((item for item in error.args if isinstance(item, CtapError)), None)
+        if ctap is not None:
+            print_json({"present": True, "pin_ok": not pin_related(ctap), "reason": str(ctap)})
+        else:
+            print_json({"present": True, "pin_ok": False, "reason": str(error)})
+    except CardConnectionException as error:
+        print_json({"present": False, "error": str(error)})
+    except Exception as error:
+        print_json({"present": False, "error": str(error)})
+    return 0
+
+
 def add_device_args(parser):
     parser.add_argument("--transport", choices=["pcsc", "hid"], default=os.environ.get("FIDO2_BACKUP_TRANSPORT", "pcsc"))
     parser.add_argument("--device-index", type=int, default=None)
@@ -614,6 +675,18 @@ def build_parser():
         "--user-verification", choices=["required", "preferred", "discouraged"], default="required"
     )
     wassert.set_defaults(func=command_webauthn_assert)
+
+    wprobe = subparsers.add_parser(
+        "webauthn-probe",
+        help="Fast single-shot card+PIN presence check for the terminal (JSON, never raises).",
+    )
+    add_device_args(wprobe)
+    add_profile_args(wprobe)
+    wprobe.add_argument("--challenge-b64u", default="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    wprobe.add_argument("--rp-id", default=None)
+    wprobe.add_argument("--origin", default=None)
+    wprobe.add_argument("--credential-id", default=None)
+    wprobe.set_defaults(func=command_webauthn_probe)
 
     return parser
 

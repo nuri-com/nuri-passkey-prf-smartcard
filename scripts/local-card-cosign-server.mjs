@@ -1106,6 +1106,32 @@ async function handleCardWalletBalance(req, res, url) {
   }
 }
 
+// Fast card + PIN probe for the terminal: the browser polls this while showing
+// a scan countdown, so "no card" never errors immediately — it keeps trying.
+async function handleCardProbe(req, res) {
+  try {
+    const body = await readJson(req);
+    const pin = String(body.pin || '') || CARD_PIN;
+    if (!pin) { json(res, 200, { present: false, error: 'pin required' }); return; }
+    const profile = await readCardReceiveProfile();
+    if (!profile) throw new Error('card receive profile missing');
+    const credId = profile.credential_id || profile.cred_id_b64u;
+    const dummy = Buffer.alloc(32).toString('base64url');
+    const result = await execFileJson(REAL_CARD_PYTHON, [
+      PRF_SCRIPT, 'webauthn-probe',
+      '--profile', CARD_RECEIVE_PROFILE,
+      `--challenge-b64u=${dummy}`,
+      '--rp-id', profile.rp_id || CARD_RECEIVE_RP_ID,
+      '--origin', profile.origin || CARD_RECEIVE_ORIGIN,
+      `--credential-id=${credId}`,
+      '--pin', pin,
+    ]);
+    json(res, 200, result);
+  } catch (error) {
+    json(res, 200, { present: false, error: (error?.message || String(error)).slice(0, 200) });
+  }
+}
+
 async function handleCardLightningSync(req, res) {
   try {
     const { identity, cached_at_ms: identityCachedAtMs } = await cardAccountIdentity();
@@ -1380,6 +1406,7 @@ async function requestHandler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/card/lightning-sync') { await handleCardLightningSync(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/card/lightning-claim') { await handleCardLightningClaim(req, res); return; }
     if (req.method === 'GET' && url.pathname === '/api/card/wallet-balance') { await handleCardWalletBalance(req, res, url); return; }
+    if (req.method === 'POST' && url.pathname === '/api/card/probe') { await handleCardProbe(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/lightning/resolve-invoice') { await handleResolveLightningInvoice(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/merchant/checkout') { await handleMerchantCheckout(req, res); return; }
     if (req.method === 'GET' && url.pathname === '/api/checkout/session') { await handleCheckoutSession(req, res, url); return; }
