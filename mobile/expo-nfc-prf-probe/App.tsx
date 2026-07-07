@@ -48,14 +48,16 @@ export default function App() {
     return (
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
-        <ApproveScreen
-          config={config}
-          merchantName={checkout.merchantName}
-          amountSats={checkout.amountSats}
-          memo={checkout.memo}
-          invoice={checkout.invoice}
-          onBack={() => { setCheckout(null); setTab('terminal'); }}
-        />
+        <ScrollView contentContainerStyle={styles.content}>
+          <ApproveScreen
+            config={config}
+            merchantName={checkout.merchantName}
+            amountSats={checkout.amountSats}
+            memo={checkout.memo}
+            invoice={checkout.invoice}
+            onBack={() => { setCheckout(null); setTab('terminal'); }}
+          />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -106,5 +108,5 @@ const styles = StyleSheet.create({
   navTabActive: { backgroundColor: '#eef1f4' },
   navTabText: { fontSize: 15, fontWeight: '600', color: '#657080' },
   navTabTextActive: { color: '#17202a' },
-  content: { padding: 20, paddingTop: 28, paddingBottom: 40 },
+  content: { padding: 20, paddingTop: 36, paddingBottom: 60 },
 });

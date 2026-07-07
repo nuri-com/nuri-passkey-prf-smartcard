@@ -81,7 +81,7 @@ function pubkeyHex(bytes: Uint8Array): string {
 }
 
 const s = StyleSheet.create({
-  content: { padding: 16, gap: 16 },
+  content: { padding: 20, paddingTop: 36, paddingBottom: 60, gap: 16 },
   section: {
     backgroundColor: '#fff', borderColor: '#d8dde5', borderRadius: 8, borderWidth: 1, padding: 20,
   },

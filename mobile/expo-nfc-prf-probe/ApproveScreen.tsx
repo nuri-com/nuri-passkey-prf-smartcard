@@ -269,11 +269,11 @@ const s = StyleSheet.create({
   pinView: { flexDirection: 'row', justifyContent: 'center', gap: 14, paddingVertical: 12, height: 36 },
   pinDot: { width: 12, height: 12, borderRadius: 6, borderColor: '#d7dce3', borderWidth: 1.5 },
   pinDotOn: { backgroundColor: '#17202a', borderColor: '#17202a' },
-  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 14, justifyContent: 'space-between' },
+  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 14 },
   padBtn: {
-    width: '32%', marginBottom: 10,
+    width: '33.33%', paddingVertical: 18, alignItems: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: '#d7dce3',
-    backgroundColor: '#fff', paddingVertical: 18, alignItems: 'center',
+    backgroundColor: '#fff', marginBottom: 2,
   },
   padBtnText: { fontSize: 22, fontWeight: '700', color: '#17202a' },
   charge: {

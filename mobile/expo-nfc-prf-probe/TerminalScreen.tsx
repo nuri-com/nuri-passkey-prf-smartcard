@@ -91,11 +91,11 @@ const s = StyleSheet.create({
   unit: { fontSize: 22, fontWeight: '700', color: '#657080', marginLeft: 8 },
   pays: { color: '#657080', fontSize: 13, marginTop: 6 },
   paysBold: { fontWeight: '700', color: '#17202a' },
-  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 22, justifyContent: 'space-between' },
+  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 22 },
   padBtn: {
-    width: '32%', marginBottom: 10,
+    width: '33.33%', paddingVertical: 18, alignItems: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: '#d7dce3',
-    backgroundColor: '#fff', paddingVertical: 18, alignItems: 'center',
+    backgroundColor: '#fff', marginBottom: 2,
   },
   padBtnText: { fontSize: 22, fontWeight: '700', color: '#17202a' },
   charge: {
