@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text as RNText, View as RNView } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { View, Stack, Scroll, Text, Button } from '@nuri/rn';
 import { readCardPubkey } from './src/musig2Card';
 import { Wallet, InMemoryWalletRepository, InMemoryContractRepository } from '@arkade-os/sdk';
@@ -76,9 +76,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
           <Text size="lg" emphasis>Wallet</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Ark address</Text>
-            <RNText style={{ fontFamily: 'Courier', fontSize: 13, backgroundColor: '#fbf9ee', padding: 12, borderRadius: 6, overflow: 'hidden' }}>
-              {arkAddress || (busy ? 'Loading…' : '—')}
-            </RNText>
+            <Text size="xs" flow="truncate" lines={1}>{arkAddress || (busy ? 'Loading…' : '—')}</Text>
           </Stack>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Balance</Text>
@@ -90,9 +88,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
           <Text size="lg" emphasis>Card</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
-            <RNText style={{ fontFamily: 'Courier', fontSize: 13, backgroundColor: '#fbf9ee', padding: 12, borderRadius: 6, overflow: 'hidden' }}>
-              {cardPk || (busy ? 'Reading card…' : '—')}
-            </RNText>
+            <Text size="xs" flow="truncate" lines={1}>{cardPk || (busy ? 'Reading card…' : '—')}</Text>
           </Stack>
         </View>
 
@@ -100,7 +96,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
           <Text size="lg" emphasis>Arkade</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>ASP server pubkey</Text>
-            <RNText style={{ fontFamily: 'Courier', fontSize: 13 }}>{serverPk || '—'}</RNText>
+            <Text size="xs" flow="truncate" lines={1}>{serverPk || '—'}</Text>
           </Stack>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Recovery registered</Text>
@@ -109,7 +105,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
         </View>
 
         {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
-        {error ? <RNText style={{ color: '#a52820', fontSize: 13, textAlign: 'center' }}>{error}</RNText> : null}
+        {error ? <Text size="sm" muted align="center">{error}</Text> : null}
 
         <Button variant="solid" size="lg" onPress={loadCard} disabled={busy}>
           {busy ? '…' : 'Refresh (tap card)'}

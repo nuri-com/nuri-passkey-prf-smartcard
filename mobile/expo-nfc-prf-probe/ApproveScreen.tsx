@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Animated, Pressable as RNPressable, Text as RNText, View as RNView } from 'react-native';
-import { View, Stack, Text, Button } from '@nuri/rn';
+import { ActivityIndicator, Animated } from 'react-native';
+import { View, Stack, Text, Button, TextField, TextFieldLabel } from '@nuri/rn';
 import { sendLightning, type SendConfig, type SendResult } from './src/sendFlow';
 
 const PIN_LEN = 4;
@@ -26,8 +26,6 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
   const [error, setError] = useState('');
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  const canCharge = pin.length >= 1 && phase === 'pin';
-
   useEffect(() => {
     if (phase === 'scanning' || phase === 'signing') {
       const pulse = Animated.loop(
@@ -52,16 +50,6 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
     return () => clearInterval(timer);
   }, [phase]);
 
-  function press(k: string) {
-    if (phase !== 'pin') return;
-    let newPin = pin;
-    if (k === 'C') newPin = '';
-    else if (k === 'back') newPin = pin.slice(0, -1);
-    else if (/^[0-9]$/.test(k) && pin.length < 12) newPin = pin + k;
-    setPin(newPin);
-    if (newPin.length === PIN_LEN) setTimeout(() => startScan(newPin), 100);
-  }
-
   async function startScan(enteredPin: string) {
     setPhase('scanning'); setStatus('Hold your card on the reader…');
     setCount(SCAN_SECONDS); setError('');
@@ -81,54 +69,32 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
   }
 
   const ringProgress = phase === 'scanning' ? count / SCAN_SECONDS : 0;
-  const pinDots = Math.max(4, pin.length);
-  const keys = ['1','2','3','4','5','6','7','8','9','C','0','back'];
 
   return (
-    <View variant="outline" radius="lg" padding="xl" gap="md">
-      <Text size="sm" emphasis muted>{merchantName}</Text>
-      <Stack direction="row" align="baseline" gap="xs">
-        <Text size="3xl" emphasis>{Number(amountSats).toLocaleString('en-US')}</Text>
-        <Text size="lg" muted>sats</Text>
+    <View variant="outline" radius="lg" padding="xl" gap="lg">
+      <Stack gap="xs">
+        <Text size="sm" emphasis muted>{merchantName}</Text>
+        <Stack direction="row" align="baseline" gap="xs">
+          <Text size="3xl" emphasis>{Number(amountSats).toLocaleString('en-US')}</Text>
+          <Text size="lg" muted>sats</Text>
+        </Stack>
+        <Text size="xs" muted>Pays {memo} · mainnet</Text>
       </Stack>
-      <Text size="xs" muted>
-        Pays <Text size="xs" emphasis>{memo}</Text> · mainnet
-      </Text>
 
       {phase === 'pin' && (
         <View gap="md">
-          <Text size="xs" emphasis muted>Enter card PIN</Text>
+          <TextField
+            value={pin}
+            onChangeText={setPin}
+            inputMode="numeric"
+            secureTextEntry
+            placeholder="Enter card PIN"
+            accessibilityLabel="Card PIN"
+          >
+            <TextFieldLabel>Card PIN</TextFieldLabel>
+          </TextField>
 
-          {/* PIN dots */}
-          <RNView style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingVertical: 12, height: 36 }}>
-            {Array.from({ length: pinDots }).map((_, i) => (
-              <RNView key={i} style={{
-                width: 12, height: 12, borderRadius: 6,
-                borderWidth: 1.5,
-                borderColor: i < pin.length ? '#222013' : '#dddac9',
-                backgroundColor: i < pin.length ? '#222013' : 'transparent',
-              }} />
-            ))}
-          </RNView>
-
-          {/* Numpad */}
-          <View direction="row" wrap gap="xs" paddingY="md">
-            {keys.map((k) => (
-              <RNPressable
-                key={k}
-                onPress={() => press(k)}
-                style={{
-                  width: '33.33%', paddingVertical: 24, alignItems: 'center',
-                  borderRadius: 9, borderWidth: 1, borderColor: '#dddac9',
-                  backgroundColor: '#fffdf2', marginBottom: 2,
-                }}
-              >
-                <Text size="xl" emphasis>{k === 'back' ? '⌫' : k}</Text>
-              </RNPressable>
-            ))}
-          </View>
-
-          <Button variant="solid" size="lg" onPress={() => startScan(pin)} disabled={!canCharge}>
+          <Button variant="solid" size="lg" onPress={() => startScan(pin)} disabled={pin.length < 1}>
             Tap card & approve
           </Button>
         </View>
@@ -140,11 +106,13 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
             {phase === 'scanning' ? '💳' : '⚙️'}
           </Animated.Text>
           {phase === 'scanning' && (
-            <RNView style={{ width: 100, height: 6, borderRadius: 3, backgroundColor: '#dddac9', overflow: 'hidden' }}>
-              <RNView style={{ height: '100%', width: `${ringProgress * 100}%`, backgroundColor: '#beaaff' }} />
-            </RNView>
+            <View radius="full" width="sm" height="sm" style={{ overflow: 'hidden' }}>
+              <View chrome="subtle" radius="full" width="sm" height="sm" style={{ overflow: 'hidden' }}>
+                <View variant="solid" radius="full" style={{ height: '100%', width: `${ringProgress * 100}%` }} />
+              </View>
+            </View>
           )}
-          <RNText style={{ fontSize: 14, fontWeight: '600', textAlign: 'center', color: '#9a6b00' }}>{status}</RNText>
+          <Text size="sm" emphasis muted align="center">{status}</Text>
           {phase === 'scanning' && <Text size="xs" emphasis muted>{count}s</Text>}
           {phase === 'signing' && <ActivityIndicator style={{ marginTop: 6 }} />}
         </View>
@@ -153,38 +121,32 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
       {phase === 'done' && result && (
         <View align="center" gap="md" paddingY="lg">
           <Text size="xl">✅</Text>
-          <RNText style={{ fontSize: 17, fontWeight: '600', color: '#1f7a5a' }}>Approved — payment broadcast</RNText>
-          <RNView style={{ gap: 4, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#dddac9', width: '100%' }}>
+          <Text size="md" emphasis>Approved — payment broadcast</Text>
+          <View gap="xs" paddingTop="md">
             <ReceiptRow label="Status" value="APPROVED" />
             <ReceiptRow label="Paid" value={`${result.final_amount_sats} sats (funded ${result.funding_amount_sats})`} />
-            <ReceiptRow label="Ark txid" value={result.ark_txid || '—'} mono />
-          </RNView>
-          <Button variant="soft" size="lg" onPress={onBack}>
-            <RNText style={{ color: '#1f7a5a', fontSize: 15, fontWeight: '700' }}>New payment</RNText>
-          </Button>
+            <ReceiptRow label="Ark txid" value={result.ark_txid || '—'} />
+          </View>
+          <Button variant="soft" size="lg" onPress={onBack}>New payment</Button>
         </View>
       )}
 
       {phase === 'error' && (
         <View align="center" gap="md" paddingY="lg">
           <Text size="xl">⚠️</Text>
-          <RNText style={{ fontSize: 14, fontWeight: '600', color: '#9a3412' }}>{error}</RNText>
-          <Button variant="soft" size="lg" onPress={reset}>
-            <RNText style={{ color: '#1f7a5a', fontSize: 15, fontWeight: '700' }}>Try again</RNText>
-          </Button>
+          <Text size="sm" emphasis muted align="center">{error}</Text>
+          <Button variant="soft" size="lg" onPress={reset}>Try again</Button>
         </View>
       )}
     </View>
   );
 }
 
-function ReceiptRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function ReceiptRow({ label, value }: { label: string; value: string }) {
   return (
     <View direction="row" justify="between" gap="md">
       <Text size="sm" muted>{label}</Text>
-      <RNText style={{ textAlign: 'right', flexShrink: 1, fontFamily: mono ? 'Courier' : undefined, fontSize: mono ? 11 : 13 }}>
-        {value}
-      </RNText>
+      <Text size="sm" align="end" flow="truncate" lines={1}>{value}</Text>
     </View>
   );
 }

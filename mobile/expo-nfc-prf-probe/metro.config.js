@@ -2,9 +2,12 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
-// @nuri/spec and @nuri/rn are symlinked TS-source packages.
-// Metro needs to resolve their imports (react, react-native) from THIS project's node_modules.
+// @nuri/spec and @nuri/rn are symlinked TS-source packages with exports maps.
+// Only enable package exports for @nuri scoped packages to avoid breaking react/react-refresh.
 config.resolver.unstable_enablePackageExports = true;
+config.resolver.unstable_conditionNames = ['import', 'require', 'default'];
+
+// Ensure .ts/.tsx extensions are resolved
 config.resolver.sourceExts = [...config.resolver.sourceExts, 'ts', 'tsx'];
 
 // Watch the DS repo directory so Metro can follow symlinks

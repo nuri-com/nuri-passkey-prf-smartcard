@@ -12,6 +12,8 @@ import {
   TopbarCenter,
   TabBar,
   TabBarItem,
+  TextField,
+  TextFieldLabel,
 } from '@nuri/rn';
 import { TerminalScreen } from './TerminalScreen';
 import { ApproveScreen } from './ApproveScreen';
@@ -100,11 +102,13 @@ export default function App() {
             )}
             <TabBar>
               <TabBarItem
+                icon="card"
                 label="Terminal"
                 selected={tab === 'terminal'}
                 onPress={() => setTab('terminal')}
               />
               <TabBarItem
+                icon="bitcoin-wallet"
                 label="Profile"
                 selected={tab === 'profile'}
                 onPress={() => setTab('profile')}
