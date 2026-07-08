@@ -32,7 +32,7 @@ export function TerminalScreen({ onCharge }: Props) {
   }
 
   return (
-    <View variant="outline" radius="lg" padding="xl" gap="lg">
+    <View chrome="canvas" radius="lg" padding="xl" gap="lg">
       <Stack gap="xs">
         <Text size="sm" emphasis muted>{MERCHANT_NAME}</Text>
         <Text size="3xl" emphasis>{amountSats.toLocaleString('en-US')}</Text>

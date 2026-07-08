@@ -72,7 +72,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
   return (
     <Scroll>
       <View padding="lg" paddingBottom="xl" gap="lg">
-        <View variant="outline" radius="md" padding="xl" gap="md">
+        <View chrome="canvas" radius="md" padding="xl" gap="md">
           <Text size="lg" emphasis>Wallet</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Ark address</Text>
@@ -84,7 +84,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
           </Stack>
         </View>
 
-        <View variant="outline" radius="md" padding="xl" gap="md">
+        <View chrome="canvas" radius="md" padding="xl" gap="md">
           <Text size="lg" emphasis>Card</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
@@ -92,7 +92,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
           </Stack>
         </View>
 
-        <View variant="outline" radius="md" padding="xl" gap="md">
+        <View chrome="canvas" radius="md" padding="xl" gap="md">
           <Text size="lg" emphasis>Arkade</Text>
           <Stack gap="xs">
             <Text size="xs" emphasis muted>ASP server pubkey</Text>

@@ -68,10 +68,8 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
     setPin(''); setPhase('pin'); setStatus(''); setError(''); setResult(null); setCount(SCAN_SECONDS);
   }
 
-  const ringProgress = phase === 'scanning' ? count / SCAN_SECONDS : 0;
-
   return (
-    <View variant="outline" radius="lg" padding="xl" gap="lg">
+    <View chrome="canvas" radius="lg" padding="xl" gap="lg">
       <Stack gap="xs">
         <Text size="sm" emphasis muted>{merchantName}</Text>
         <Stack direction="row" align="baseline" gap="xs">
@@ -106,14 +104,9 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
             {phase === 'scanning' ? '💳' : '⚙️'}
           </Animated.Text>
           {phase === 'scanning' && (
-            <View radius="full" width="sm" height="sm" style={{ overflow: 'hidden' }}>
-              <View chrome="subtle" radius="full" width="sm" height="sm" style={{ overflow: 'hidden' }}>
-                <View variant="solid" radius="full" style={{ height: '100%', width: `${ringProgress * 100}%` }} />
-              </View>
-            </View>
+            <Text size="xl" emphasis muted>{count}s</Text>
           )}
           <Text size="sm" emphasis muted align="center">{status}</Text>
-          {phase === 'scanning' && <Text size="xs" emphasis muted>{count}s</Text>}
           {phase === 'signing' && <ActivityIndicator style={{ marginTop: 6 }} />}
         </View>
       )}
