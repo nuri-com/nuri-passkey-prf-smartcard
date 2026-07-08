@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Screen, Stack, Scroll, Typography } from './src/ds/primitives';
-import { Topbar, TabBar, TabBarItem } from './src/ds/recipes';
-import { colors } from './src/ds/tokens';
+import {
+  NuriThemeProvider,
+  Screen,
+  View,
+  Scroll,
+  Text,
+  Button,
+  Topbar,
+  TopbarCenter,
+  TabBar,
+  TabBarItem,
+} from '@nuri/rn';
 import { TerminalScreen } from './TerminalScreen';
 import { ApproveScreen } from './ApproveScreen';
 import { ProfileScreen } from './ProfileScreen';
@@ -42,58 +51,68 @@ export default function App() {
   if (checkout) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-          <StatusBar style="dark" />
-          <Screen>
-            <Scroll padding="lg" paddingBottom="2xl">
-              <ApproveScreen
-                config={config}
-                merchantName={checkout.merchantName}
-                amountSats={checkout.amountSats}
-                memo={checkout.memo}
-                invoice={checkout.invoice}
-                onBack={() => { setCheckout(null); setTab('terminal'); }}
-              />
-            </Scroll>
-          </Screen>
-        </SafeAreaView>
+        <NuriThemeProvider>
+          <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+            <StatusBar style="dark" />
+            <Screen>
+              <Scroll>
+                <View padding="lg" paddingBottom="xl">
+                  <ApproveScreen
+                    config={config}
+                    merchantName={checkout.merchantName}
+                    amountSats={checkout.amountSats}
+                    memo={checkout.memo}
+                    invoice={checkout.invoice}
+                    onBack={() => { setCheckout(null); setTab('terminal'); }}
+                  />
+                </View>
+              </Scroll>
+            </Screen>
+          </SafeAreaView>
+        </NuriThemeProvider>
       </SafeAreaProvider>
     );
   }
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <StatusBar style="dark" />
-        <Screen>
-          <Topbar
-            center={<Typography step="md" emphasis>Nuri Terminal</Typography>}
-          />
-          {tab === 'terminal' ? (
-            <Scroll padding="lg" paddingBottom="xl">
-              <TerminalScreen
-                onCharge={(amountSats, invoice, memo) =>
-                  setCheckout({ amountSats, invoice, memo, merchantName: 'Nuri demo coffee' })
-                }
+      <NuriThemeProvider>
+        <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+          <StatusBar style="dark" />
+          <Screen>
+            <Topbar>
+              <TopbarCenter>
+                <Text size="md" emphasis>Nuri Terminal</Text>
+              </TopbarCenter>
+            </Topbar>
+            {tab === 'terminal' ? (
+              <Scroll>
+                <View padding="lg" paddingBottom="xl">
+                  <TerminalScreen
+                    onCharge={(amountSats, invoice, memo) =>
+                      setCheckout({ amountSats, invoice, memo, merchantName: 'Nuri demo coffee' })
+                    }
+                  />
+                </View>
+              </Scroll>
+            ) : (
+              <ProfileScreen aspInfoUrl={config.aspInfoUrl} nodeUrl={NODE_URL} credIdB64u={PROFILE_CREDENTIAL_ID} />
+            )}
+            <TabBar>
+              <TabBarItem
+                label="Terminal"
+                selected={tab === 'terminal'}
+                onPress={() => setTab('terminal')}
               />
-            </Scroll>
-          ) : (
-            <ProfileScreen aspInfoUrl={config.aspInfoUrl} nodeUrl={NODE_URL} credIdB64u={PROFILE_CREDENTIAL_ID} />
-          )}
-          <TabBar>
-            <TabBarItem
-              label="Terminal"
-              selected={tab === 'terminal'}
-              onPress={() => setTab('terminal')}
-            />
-            <TabBarItem
-              label="Profile"
-              selected={tab === 'profile'}
-              onPress={() => setTab('profile')}
-            />
-          </TabBar>
-        </Screen>
-      </SafeAreaView>
+              <TabBarItem
+                label="Profile"
+                selected={tab === 'profile'}
+                onPress={() => setTab('profile')}
+              />
+            </TabBar>
+          </Screen>
+        </SafeAreaView>
+      </NuriThemeProvider>
     </SafeAreaProvider>
   );
 }

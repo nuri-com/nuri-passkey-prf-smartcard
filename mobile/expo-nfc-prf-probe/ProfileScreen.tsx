@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable } from 'react-native';
-import { Stack, Scroll, Typography } from './src/ds/primitives';
-import { Button } from './src/ds/recipes';
-import { colors, space, radius } from './src/ds/tokens';
+import { ActivityIndicator, Text as RNText, View as RNView } from 'react-native';
+import { View, Stack, Scroll, Text, Button } from '@nuri/rn';
 import { readCardPubkey } from './src/musig2Card';
 import { Wallet, InMemoryWalletRepository, InMemoryContractRepository } from '@arkade-os/sdk';
 import { ExpoArkProvider, ExpoIndexerProvider } from '@arkade-os/sdk/adapters/expo';
@@ -72,49 +70,51 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
   useEffect(() => { loadCard().catch(() => {}); }, []);
 
   return (
-    <Scroll padding="lg" paddingBottom="xl" gap="lg">
-      <Stack gap="md" padding="xl" radius="md" chrome="canvas" style={{ borderWidth: 1, borderColor: colors.borderSubtle }}>
-        <Typography step="lg" emphasis>Wallet</Typography>
-        <Stack gap="2xs">
-          <Typography step="xs" emphasis muted>Ark address</Typography>
-          <Typography step="xs" style={{ fontFamily: 'Courier', backgroundColor: colors.bgSubtle, padding: space.md, borderRadius: radius.sm, overflow: 'hidden' }}>
-            {arkAddress || (busy ? 'Loading…' : '—')}
-          </Typography>
-        </Stack>
-        <Stack gap="2xs">
-          <Typography step="xs" emphasis muted>Balance</Typography>
-          <Typography step="xl" emphasis>{balance || (busy ? 'Loading…' : '—')}</Typography>
-        </Stack>
-      </Stack>
+    <Scroll>
+      <View padding="lg" paddingBottom="xl" gap="lg">
+        <View variant="outline" radius="md" padding="xl" gap="md">
+          <Text size="lg" emphasis>Wallet</Text>
+          <Stack gap="xs">
+            <Text size="xs" emphasis muted>Ark address</Text>
+            <RNText style={{ fontFamily: 'Courier', fontSize: 13, backgroundColor: '#fbf9ee', padding: 12, borderRadius: 6, overflow: 'hidden' }}>
+              {arkAddress || (busy ? 'Loading…' : '—')}
+            </RNText>
+          </Stack>
+          <Stack gap="xs">
+            <Text size="xs" emphasis muted>Balance</Text>
+            <Text size="xl" emphasis>{balance || (busy ? 'Loading…' : '—')}</Text>
+          </Stack>
+        </View>
 
-      <Stack gap="md" padding="xl" radius="md" chrome="canvas" style={{ borderWidth: 1, borderColor: colors.borderSubtle }}>
-        <Typography step="lg" emphasis>Card</Typography>
-        <Stack gap="2xs">
-          <Typography step="xs" emphasis muted>Card MuSig2 pubkey</Typography>
-          <Typography step="xs" style={{ fontFamily: 'Courier', backgroundColor: colors.bgSubtle, padding: space.md, borderRadius: radius.sm, overflow: 'hidden' }}>
-            {cardPk || (busy ? 'Reading card…' : '—')}
-          </Typography>
-        </Stack>
-      </Stack>
+        <View variant="outline" radius="md" padding="xl" gap="md">
+          <Text size="lg" emphasis>Card</Text>
+          <Stack gap="xs">
+            <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
+            <RNText style={{ fontFamily: 'Courier', fontSize: 13, backgroundColor: '#fbf9ee', padding: 12, borderRadius: 6, overflow: 'hidden' }}>
+              {cardPk || (busy ? 'Reading card…' : '—')}
+            </RNText>
+          </Stack>
+        </View>
 
-      <Stack gap="md" padding="xl" radius="md" chrome="canvas" style={{ borderWidth: 1, borderColor: colors.borderSubtle }}>
-        <Typography step="lg" emphasis>Arkade</Typography>
-        <Stack gap="2xs">
-          <Typography step="xs" emphasis muted>ASP server pubkey</Typography>
-          <Typography step="xs" style={{ fontFamily: 'Courier' }}>{serverPk || '—'}</Typography>
-        </Stack>
-        <Stack gap="2xs">
-          <Typography step="xs" emphasis muted>Recovery registered</Typography>
-          <Typography step="sm">{registered ? 'yes' : 'no'}</Typography>
-        </Stack>
-      </Stack>
+        <View variant="outline" radius="md" padding="xl" gap="md">
+          <Text size="lg" emphasis>Arkade</Text>
+          <Stack gap="xs">
+            <Text size="xs" emphasis muted>ASP server pubkey</Text>
+            <RNText style={{ fontFamily: 'Courier', fontSize: 13 }}>{serverPk || '—'}</RNText>
+          </Stack>
+          <Stack gap="xs">
+            <Text size="xs" emphasis muted>Recovery registered</Text>
+            <Text size="sm">{registered ? 'yes' : 'no'}</Text>
+          </Stack>
+        </View>
 
-      {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
-      {error ? <Typography step="sm" style={{ color: '#a52820', textAlign: 'center' }}>{error}</Typography> : null}
+        {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
+        {error ? <RNText style={{ color: '#a52820', fontSize: 13, textAlign: 'center' }}>{error}</RNText> : null}
 
-      <Button variant="solid" onPress={loadCard} disabled={busy}>
-        {busy ? '…' : 'Refresh (tap card)'}
-      </Button>
+        <Button variant="solid" size="lg" onPress={loadCard} disabled={busy}>
+          {busy ? '…' : 'Refresh (tap card)'}
+        </Button>
+      </View>
     </Scroll>
   );
 }

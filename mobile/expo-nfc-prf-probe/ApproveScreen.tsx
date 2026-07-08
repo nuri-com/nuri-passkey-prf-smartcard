@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Animated, Pressable } from 'react-native';
-import { Stack, Typography } from './src/ds/primitives';
-import { Button } from './src/ds/recipes';
-import { colors, space, radius } from './src/ds/tokens';
+import { ActivityIndicator, Animated, Pressable as RNPressable, Text as RNText, View as RNView } from 'react-native';
+import { View, Stack, Text, Button } from '@nuri/rn';
 import { sendLightning, type SendConfig, type SendResult } from './src/sendFlow';
 
 const PIN_LEN = 4;
@@ -87,106 +85,106 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
   const keys = ['1','2','3','4','5','6','7','8','9','C','0','back'];
 
   return (
-    <Stack gap="md" padding="xl" radius="lg" chrome="canvas" style={{ borderWidth: 1, borderColor: colors.borderSubtle }}>
-      <Typography step="sm" emphasis muted>{merchantName}</Typography>
+    <View variant="outline" radius="lg" padding="xl" gap="md">
+      <Text size="sm" emphasis muted>{merchantName}</Text>
       <Stack direction="row" align="baseline" gap="xs">
-        <Typography step="3xl" weight="700">{Number(amountSats).toLocaleString('en-US')}</Typography>
-        <Typography step="lg" emphasis muted>sats</Typography>
+        <Text size="3xl" emphasis>{Number(amountSats).toLocaleString('en-US')}</Text>
+        <Text size="lg" muted>sats</Text>
       </Stack>
-      <Typography step="xs" muted>
-        Pays <Typography step="xs" emphasis style={{ color: colors.textPrimary }}>{memo}</Typography> · mainnet
-      </Typography>
+      <Text size="xs" muted>
+        Pays <Text size="xs" emphasis>{memo}</Text> · mainnet
+      </Text>
 
       {phase === 'pin' && (
-        <Stack gap="md">
-          <Typography step="xs" emphasis muted>Enter card PIN</Typography>
-          <Stack direction="row" justify="center" gap="lg" paddingY="md" style={{ height: 36 }}>
+        <View gap="md">
+          <Text size="xs" emphasis muted>Enter card PIN</Text>
+
+          {/* PIN dots */}
+          <RNView style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, paddingVertical: 12, height: 36 }}>
             {Array.from({ length: pinDots }).map((_, i) => (
-              <Pressable key={i} style={{
+              <RNView key={i} style={{
                 width: 12, height: 12, borderRadius: 6,
                 borderWidth: 1.5,
-                borderColor: i < pin.length ? colors.textPrimary : colors.borderSubtle,
-                backgroundColor: i < pin.length ? colors.textPrimary : 'transparent',
+                borderColor: i < pin.length ? '#222013' : '#dddac9',
+                backgroundColor: i < pin.length ? '#222013' : 'transparent',
               }} />
             ))}
-          </Stack>
+          </RNView>
 
-          <Stack direction="row" wrap gap="2xs" paddingY="md">
+          {/* Numpad */}
+          <View direction="row" wrap gap="xs" paddingY="md">
             {keys.map((k) => (
-              <Pressable
+              <RNPressable
                 key={k}
                 onPress={() => press(k)}
                 style={{
-                  width: '33.33%', paddingVertical: space.xl, alignItems: 'center',
-                  borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle,
-                  backgroundColor: colors.bgCanvas, marginBottom: space['2xs'],
+                  width: '33.33%', paddingVertical: 24, alignItems: 'center',
+                  borderRadius: 9, borderWidth: 1, borderColor: '#dddac9',
+                  backgroundColor: '#fffdf2', marginBottom: 2,
                 }}
               >
-                <Typography step="xl" emphasis>{k === 'back' ? '⌫' : k}</Typography>
-              </Pressable>
+                <Text size="xl" emphasis>{k === 'back' ? '⌫' : k}</Text>
+              </RNPressable>
             ))}
-          </Stack>
+          </View>
 
-          <Button variant="solid" onPress={() => startScan(pin)} disabled={!canCharge}>
+          <Button variant="solid" size="lg" onPress={() => startScan(pin)} disabled={!canCharge}>
             Tap card & approve
           </Button>
-        </Stack>
+        </View>
       )}
 
       {(phase === 'scanning' || phase === 'signing') && (
-        <Stack align="center" gap="sm" paddingY="lg">
+        <View align="center" gap="sm" paddingY="lg">
           <Animated.Text style={{ fontSize: 40, transform: [{ scale: pulseAnim }] }}>
             {phase === 'scanning' ? '💳' : '⚙️'}
           </Animated.Text>
           {phase === 'scanning' && (
-            <Pressable style={{
-              width: 100, height: 6, borderRadius: 3, backgroundColor: colors.borderSubtle,
-              overflow: 'hidden',
-            }}>
-              <Pressable style={{ height: '100%', width: `${ringProgress * 100}%`, backgroundColor: colors.accentSolid }} />
-            </Pressable>
+            <RNView style={{ width: 100, height: 6, borderRadius: 3, backgroundColor: '#dddac9', overflow: 'hidden' }}>
+              <RNView style={{ height: '100%', width: `${ringProgress * 100}%`, backgroundColor: '#beaaff' }} />
+            </RNView>
           )}
-          <Typography step="sm" emphasis style={{ color: '#9a6b00' }}>{status}</Typography>
-          {phase === 'scanning' && <Typography step="xs" emphasis muted>{count}s</Typography>}
-          {phase === 'signing' && <ActivityIndicator style={{ marginTop: space.sm }} />}
-        </Stack>
+          <RNText style={{ fontSize: 14, fontWeight: '600', textAlign: 'center', color: '#9a6b00' }}>{status}</RNText>
+          {phase === 'scanning' && <Text size="xs" emphasis muted>{count}s</Text>}
+          {phase === 'signing' && <ActivityIndicator style={{ marginTop: 6 }} />}
+        </View>
       )}
 
       {phase === 'done' && result && (
-        <Stack align="center" gap="md" paddingY="lg">
-          <Typography step="xl">✅</Typography>
-          <Typography step="md" emphasis style={{ color: '#1f7a5a' }}>Approved — payment broadcast</Typography>
-          <Stack gap="2xs" paddingTop="md" style={{ borderTopWidth: 1, borderTopColor: colors.borderSubtle, width: '100%' }}>
+        <View align="center" gap="md" paddingY="lg">
+          <Text size="xl">✅</Text>
+          <RNText style={{ fontSize: 17, fontWeight: '600', color: '#1f7a5a' }}>Approved — payment broadcast</RNText>
+          <RNView style={{ gap: 4, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#dddac9', width: '100%' }}>
             <ReceiptRow label="Status" value="APPROVED" />
             <ReceiptRow label="Paid" value={`${result.final_amount_sats} sats (funded ${result.funding_amount_sats})`} />
             <ReceiptRow label="Ark txid" value={result.ark_txid || '—'} mono />
-          </Stack>
-          <Button variant="ghost" onPress={onBack} style={{ borderWidth: 1, borderColor: '#1f7a5a' }}>
-            <Typography step="sm" emphasis style={{ color: '#1f7a5a' }}>New payment</Typography>
+          </RNView>
+          <Button variant="soft" size="lg" onPress={onBack}>
+            <RNText style={{ color: '#1f7a5a', fontSize: 15, fontWeight: '700' }}>New payment</RNText>
           </Button>
-        </Stack>
+        </View>
       )}
 
       {phase === 'error' && (
-        <Stack align="center" gap="md" paddingY="lg">
-          <Typography step="xl">⚠️</Typography>
-          <Typography step="sm" emphasis style={{ color: '#9a3412' }}>{error}</Typography>
-          <Button variant="ghost" onPress={reset} style={{ borderWidth: 1, borderColor: '#1f7a5a' }}>
-            <Typography step="sm" emphasis style={{ color: '#1f7a5a' }}>Try again</Typography>
+        <View align="center" gap="md" paddingY="lg">
+          <Text size="xl">⚠️</Text>
+          <RNText style={{ fontSize: 14, fontWeight: '600', color: '#9a3412' }}>{error}</RNText>
+          <Button variant="soft" size="lg" onPress={reset}>
+            <RNText style={{ color: '#1f7a5a', fontSize: 15, fontWeight: '700' }}>Try again</RNText>
           </Button>
-        </Stack>
+        </View>
       )}
-    </Stack>
+    </View>
   );
 }
 
 function ReceiptRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <Stack direction="row" justify="between" gap="md">
-      <Typography step="sm" muted>{label}</Typography>
-      <Typography step="sm" style={{ textAlign: 'right', flexShrink: 1, fontFamily: mono ? 'Courier' : undefined, fontSize: mono ? 11 : undefined }}>
+    <View direction="row" justify="between" gap="md">
+      <Text size="sm" muted>{label}</Text>
+      <RNText style={{ textAlign: 'right', flexShrink: 1, fontFamily: mono ? 'Courier' : undefined, fontSize: mono ? 11 : 13 }}>
         {value}
-      </Typography>
-    </Stack>
+      </RNText>
+    </View>
   );
 }
