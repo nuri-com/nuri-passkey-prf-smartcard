@@ -81,13 +81,10 @@ export class CardBackedAggregateIdentity {
   }
 
   // Call this once after construction, with the card on the NFC reader.
-  // Reads the card pubkey and computes the aggregate key.
+  // Reads the card pubkey. The aggregate is computed after the server pubkey is known.
   async initialize(): Promise<void> {
     const { pubkey } = await readCardPubkey(this.log);
     this.clientPk33 = pubkey;
-    this.sortedKeys = musig2.sortKeys([this.clientPk33, this.serverPk33]);
-    this.aggregatedPk33 = musig2.keyAggregate(this.sortedKeys).aggPublicKey.toBytes(true);
-    this.aggregatedXonly = this.aggregatedPk33.slice(1);
   }
 
   async compressedPublicKey(): Promise<Uint8Array> { return this.aggregatedPk33; }

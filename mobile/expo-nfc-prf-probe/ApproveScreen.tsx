@@ -56,11 +56,11 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
     await new Promise(r => setTimeout(r, 2000));
     setPhase('signing'); setStatus('Card read — approving payment…');
     try {
-      const cfg = { ...config, pin: enteredPin, invoice };
+      const cfg = { ...config, pin: enteredPin, invoice, log: (msg: string) => setStatus(msg) };
       const res = await sendLightning(cfg, invoice);
       setResult(res); setPhase('done'); setStatus('Approved — payment broadcast');
     } catch (e: any) {
-      setPhase('error'); setError(e.message || 'Payment failed'); setStatus('');
+      setPhase('error'); setError(e?.message ? `${e.name}: ${e.message}` : String(e)); setStatus('');
     }
   }
 

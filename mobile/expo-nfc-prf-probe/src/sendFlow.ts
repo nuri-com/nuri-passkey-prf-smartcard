@@ -120,11 +120,9 @@ class NfcCardIdentity {
   async initialize(): Promise<void> {
     const { pubkey } = await readCardPubkey(this.log);
     this.clientPk33 = pubkey;
-    this.sortedKeys = musig2.sortKeys([this.clientPk33, this.serverPk33]);
-    this.aggregatedPk33 = musig2.keyAggregate(this.sortedKeys).aggPublicKey.toBytes(true);
-    this.aggregatedXonly = this.aggregatedPk33.slice(1);
     this.log(`card pubkey: ${bytesToHex(this.clientPk33)}`);
-    this.log(`aggregate: ${bytesToHex(this.aggregatedPk33)}`);
+    // Don't compute aggregate yet — serverPk33 is still a placeholder.
+    // The real aggregate is computed in sendLightning after ASP info.
   }
 
   async compressedPublicKey(): Promise<Uint8Array> { return this.aggregatedPk33; }
