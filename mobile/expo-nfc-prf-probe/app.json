@@ -39,7 +39,8 @@
           ],
           "includeNdefEntitlement": false
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {
