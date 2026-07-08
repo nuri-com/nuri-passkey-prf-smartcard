@@ -1,9 +1,8 @@
-// Terminal screen — merchant enters amount on a numpad, hits Charge.
-// Mirrors web/merchant-terminal.html exactly.
-// Resolves the Lightning address to a BOLT11 invoice, then switches to Approve.
-
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable } from 'react-native';
+import { Stack, Typography } from './src/ds/primitives';
+import { Button } from './src/ds/recipes';
+import { colors, space, radius } from './src/ds/tokens';
 
 const MERCHANT_TARGET = 'nuri@cake.cash';
 const MERCHANT_NAME = 'Nuri demo coffee';
@@ -43,66 +42,46 @@ export function TerminalScreen({ onCharge }: Props) {
     }
   }
 
-  return (
-    <View style={s.pos}>
-      <Text style={s.merchant}>{MERCHANT_NAME}</Text>
-      <View style={s.amountRow}>
-        <Text style={s.amount}>{amount.toLocaleString('en-US')}</Text>
-        <Text style={s.unit}>sats</Text>
-      </View>
-      <Text style={s.pays}>Charges <Text style={s.paysBold}>{MERCHANT_TARGET}</Text> · mainnet</Text>
+  const keys = ['1','2','3','4','5','6','7','8','9','C','0','back'];
 
-      <View style={s.pad}>
-        {['1','2','3','4','5','6','7','8','9','C','0','back'].map((k) => (
+  return (
+    <Stack gap="md" padding="xl" radius="lg" chrome="canvas" style={{ borderWidth: 1, borderColor: colors.borderSubtle }}>
+      <Typography step="sm" emphasis muted>{MERCHANT_NAME}</Typography>
+      <Stack direction="row" align="baseline" gap="xs">
+        <Typography step="3xl" weight="700">{amount.toLocaleString('en-US')}</Typography>
+        <Typography step="lg" emphasis muted>sats</Typography>
+      </Stack>
+      <Typography step="xs" muted>
+        Charges <Typography step="xs" emphasis style={{ color: colors.textPrimary }}>{MERCHANT_TARGET}</Typography> · mainnet
+      </Typography>
+
+      <Stack direction="row" wrap gap="2xs" paddingY="lg">
+        {keys.map((k) => (
           <Pressable
             key={k}
-            style={s.padBtn}
             onPress={() => press(k)}
             disabled={busy}
-            android_ripple={{ color: '#eef1f4' }}
+            style={{
+              width: '33.33%',
+              paddingVertical: space.xl,
+              alignItems: 'center',
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.borderSubtle,
+              backgroundColor: colors.bgCanvas,
+              marginBottom: space['2xs'],
+            }}
           >
-            <Text style={s.padBtnText}>{k === 'back' ? '⌫' : k}</Text>
+            <Typography step="xl" emphasis>{k === 'back' ? '⌫' : k}</Typography>
           </Pressable>
         ))}
-      </View>
+      </Stack>
 
-      <Pressable
-        style={[s.charge, !canCharge && s.chargeDisabled]}
-        disabled={!canCharge}
-        onPress={charge}
-      >
-        <Text style={s.chargeText}>{busy ? '…' : 'Charge'}</Text>
-      </Pressable>
+      <Button variant="solid" onPress={charge} disabled={!canCharge}>
+        {busy ? '…' : 'Charge'}
+      </Button>
 
-      {status ? <Text style={s.status}>{status}</Text> : null}
-    </View>
+      {status ? <Typography step="sm" emphasis muted align="center">{status}</Typography> : null}
+    </Stack>
   );
 }
-
-const s = StyleSheet.create({
-  pos: {
-    backgroundColor: '#fff', borderColor: '#d7dce3', borderRadius: 14, borderWidth: 1,
-    padding: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04, shadowRadius: 2, elevation: 1,
-  },
-  merchant: { color: '#657080', fontWeight: '700', fontSize: 14 },
-  amountRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 6 },
-  amount: { fontSize: 56, fontWeight: '800', letterSpacing: -1, color: '#17202a' },
-  unit: { fontSize: 22, fontWeight: '700', color: '#657080', marginLeft: 8 },
-  pays: { color: '#657080', fontSize: 13, marginTop: 6 },
-  paysBold: { fontWeight: '700', color: '#17202a' },
-  pad: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 22 },
-  padBtn: {
-    width: '33.33%', paddingVertical: 18, alignItems: 'center',
-    borderRadius: 10, borderWidth: 1, borderColor: '#d7dce3',
-    backgroundColor: '#fff', marginBottom: 2,
-  },
-  padBtnText: { fontSize: 22, fontWeight: '700', color: '#17202a' },
-  charge: {
-    backgroundColor: '#1f7a5a', borderColor: '#1f7a5a', borderRadius: 10,
-    borderWidth: 1, paddingVertical: 16, alignItems: 'center',
-  },
-  chargeDisabled: { opacity: 0.5 },
-  chargeText: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  status: { marginTop: 16, textAlign: 'center', color: '#657080', fontSize: 14, fontWeight: '600' },
-});

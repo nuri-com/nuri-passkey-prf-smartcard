@@ -1,13 +1,14 @@
-import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { Screen, Stack, Scroll, Typography } from './src/ds/primitives';
+import { Topbar, TabBar, TabBarItem } from './src/ds/recipes';
+import { colors } from './src/ds/tokens';
 import { TerminalScreen } from './TerminalScreen';
 import { ApproveScreen } from './ApproveScreen';
 import { ProfileScreen } from './ProfileScreen';
 import type { SendConfig } from './src/sendFlow';
 
-// ASP endpoints (live Nuri).
 const ASP_BASE = process.env.EXPO_PUBLIC_ASP_BASE || 'https://arkade.nuri.com/v4';
 const NURI_BASE = ASP_BASE.replace(/\/+$/, '').replace(/\/v4$/i, '');
 const NODE_URL = process.env.EXPO_PUBLIC_NODE_URL || 'https://arkade.computer';
@@ -15,13 +16,7 @@ const PROFILE_RP_ID = process.env.EXPO_PUBLIC_NURI_RP_ID || 'nuri.com';
 const PROFILE_CREDENTIAL_ID = process.env.EXPO_PUBLIC_NURI_CREDENTIAL_ID || '';
 
 type Tab = 'terminal' | 'profile';
-
-type Checkout = {
-  amountSats: number;
-  invoice: string;
-  memo: string;
-  merchantName: string;
-};
+type Checkout = { amountSats: number; invoice: string; memo: string; merchantName: string };
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('terminal');
@@ -44,22 +39,23 @@ export default function App() {
     pin: '',
   };
 
-  // If a checkout is active, show the Approve screen full-screen.
   if (checkout) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
           <StatusBar style="dark" />
-          <ScrollView contentContainerStyle={styles.content}>
-            <ApproveScreen
-              config={config}
-              merchantName={checkout.merchantName}
-              amountSats={checkout.amountSats}
-              memo={checkout.memo}
-              invoice={checkout.invoice}
-              onBack={() => { setCheckout(null); setTab('terminal'); }}
-            />
-          </ScrollView>
+          <Screen>
+            <Scroll padding="lg" paddingBottom="2xl">
+              <ApproveScreen
+                config={config}
+                merchantName={checkout.merchantName}
+                amountSats={checkout.amountSats}
+                memo={checkout.memo}
+                invoice={checkout.invoice}
+                onBack={() => { setCheckout(null); setTab('terminal'); }}
+              />
+            </Scroll>
+          </Screen>
         </SafeAreaView>
       </SafeAreaProvider>
     );
@@ -67,51 +63,37 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <StatusBar style="dark" />
-        <View style={styles.nav}>
-          <Text style={styles.navTitle}>Nuri Terminal</Text>
-          <View style={styles.navTabs}>
-            <NavTab active={tab === 'terminal'} label="Terminal" onPress={() => setTab('terminal')} />
-            <NavTab active={tab === 'profile'} label="Profile" onPress={() => setTab('profile')} />
-          </View>
-        </View>
-        {tab === 'terminal' ? (
-          <ScrollView contentContainerStyle={styles.content}>
-            <TerminalScreen
-              onCharge={(amountSats, invoice, memo) =>
-                setCheckout({ amountSats, invoice, memo, merchantName: 'Nuri demo coffee' })
-              }
+        <Screen>
+          <Topbar
+            center={<Typography step="md" emphasis>Nuri Terminal</Typography>}
+          />
+          {tab === 'terminal' ? (
+            <Scroll padding="lg" paddingBottom="xl">
+              <TerminalScreen
+                onCharge={(amountSats, invoice, memo) =>
+                  setCheckout({ amountSats, invoice, memo, merchantName: 'Nuri demo coffee' })
+                }
+              />
+            </Scroll>
+          ) : (
+            <ProfileScreen aspInfoUrl={config.aspInfoUrl} nodeUrl={NODE_URL} credIdB64u={PROFILE_CREDENTIAL_ID} />
+          )}
+          <TabBar>
+            <TabBarItem
+              label="Terminal"
+              selected={tab === 'terminal'}
+              onPress={() => setTab('terminal')}
             />
-          </ScrollView>
-        ) : (
-          <ProfileScreen aspInfoUrl={config.aspInfoUrl} nodeUrl={NODE_URL} credIdB64u={PROFILE_CREDENTIAL_ID} />
-        )}
+            <TabBarItem
+              label="Profile"
+              selected={tab === 'profile'}
+              onPress={() => setTab('profile')}
+            />
+          </TabBar>
+        </Screen>
       </SafeAreaView>
     </SafeAreaProvider>
   );
 }
-
-function NavTab({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.navTab, active && styles.navTabActive]}>
-      <Text style={[styles.navTabText, active && styles.navTabTextActive]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f5f6f8' },
-  nav: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#fff',
-    borderBottomColor: '#d7dce3', borderBottomWidth: 1,
-  },
-  navTitle: { fontSize: 17, fontWeight: '700', color: '#17202a' },
-  navTabs: { flexDirection: 'row', gap: 4 },
-  navTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
-  navTabActive: { backgroundColor: '#eef1f4' },
-  navTabText: { fontSize: 15, fontWeight: '600', color: '#657080' },
-  navTabTextActive: { color: '#17202a' },
-  content: { padding: 20, paddingBottom: 40 },
-});
