@@ -95,7 +95,7 @@ async function postJson(url: string, body: any): Promise<any> {
 
 // --- Card-backed MuSig2 identity for the SDK Wallet ---------------------------
 
-class NfcCardIdentity {
+export class NfcCardIdentity {
   clientPk33: Uint8Array;
   serverPk33: Uint8Array;
   sortedKeys: Uint8Array[];
