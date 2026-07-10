@@ -79,7 +79,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NuriThemeProvider>
-        <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
           <StatusBar style="dark" />
           <Screen>
             <Topbar>

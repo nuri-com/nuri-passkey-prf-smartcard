@@ -10,6 +10,11 @@ import { bech32m } from '@scure/base';
 
 type Props = { aspInfoUrl: string; nodeUrl: string; credIdB64u: string };
 
+// The card's Nuri account — card@nuri.com is the LNURL receive address
+// registered on the Nuri server for this card's MuSig2 aggregate key.
+const ACCOUNT_NAME = 'Nuri';
+const LIGHTNING_ADDRESS = 'card@nuri.com';
+
 export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
   const [cardPk, setCardPk] = useState('');
   const [serverPk, setServerPk] = useState('');
@@ -81,7 +86,8 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
         {loaded ? (
           <>
             <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>Wallet</Text>
+              <Text size="lg" emphasis>{ACCOUNT_NAME}</Text>
+              <Text size="sm" muted>{LIGHTNING_ADDRESS}</Text>
               <Stack gap="xs">
                 <Text size="xs" emphasis muted>Ark address</Text>
                 <Text size="xs" flow="truncate" lines={1}>{arkAddress}</Text>
@@ -105,7 +111,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
             </View>
 
             <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>Arkade</Text>
+              <Text size="lg" emphasis>Arkade ASP</Text>
               <Stack gap="xs">
                 <Text size="xs" emphasis muted>ASP server pubkey</Text>
                 <Text size="xs" flow="truncate" lines={1}>{serverPk}</Text>
