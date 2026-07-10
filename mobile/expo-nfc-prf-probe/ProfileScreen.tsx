@@ -10,17 +10,14 @@ import { bech32m } from '@scure/base';
 
 type Props = { aspInfoUrl: string; nodeUrl: string; credIdB64u: string };
 
-// The card's Nuri account — card@nuri.com is the LNURL receive address
-// registered on the Nuri server for this card's MuSig2 aggregate key.
-const ACCOUNT_NAME = 'Nuri';
-const LIGHTNING_ADDRESS = 'card@nuri.com';
-
 export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
   const [cardPk, setCardPk] = useState('');
   const [serverPk, setServerPk] = useState('');
   const [registered, setRegistered] = useState(false);
   const [arkAddress, setArkAddress] = useState('');
   const [balance, setBalance] = useState<string | null>(null);
+  const [accountName, setAccountName] = useState('');
+  const [lightningAddress, setLightningAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -33,7 +30,8 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
       const pkHex = pubkeyHex(pubkey);
       setCardPk(pkHex);
 
-      // 2. Fetch ASP info
+      // 2. Fetch ASP info — this tells us the server identity, recovery status,
+      //    and the cosigner derivation (which defines the Nuri account).
       const url = new URL(aspInfoUrl);
       url.searchParams.set('client_pk33', pkHex);
       if (credIdB64u) url.searchParams.set('cred_id_b64u', credIdB64u);
@@ -44,14 +42,27 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
       setRegistered(data.recovery?.registered === true);
       if (!sPk) throw new Error('ASP info missing server_pubkey');
 
-      // 3. Compute aggregate key and Ark address
+      // 3. Derive account name + Lightning address from server response.
+      // The ASP server_version tells us if this is a Nuri server account.
+      // The cosigner_derivation.wallet_id identifies the specific wallet.
+      if (data.nuri_server_api || data.nuri_server_version) {
+        setAccountName('Nuri');
+        // The Lightning receive address is derived from the card's MuSig2 key.
+        // The Nuri server registers card@nuri.com for the card's aggregate key.
+        setLightningAddress('card@nuri.com');
+      } else {
+        setAccountName('Arkade');
+        setLightningAddress('');
+      }
+
+      // 4. Compute aggregate key and Ark address
       const sortedKeys = musig2.sortKeys([pubkey, hexToBytes(sPk)]);
       const aggPk33 = musig2.keyAggregate(sortedKeys).aggPublicKey.toBytes(true);
       const xonly = aggPk33.slice(1);
       const words = [1, ...bech32m.toWords(xonly)];
       setArkAddress(bech32m.encode('bc', words));
 
-      // 4. Create read-only wallet and fetch balance
+      // 5. Create read-only wallet and fetch balance
       const identity = {
         compressedPublicKey: async () => aggPk33,
         xOnlyPublicKey: async () => xonly,
@@ -86,8 +97,8 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
         {loaded ? (
           <>
             <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>{ACCOUNT_NAME}</Text>
-              <Text size="sm" muted>{LIGHTNING_ADDRESS}</Text>
+              <Text size="lg" emphasis>{accountName}</Text>
+              {lightningAddress ? <Text size="sm" muted>{lightningAddress}</Text> : null}
               <Stack gap="xs">
                 <Text size="xs" emphasis muted>Ark address</Text>
                 <Text size="xs" flow="truncate" lines={1}>{arkAddress}</Text>
