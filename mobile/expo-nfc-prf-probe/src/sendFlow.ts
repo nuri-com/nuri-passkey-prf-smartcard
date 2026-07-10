@@ -343,6 +343,20 @@ function scriptContainsXOnly(scriptOps: any[], xOnlyPubkey: Uint8Array): boolean
 export async function sendLightning(cfg: SendConfig, invoice: string): Promise<SendResult> {
   const log = cfg.log || (() => {});
 
+  // Open NFC once and keep it open for the entire flow.
+  log('Hold card on phone — starting...');
+  const NfcManager = (await import('react-native-nfc-manager')).default;
+  const { NfcTech } = await import('react-native-nfc-manager');
+  const { setNfcSessionOpen: setMusig2Open } = await import('./musig2Card');
+  const { setNfcSessionOpen: setCtapOpen } = await import('./ctapPrf');
+  await NfcManager.start();
+  await NfcManager.requestTechnology(NfcTech.IsoDep, {
+    alertMessage: 'Hold the Nuri card near the phone for the entire payment.',
+  });
+  setMusig2Open(true);
+  setCtapOpen(true);
+
+  try {
   // 1. Read the card pubkey first (needed for /arkade/info)
   log('reading card pubkey...');
   const identity = new NfcCardIdentity(cfg, '00'.repeat(33));
@@ -461,4 +475,9 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
     ark_address: address,
     complete,
   };
+  } finally {
+    setMusig2Open(false);
+    setCtapOpen(false);
+    await NfcManager.cancelTechnologyRequest({ throwOnError: false });
+  }
 }

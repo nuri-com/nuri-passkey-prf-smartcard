@@ -117,6 +117,34 @@ export async function withMusig2Card<T>(
   operation: (card: MuSig2Card) => Promise<T>,
   log: LogSink = () => {},
 ): Promise<T> {
+  if (_nfcOpen) {
+    // NFC already open — just select AID and run
+    await selectMusig2(log);
+    const verResp = await exchangeApdu(0x00, 0x01, 0x00, 0x00, new Uint8Array(), log);
+    if (verResp.sw1 !== 0x90 || verResp.sw2 !== 0x00) throw new Error(`GET_VERSION failed: ${verResp.sw1.toString(16)}${verResp.sw2.toString(16)}`);
+    const version = `${verResp.data[0]}.${verResp.data[1]}`;
+    const pkResp = await exchangeApdu(0x00, 0x03, 0x00, 0x00, new Uint8Array(), log);
+    if (pkResp.sw1 !== 0x90 || pkResp.sw2 !== 0x00) throw new Error(`GET_PUBKEY failed: ${pkResp.sw1.toString(16)}${pkResp.sw2.toString(16)}`);
+    if (pkResp.data.length !== 33) throw new Error(`GET_PUBKEY returned ${pkResp.data.length} bytes, expected 33`);
+    const card: MuSig2Card = {
+      pubkey: pkResp.data,
+      version,
+      nonces: async () => {
+        const resp = await exchangeApdu(0x00, 0x40, 0x00, 0x00, new Uint8Array(), log);
+        if (resp.sw1 !== 0x90 || resp.sw2 !== 0x00) throw new Error(`GET_NONCES failed: ${resp.sw1.toString(16)}${resp.sw2.toString(16)}`);
+        if (resp.data.length !== 66) throw new Error(`GET_NONCES returned ${resp.data.length} bytes, expected 66`);
+        return resp.data;
+      },
+      finalize: async (a_i: Uint8Array, b32: Uint8Array, parity: number, e32: Uint8Array) => {
+        const payload = concatBytes(a_i, b32, new Uint8Array([parity & 0xff]), e32);
+        const resp = await exchangeApdu(0x00, 0x41, 0x00, 0x00, payload, log);
+        if (resp.sw1 !== 0x90 || resp.sw2 !== 0x00) throw new Error(`FINALIZE failed: ${resp.sw1.toString(16)}${resp.sw2.toString(16)}`);
+        if (resp.data.length !== 32) throw new Error(`FINALIZE returned ${resp.data.length} bytes, expected 32`);
+        return resp.data;
+      },
+    };
+    return await operation(card);
+  }
   await NfcManager.start();
   await NfcManager.requestTechnology(NfcTech.IsoDep, {
     alertMessage: 'Hold the Nuri card near the phone.',
@@ -171,9 +199,12 @@ export async function withMusig2Card<T>(
 
     return await operation(card);
   } finally {
-    await NfcManager.cancelTechnologyRequest({ throwOnError: false });
+    if (!_nfcOpen) await NfcManager.cancelTechnologyRequest({ throwOnError: false });
   }
 }
+
+let _nfcOpen = false;
+export function setNfcSessionOpen(open: boolean) { _nfcOpen = open; }
 
 // Convenience: read just the pubkey (no signing, read-only)
 export async function readCardPubkey(log: LogSink = () => {}): Promise<{ pubkey: CardPubkey; version: string }> {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 import { View, Stack, Scroll, Text, Button } from '@nuri/rn';
 import { readCardPubkey } from './src/musig2Card';
@@ -18,14 +18,17 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
   const [balance, setBalance] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   async function loadCard() {
     setBusy(true); setError(''); setBalance(null);
     try {
+      // 1. Read card pubkey via NFC
       const { pubkey } = await readCardPubkey(() => {});
       const pkHex = pubkeyHex(pubkey);
       setCardPk(pkHex);
 
+      // 2. Fetch ASP info
       const url = new URL(aspInfoUrl);
       url.searchParams.set('client_pk33', pkHex);
       if (credIdB64u) url.searchParams.set('cred_id_b64u', credIdB64u);
@@ -36,12 +39,14 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
       setRegistered(data.recovery?.registered === true);
       if (!sPk) throw new Error('ASP info missing server_pubkey');
 
+      // 3. Compute aggregate key and Ark address
       const sortedKeys = musig2.sortKeys([pubkey, hexToBytes(sPk)]);
       const aggPk33 = musig2.keyAggregate(sortedKeys).aggPublicKey.toBytes(true);
       const xonly = aggPk33.slice(1);
       const words = [1, ...bech32m.toWords(xonly)];
       setArkAddress(bech32m.encode('bc', words));
 
+      // 4. Create read-only wallet and fetch balance
       const identity = {
         compressedPublicKey: async () => aggPk33,
         xOnlyPublicKey: async () => xonly,
@@ -59,7 +64,10 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
       });
 
       const bal = await wallet.getBalance();
-      setBalance(`${Number(bal?.available ?? 0)} sats (total ${Number(bal?.total ?? 0)})`);
+      const available = Number(bal?.available ?? 0);
+      const total = Number(bal?.total ?? 0);
+      setBalance(`${available} sats (total ${total})`);
+      setLoaded(true);
     } catch (e: any) {
       setError(e.message || 'Failed to read card or fetch balance');
     } finally {
@@ -67,48 +75,55 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u }: Props) {
     }
   }
 
-  useEffect(() => { loadCard().catch(() => {}); }, []);
-
   return (
     <Scroll>
       <View padding="lg" paddingBottom="xl" gap="lg">
-        <View chrome="canvas" radius="md" padding="xl" gap="md">
-          <Text size="lg" emphasis>Wallet</Text>
-          <Stack gap="xs">
-            <Text size="xs" emphasis muted>Ark address</Text>
-            <Text size="xs" flow="truncate" lines={1}>{arkAddress || (busy ? 'Loading…' : '—')}</Text>
-          </Stack>
-          <Stack gap="xs">
-            <Text size="xs" emphasis muted>Balance</Text>
-            <Text size="xl" emphasis>{balance || (busy ? 'Loading…' : '—')}</Text>
-          </Stack>
-        </View>
+        {loaded ? (
+          <>
+            <View chrome="canvas" radius="md" padding="xl" gap="md">
+              <Text size="lg" emphasis>Wallet</Text>
+              <Stack gap="xs">
+                <Text size="xs" emphasis muted>Ark address</Text>
+                <Text size="xs" flow="truncate" lines={1}>{arkAddress}</Text>
+              </Stack>
+              <Stack gap="xs">
+                <Text size="xs" emphasis muted>Balance</Text>
+                <Text size="xl" emphasis>{balance}</Text>
+              </Stack>
+            </View>
 
-        <View chrome="canvas" radius="md" padding="xl" gap="md">
-          <Text size="lg" emphasis>Card</Text>
-          <Stack gap="xs">
-            <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
-            <Text size="xs" flow="truncate" lines={1}>{cardPk || (busy ? 'Reading card…' : '—')}</Text>
-          </Stack>
-        </View>
+            <View chrome="canvas" radius="md" padding="xl" gap="md">
+              <Text size="lg" emphasis>Card</Text>
+              <Stack gap="xs">
+                <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
+                <Text size="xs" flow="truncate" lines={1}>{cardPk}</Text>
+              </Stack>
+              <Stack gap="xs">
+                <Text size="xs" emphasis muted>Registered</Text>
+                <Text size="sm">{registered ? 'yes' : 'no'}</Text>
+              </Stack>
+            </View>
 
-        <View chrome="canvas" radius="md" padding="xl" gap="md">
-          <Text size="lg" emphasis>Arkade</Text>
-          <Stack gap="xs">
-            <Text size="xs" emphasis muted>ASP server pubkey</Text>
-            <Text size="xs" flow="truncate" lines={1}>{serverPk || '—'}</Text>
-          </Stack>
-          <Stack gap="xs">
-            <Text size="xs" emphasis muted>Recovery registered</Text>
-            <Text size="sm">{registered ? 'yes' : 'no'}</Text>
-          </Stack>
-        </View>
+            <View chrome="canvas" radius="md" padding="xl" gap="md">
+              <Text size="lg" emphasis>Arkade</Text>
+              <Stack gap="xs">
+                <Text size="xs" emphasis muted>ASP server pubkey</Text>
+                <Text size="xs" flow="truncate" lines={1}>{serverPk}</Text>
+              </Stack>
+            </View>
+          </>
+        ) : (
+          <View chrome="canvas" radius="md" padding="xl" gap="md" align="center">
+            <Text size="lg" emphasis>Card Profile</Text>
+            <Text size="sm" muted>Tap the button below and hold your card on the phone to see your wallet balance, Ark address, and registration status.</Text>
+          </View>
+        )}
 
         {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
         {error ? <Text size="sm" muted align="center">{error}</Text> : null}
 
         <Button variant="solid" size="lg" onPress={loadCard} disabled={busy}>
-          {busy ? '…' : 'Refresh (tap card)'}
+          {busy ? 'Reading card…' : loaded ? 'Refresh (tap card)' : 'Read card'}
         </Button>
       </View>
     </Scroll>

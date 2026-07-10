@@ -207,6 +207,7 @@ async function sendCbor(cmd: number, args: Map<unknown, unknown> | null, log: Lo
 }
 
 async function withIsoDep<T>(operation: () => Promise<T>): Promise<T> {
+  if (_nfcOpen) return operation();
   await NfcManager.start();
   await NfcManager.requestTechnology(NfcTech.IsoDep, {
     alertMessage: 'Hold the FIDO2 smartcard near the phone.',
@@ -214,9 +215,12 @@ async function withIsoDep<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } finally {
-    await NfcManager.cancelTechnologyRequest({ throwOnError: false });
+    if (!_nfcOpen) await NfcManager.cancelTechnologyRequest({ throwOnError: false });
   }
 }
+
+let _nfcOpen = false;
+export function setNfcSessionOpen(open: boolean) { _nfcOpen = open; }
 
 export async function readFidoInfo(log: LogSink): Promise<ProbeInfo> {
   return withIsoDep(async () => {
