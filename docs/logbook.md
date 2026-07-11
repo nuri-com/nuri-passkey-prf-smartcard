@@ -5,6 +5,29 @@ docs. Newest session at top.
 
 ---
 
+## 2026-07-10 — Expo/web parity incident resolved through Ark broadcast
+
+The Android and desktop flows had drifted. The profile also mixed live card data
+with hardcoded identity and zero/empty substitutions, while the local bridge
+could implicitly enroll or force-replace a credential profile during a normal
+flow. Expo additionally used an obsolete send payload and a duplicate MuSig2
+transcript implementation.
+
+The live paths now require the exact profile/endpoints, read the physical card
+key, never enroll during reads, and use one pinned scure MuSig2 session in Expo.
+Two Android NFC input rounds verified the card partial, Nuri partial, and final
+BIP340 signature; Ark transaction
+`965a299bcf8b788eb0ef23896323c4ed97133836e84df19fffcbbcd63a33cc1a`
+is present in the live indexer. The funded monitor now starts before broadcast
+and `send/complete` errors are fatal in both runners. A new payment is still
+required to prove that final ordering through merchant-confirmed Lightning
+settlement.
+
+Full root cause, identity explanation, runbook, and proof boundary:
+[`expo-web-parity-incident-2026-07-10.md`](expo-web-parity-incident-2026-07-10.md).
+
+---
+
 ## 2026-06-30 — card-as-wallet, FIDO2 user-presence, hardware/platform findings
 
 ### Where things stand

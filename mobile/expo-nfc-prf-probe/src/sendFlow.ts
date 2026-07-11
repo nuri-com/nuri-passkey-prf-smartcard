@@ -39,7 +39,7 @@ export type SendConfig = {
   cosignUrl: string;          // https://nuri.com/api/arkade/send/cosign
   completeUrl: string;        // https://nuri.com/api/arkade/send/complete
   nodeUrl: string;            // https://arkade.computer
-  boltzNetwork: string;       // 'bitcoin'
+  boltzNetwork: 'bitcoin';
   // Card receive credential (from the profile)
   credIdB64u: string;
   credPubkeyB64u: string;
@@ -107,10 +107,10 @@ export class NfcCardIdentity {
   sendSession: any = null;
   sendCosignDone = false;
 
-  constructor(cfg: SendConfig, serverPk33: string) {
+  constructor(cfg: SendConfig) {
     this.cfg = cfg;
     this.log = cfg.log || (() => {});
-    this.serverPk33 = hexToBytes(serverPk33);
+    this.serverPk33 = new Uint8Array();
     this.clientPk33 = new Uint8Array(33);
     this.sortedKeys = [];
     this.aggregatedPk33 = new Uint8Array(33);
@@ -149,8 +149,9 @@ export class NfcCardIdentity {
     const prevAmounts: bigint[] = [];
     for (let i = 0; i < txCopy.inputsLength; i += 1) {
       const input = txCopy.getInput(i);
-      prevScripts.push(input?.witnessUtxo?.script || new Uint8Array());
-      prevAmounts.push(input?.witnessUtxo?.amount || 0n);
+      if (!input?.witnessUtxo) throw new Error(`input ${i} missing witnessUtxo`);
+      prevScripts.push(input.witnessUtxo.script);
+      prevAmounts.push(input.witnessUtxo.amount);
     }
 
     // Pass 1: find aggregate-key script leaves, compute msg32.
@@ -167,7 +168,7 @@ export class NfcCardIdentity {
         if (inputIndexes) throw new Error(`input ${idx} is not taproot`);
         continue;
       }
-      const sighashType = input.sighashType || btc.SigHash.DEFAULT;
+      const sighashType = input.sighashType ?? btc.SigHash.DEFAULT;
       let matched = false;
       if (Array.isArray(input.tapLeafScript)) {
         for (const leaf of input.tapLeafScript) {
@@ -256,6 +257,7 @@ export class NfcCardIdentity {
       origin: this.cfg.origin,
       credentialIdB64u: this.cfg.credIdB64u,
       challengeB64u: prep.challenge,
+      pin: this.cfg.pin,
       log: this.log,
     });
 
@@ -286,23 +288,28 @@ export class NfcCardIdentity {
       aggregateXonly: this.aggregatedXonly,
       log: this.log,
       getAspPartial: async (cardPubnonce66: Uint8Array) => {
-        const context = {
-          challenge_token: session.challenge_token,
-          server_pk33: bytesToHex(this.serverPk33),
+        const cosignRequest = {
+          kind: 'direct',
+          input_index: inputIndex,
+          msg32: msg32Hex,
           client_pk33: bytesToHex(this.clientPk33),
-          send_package: firstCosign ? session.fullPackage : session.corePackage,
-          assertion: firstCosign ? session.assertion : null,
+          client_pub_nonce: bytesToHex(cardPubnonce66),
         };
         const body = {
-          msg32: msg32Hex,
-          input_index: inputIndex,
-          client_pub_nonce66: bytesToHex(cardPubnonce66),
-          context,
+          challenge_token: session.challenge_token,
+          ...(firstCosign ? session.fullPackage : session.corePackage),
+          cosign_requests: [cosignRequest],
+          ...(firstCosign ? {
+            assertion_cred_id_b64u: this.cfg.credIdB64u,
+            client_data_b64u: session.assertion.client_data_b64u,
+            auth_data_b64u: session.assertion.auth_data_b64u,
+            sig_b64u: session.assertion.sig_b64u,
+          } : {}),
         };
         this.log('send/cosign...');
         const resp = await postJson(this.cfg.cosignUrl, body);
-        const serverPk = resp.server_pubkey || resp.server_pubkey33;
-        const pubnonce = resp.server_pub_nonce66 || resp.server_pubnonce66;
+        const serverPk = resp.server_pubkey;
+        const pubnonce = resp.server_pub_nonce66;
         const partial = resp.server_partial32;
         if (!serverPk || !pubnonce || !partial) {
           throw new Error(`send/cosign response missing fields: ${JSON.stringify(resp).slice(0, 300)}`);
@@ -359,7 +366,7 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
   try {
   // 1. Read the card pubkey first (needed for /arkade/info)
   log('reading card pubkey...');
-  const identity = new NfcCardIdentity(cfg, '00'.repeat(33));
+  const identity = new NfcCardIdentity(cfg);
   await identity.initialize();
 
   // 2. Get the ASP server pubkey from /arkade/info?client_pk33=<cardPk>
@@ -373,8 +380,10 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
   try { info = JSON.parse(infoText); } catch { throw new Error(`/arkade/info returned non-JSON: ${infoText.slice(0, 300)}`); }
   if (!infoRes.ok) throw new Error(`/arkade/info HTTP ${infoRes.status}: ${info.error || infoText.slice(0, 200)}`);
 
-  const serverPk33 = info.server_pubkey || info.asp_pubkey;
-  if (!serverPk33) throw new Error(`ASP info missing server_pubkey: ${JSON.stringify(info).slice(0, 300)}`);
+  const serverPk33 = typeof info.server_pubkey === 'string' ? info.server_pubkey.trim() : '';
+  if (!/^(02|03)[0-9a-f]{64}$/i.test(serverPk33)) {
+    throw new Error(`ASP info returned no valid server_pubkey: ${JSON.stringify(info).slice(0, 300)}`);
+  }
   log(`ASP server pubkey: ${serverPk33}`);
 
   // 3. Now set the real server pubkey and recompute the aggregate
@@ -400,12 +409,13 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
   log('creating submarine swap...');
   const swaps = await ArkadeSwaps.create({
     wallet,
-    swapProvider: new BoltzSwapProvider({ network: (cfg.boltzNetwork || 'bitcoin') as any }),
+    swapProvider: new BoltzSwapProvider({ network: cfg.boltzNetwork }),
     swapRepository: new InMemorySwapRepository(),
     swapManager: false,
   });
 
   const pending = await swaps.createSubmarineSwap({ invoice });
+  log(`swap id: ${pending.id}`);
   const lockup = pending.response.address;
   const fundingAmount = pending.response.expectedAmount;
   if (!lockup || !fundingAmount) throw new Error(`submarine swap missing lockup/amount: ${JSON.stringify(pending.response)}`);
@@ -415,6 +425,14 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
   const paymentHash = getInvoicePaymentHash(invoice);
   const finalAmountSats = getInvoiceSatoshis(invoice);
   log(`swap created: lockup=${lockup}, funding=${fundingAmount} sats`);
+
+  // Subscribe before broadcasting. Starting the Expo WebSocket only after
+  // wallet.send() can miss the one transaction.mempool update and wait
+  // forever on an otherwise successfully funded swap.
+  const fundedResult = swaps.waitForSwapFunded(pending).then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
 
   // 5. Create the swap intent on the ASP
   log('creating swap intent...');
@@ -450,18 +468,25 @@ export async function sendLightning(cfg: SendConfig, invoice: string): Promise<S
   const txid = await wallet.send({ address: lockup, amount: fundingAmount });
   log(`funding txid: ${txid}`);
 
-  // 7. Optimistic: wait for funded
-  try { await swaps.waitForSwapFunded(pending); } catch { /* optimistic */ }
+  // 7. Record the broadcast with Nuri immediately. This endpoint consumes the
+  // verified send intent and txid; it must not be blocked by Boltz monitoring.
+  log('send/complete...');
+  const complete = await postJson(cfg.completeUrl, {
+    challenge_token: identity.sendSession?.challenge_token,
+    send_intent_id: sendIntentId,
+    txid,
+  });
+  log(`send/complete: ${JSON.stringify(complete)}`);
 
-  // 8. Complete the intent
-  let complete: any = null;
-  try {
-    complete = await postJson(cfg.completeUrl, {
-      challenge_token: identity.sendSession?.challenge_token,
-      send_intent_id: sendIntentId,
-      txid,
-    });
-  } catch (e: any) { complete = { error: e.message }; }
+  // 8. Require an actual Boltz funded status. No silent catch or fabricated
+  // success: a monitor failure is surfaced to the payment screen.
+  log('waiting for swap funded status...');
+  const funded = await fundedResult;
+  if (!funded.ok) {
+    const message = funded.error instanceof Error ? funded.error.message : String(funded.error);
+    throw new Error(`swap funding monitor failed: ${message}`);
+  }
+  log('swap funded');
 
   const address = await wallet.getAddress();
   return {

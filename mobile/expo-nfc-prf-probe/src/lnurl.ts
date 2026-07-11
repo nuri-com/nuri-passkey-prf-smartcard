@@ -14,6 +14,7 @@ export type ResolvedInvoice = {
 
 // Decode a Lightning address or LNURL string to an HTTPS LNURL-pay endpoint.
 function decodeLnurl(raw: string): string {
+  if (typeof raw !== 'string') throw new Error('Lightning address, LNURL, or BOLT11 invoice is required');
   const value = raw.trim();
   if (!value) throw new Error('Lightning address, LNURL, or BOLT11 invoice is required');
   if (/^https:\/\//i.test(value)) return value;
@@ -76,7 +77,9 @@ export async function resolveLightningInvoice(
   amountSats: number,
   comment = '',
 ): Promise<ResolvedInvoice> {
+  if (typeof target !== 'string') throw new Error('Lightning address, LNURL, or BOLT11 invoice is required');
   const trimmed = target.trim();
+  if (!trimmed) throw new Error('Lightning address, LNURL, or BOLT11 invoice is required');
 
   // If it's already a BOLT11 invoice, use it directly.
   if (/^ln/i.test(trimmed) && !/^lnurl/i.test(trimmed)) {

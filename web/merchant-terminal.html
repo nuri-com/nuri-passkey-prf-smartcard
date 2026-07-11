@@ -29,6 +29,9 @@
   .amount { font-size: 56px; font-weight: 850; letter-spacing: -1px; margin: 6px 0 0; line-height: 1; }
   .amount .unit { font-size: 22px; font-weight: 700; color: var(--muted); margin-left: 8px; letter-spacing: 0; }
   .pays { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .field { margin-top: 14px; }
+  .field label { display: block; color: var(--muted); font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+  .field input { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; color: var(--ink); background: #fff; font: inherit; }
   .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 22px 0 16px; }
   .pad button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 18px 0; font-size: 22px; font-weight: 700; cursor: pointer; }
   .pad button:active { background: #eef1f4; }
@@ -50,9 +53,12 @@
 </header>
 <main>
   <div class="pos">
-    <div class="merchant">Nuri demo coffee</div>
+    <div class="merchant" id="merchantView">Merchant not configured</div>
     <div class="amount"><span id="amountView">0</span><span class="unit">sats</span></div>
-    <div class="pays">Charges <strong id="target">nuri@cake.cash</strong> · mainnet</div>
+    <div class="pays">Charges <strong id="targetView">Lightning address required</strong> · mainnet</div>
+    <div class="field"><label for="merchantName">Merchant</label><input id="merchantName" autocomplete="organization" placeholder="Merchant name" /></div>
+    <div class="field"><label for="lightningTarget">Lightning address</label><input id="lightningTarget" inputmode="email" autocomplete="off" placeholder="merchant@example.com" /></div>
+    <div class="field"><label for="memo">Memo</label><input id="memo" autocomplete="off" placeholder="What is being paid for" /></div>
     <div class="pad">
       <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
       <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
@@ -65,14 +71,17 @@
 </main>
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const MERCHANT_TARGET = 'nuri@cake.cash';
-const MERCHANT_NAME = 'Nuri demo coffee';
 let digits = '';
 
 function render() {
   const n = Number(digits || '0');
+  const merchantName = $('merchantName').value.trim();
+  const lightningTarget = $('lightningTarget').value.trim();
+  const memo = $('memo').value.trim();
   $('amountView').textContent = n.toLocaleString('en-US');
-  $('charge').disabled = n <= 0;
+  $('merchantView').textContent = merchantName || 'Merchant not configured';
+  $('targetView').textContent = lightningTarget || 'Lightning address required';
+  $('charge').disabled = n <= 0 || !merchantName || !lightningTarget || !memo;
 }
 
 function press(k) {
@@ -91,16 +100,19 @@ async function post(path, body) {
 
 async function charge() {
   const amountSats = Number(digits || '0');
-  if (amountSats <= 0) return;
+  const merchantName = $('merchantName').value.trim();
+  const lightningTarget = $('lightningTarget').value.trim();
+  const memo = $('memo').value.trim();
+  if (amountSats <= 0 || !merchantName || !lightningTarget || !memo) return;
   $('charge').disabled = true;
   $('status').className = 'status';
   $('status').textContent = `Creating checkout for ${amountSats.toLocaleString('en-US')} sats…`;
   try {
     const session = await post('/api/merchant/checkout', {
       amountSats,
-      merchantName: MERCHANT_NAME,
-      memo: 'Counter payment',
-      lightningTarget: MERCHANT_TARGET,
+      merchantName,
+      memo,
+      lightningTarget,
       network: 'mainnet',
     });
     $('status').textContent = 'Forwarding to checkout…';
@@ -122,6 +134,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') charge();
 });
 $('charge').addEventListener('click', charge);
+$('merchantName').addEventListener('input', render);
+$('lightningTarget').addEventListener('input', render);
+$('memo').addEventListener('input', render);
 render();
 </script>
 </body>

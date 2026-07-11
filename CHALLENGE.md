@@ -3,6 +3,13 @@
 > **Every phone becomes a card reader. Tap the card, claim funds. Tap the
 > card, broadcast a real transaction. One prompt, one build, one score.**
 
+> **Outcome update (2026-07-10):** Android NFC now reads the physical card,
+> completes PIN-authorized FIDO assertions, produces valid card+Nuri MuSig2
+> signatures, and broadcasts an Ark transaction returned by the live indexer.
+> The last post-broadcast ordering change still needs a fresh real payment for
+> `send/complete`, funded-status, and merchant-settlement proof. Full incident
+> report: [`docs/expo-web-parity-incident-2026-07-10.md`](docs/expo-web-parity-incident-2026-07-10.md).
+
 ## The vision
 
 You hold a Bitcoin smartcard. You tap it to any phone (iOS or Android,
@@ -21,7 +28,7 @@ A Feitian fingerprint Java Card with two applets installed and proven:
 
 | Applet | AID | APDUs | What it does |
 |---|---|---|---|
-| MuSig2 signer | `4E5552494D554701` | `GET_PUBKEY` (INS 0x10), `GET_NONCES` (INS 0x20), `FINALIZE` (INS 0x30) | On-card secp256k1 key, non-exportable. Returns 33-byte pubkey, 66-byte pub nonce, 32-byte MuSig2 partial. |
+| MuSig2 signer | `4E5552494D554701` | `GET_PUBKEY` (INS `0x03`), `GET_NONCES` (INS `0x40`), `FINALIZE` (INS `0x41`) | On-card secp256k1 key, non-exportable. Returns 33-byte pubkey, 66-byte pub nonce, 32-byte MuSig2 partial. |
 | FIDO2 / passkey | `A0000006472F0001` | CTAP2 `authenticatorInfo`, `clientPin` (getPinToken), `getAssertion` with `hmac-secret` | Card-presence + PIN verification (UV assertion). Does **not** export any secret. |
 
 You do **not** modify or reflash the card. The applets are as-is.
@@ -33,11 +40,10 @@ You do **not** modify or reflash the card. The applets are as-is.
 - Selects the FIDO2 AID, sends CTAP2 commands, does the `clientPin` ECDH
   handshake, derives PRF over NFC
 - Runs on Android (APK built and tested) and iOS (builds, needs device test)
-- Uses Expo SDK 55, React Native 0.83
+- Uses Expo SDK 57, React Native 0.86
 
-This probe proves the phone can talk to the card over NFC. Your job is to
-extend it: select the **MuSig2 AID** instead of FIDO2, send the MuSig2
-APDUs, and wire it to the Arkade SDK + Boltz swap.
+The probe now selects both the FIDO2 and **MuSig2 AID**, sends MuSig2 APDUs,
+and is wired to the Arkade SDK, Nuri cosigner, and Boltz swap flow.
 
 ### The ASP (live, you talk to it)
 
@@ -136,8 +142,10 @@ invoice amount. The card signed over NFC. No PC/SC, no laptop, no USB reader.
 7. Merchant sees the payment
 ```
 
-**Pass condition**: the merchant BOLT11 invoice is paid. The card signed over
-NFC. A real Lightning payment settled. No PC/SC, no laptop.
+**Current result**: card signing over NFC and Ark broadcast pass. Merchant
+Lightning settlement after the final monitor/complete ordering change remains
+the outstanding pass condition. No PC/SC or laptop participates in the phone
+signing run.
 
 ## Constraints
 

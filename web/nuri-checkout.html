@@ -86,20 +86,13 @@
     <div class="pays">Pays <strong id="memo"></strong> · mainnet</div>
 
     <div id="payUi">
-      <div class="sec-label">Pay with card</div>
-      <div class="cards" id="cards">
-        <label class="card-opt sel" data-account="nuri">
-          <input type="radio" name="account" value="nuri" checked />
+      <div class="sec-label">Pay with physical card</div>
+      <div class="cards" id="cards" style="grid-template-columns:1fr">
+        <div class="card-opt sel">
           <div class="chip"></div>
-          <div class="t">Nuri Card</div>
-          <div class="s">card@nuri.com</div>
-        </label>
-        <label class="card-opt" data-account="pure">
-          <input type="radio" name="account" value="pure" />
-          <div class="chip"></div>
-          <div class="t">Pure Arkade</div>
-          <div class="s">no Nuri · card only</div>
-        </label>
+          <div class="t">Inserted card account</div>
+          <div class="s">Identity is read from the card</div>
+        </div>
       </div>
 
       <div class="sec-label">Enter card PIN</div>
@@ -141,7 +134,6 @@ const sessionId = new URL(location.href).searchParams.get('id');
 const PIN_LEN = 4;          // auto-start scanning after this many digits
 const SCAN_SECONDS = 21;    // keep trying to read the card this long
 const RING_LEN = 326.7;     // 2πr, r=52
-let account = 'nuri';
 let pin = '';
 let scanning = false;
 
@@ -163,37 +155,42 @@ function renderPin() {
   let html = '';
   for (let i = 0; i < Math.max(4, dots); i++) html += `<div class="d${i < dots ? ' on' : ''}"></div>`;
   $('pinView').innerHTML = html;
-  $('charge').disabled = pin.length < 1;
+  $('charge').disabled = pin.length !== PIN_LEN;
 }
 function press(k) {
   if (scanning) return;
   if (k === 'C') pin = '';
   else if (k === 'back') pin = pin.slice(0, -1);
-  else if (/^[0-9]$/.test(k) && pin.length < 12) pin += k;
+  else if (/^[0-9]$/.test(k) && pin.length < PIN_LEN) pin += k;
   renderPin();
   if (pin.length === PIN_LEN) startScan(); // auto-start, no click needed
 }
 
 function renderSession(data) {
+  if (!data.merchant_name || !data.memo) throw new Error('checkout session is missing merchant name or memo');
   $('amountView').textContent = Number(data.amount_sats).toLocaleString('en-US');
-  $('merchant').textContent = data.merchant_name || 'Merchant';
-  $('memo').textContent = data.memo || (data.invoice ? data.invoice.slice(0, 24) + '…' : '');
-  if (data.status === 'paid_demo' && data.broadcast) showBroadcast(data.broadcast);
+  $('merchant').textContent = data.merchant_name;
+  $('memo').textContent = data.memo;
+  if (data.status === 'funded' && data.broadcast) showBroadcast(data.broadcast);
 }
 
 function showBroadcast(b) {
+  if (!b.card_client_pk33 || !b.status || !b.ark_txid) throw new Error('payment result is missing card identity, status, or Ark txid');
+  if (b.attempted !== true || !/_OK$/.test(b.status)) throw new Error(`payment flow did not complete: ${b.status}`);
+  if (!Number.isFinite(Number(b.final_amount_sats)) || !Number.isFinite(Number(b.funding_amount_sats))) {
+    throw new Error('payment result is missing exact final or funding amount');
+  }
   $('payUi').classList.add('hide');
   $('stage').classList.remove('hide');
   $('cardAnim').classList.remove('pulse');
-  const ok = b.attempted && !b.error && !b.skipped && /_OK/.test(b.status || '');
-  $('cardAnim').textContent = ok ? '✅' : (b.error || b.skipped ? '⚠️' : '💳');
-  $('status').textContent = ok ? 'Approved — payment broadcast' : (b.skipped ? `Skipped: ${b.skipped}` : `Declined: ${b.error || 'unknown'}`);
-  $('status').className = 'status ' + (ok ? 'ok' : 'bad');
+  $('cardAnim').textContent = '✅';
+  $('status').textContent = 'Ark broadcast and swap funded — verify Lightning settlement';
+  $('status').className = 'status ok';
   $('receipt').classList.add('show');
-  $('rStatus').textContent = ok ? 'APPROVED' : 'DECLINED';
-  $('rCard').textContent = b.account === 'pure' ? 'Pure Arkade' : 'Nuri (card@nuri.com)';
-  $('rPaid').textContent = b.final_amount_sats ? `${b.final_amount_sats} sats (funded ${b.funding_amount_sats})` : '—';
-  $('rTxid').innerHTML = b.ark_txid ? `<code>${b.ark_txid}</code>` : '—';
+  $('rStatus').textContent = 'FUNDED — VERIFY LIGHTNING';
+  $('rCard').textContent = b.card_client_pk33;
+  $('rPaid').textContent = `${b.final_amount_sats} sats (funded ${b.funding_amount_sats})`;
+  $('rTxid').innerHTML = `<code>${b.ark_txid}</code>`;
   $('out').textContent = JSON.stringify(b, null, 2);
 }
 
@@ -202,20 +199,12 @@ async function load() {
   renderSession(await getJson(`/api/checkout/session?id=${encodeURIComponent(sessionId)}`));
 }
 
-document.querySelectorAll('.card-opt').forEach((el) => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.card-opt').forEach((o) => o.classList.remove('sel'));
-    el.classList.add('sel');
-    el.querySelector('input').checked = true;
-    account = el.dataset.account;
-  });
-});
 
 $('pad').addEventListener('click', (e) => { const k = e.target?.dataset?.k; if (k) press(k); });
 window.addEventListener('keydown', (e) => {
   if (/^[0-9]$/.test(e.key)) press(e.key);
   else if (e.key === 'Backspace') press('back');
-  else if (e.key === 'Enter' && pin.length >= 1) startScan();
+  else if (e.key === 'Enter' && pin.length === PIN_LEN) startScan();
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -235,6 +224,7 @@ function backToPin(msg, cls) {
 
 async function startScan() {
   if (scanning) return;
+  if (pin.length !== PIN_LEN) return;
   scanning = true;
   const enteredPin = pin;
   $('payUi').classList.add('hide');
@@ -283,9 +273,10 @@ async function startScan() {
   $('count').textContent = '';
   setRing(1);
   try {
-    const data = await post('/api/checkout/confirm', { sessionId, pin: enteredPin, account });
+    const data = await post('/api/checkout/confirm', { sessionId, pin: enteredPin });
     scanning = false;
-    showBroadcast(data.broadcast || { attempted: false, account, error: 'no broadcast' });
+    if (!data.broadcast) throw new Error('checkout confirmation returned no broadcast result');
+    showBroadcast(data.broadcast);
   } catch (error) {
     $('cardAnim').classList.remove('pulse');
     $('cardAnim').textContent = '😔';
@@ -296,7 +287,7 @@ async function startScan() {
   }
 }
 
-$('charge').addEventListener('click', () => { if (pin.length >= 1) startScan(); });
+$('charge').addEventListener('click', () => { if (pin.length === PIN_LEN) startScan(); });
 renderPin();
 load().catch((e) => { $('stage').classList.remove('hide'); $('payUi').classList.add('hide'); $('status').textContent = e.message; $('status').className = 'status bad'; });
 </script>

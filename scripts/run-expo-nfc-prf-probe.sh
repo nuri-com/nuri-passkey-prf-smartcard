@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/mobile/expo-nfc-prf-probe"
-PROFILE="${NURI_PRF_PROFILE:-$ROOT/.nuri-card-prf/default.json}"
+PROFILE="${NURI_PRF_PROFILE:?Set NURI_PRF_PROFILE to the exact credential profile for this account}"
 COMMAND="${1:-android}"
 SALT="${NURI_PRF_SALT:-nuri-offline-backup-v1}"
 DEFAULT_ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
@@ -30,10 +30,15 @@ function exportLine(name, value) {
 }
 
 exportLine('EXPO_PUBLIC_NURI_RP_ID', profile.rp_id);
+exportLine('EXPO_PUBLIC_NURI_ORIGIN', profile.origin);
 exportLine('EXPO_PUBLIC_NURI_CREDENTIAL_ID', profile.credential_id);
+exportLine('EXPO_PUBLIC_NURI_CREDENTIAL_PUBLIC_KEY', profile.credential_public_key_spki_b64u);
 exportLine('EXPO_PUBLIC_NURI_PRF_SALT', salt);
 NODE
 )"
+
+: "${EXPO_PUBLIC_ASP_BASE:?Set EXPO_PUBLIC_ASP_BASE to the live Arkade v4 base URL}"
+: "${EXPO_PUBLIC_NODE_URL:?Set EXPO_PUBLIC_NODE_URL to the live Ark node URL}"
 
 if [[ -z "${ANDROID_HOME:-}" && -d "$DEFAULT_ANDROID_HOME" ]]; then
   export ANDROID_HOME="$DEFAULT_ANDROID_HOME"
@@ -53,7 +58,9 @@ fi
 
 echo "Using PRF profile: $PROFILE"
 echo "EXPO_PUBLIC_NURI_RP_ID=$EXPO_PUBLIC_NURI_RP_ID"
+echo "EXPO_PUBLIC_NURI_ORIGIN=$EXPO_PUBLIC_NURI_ORIGIN"
 echo "EXPO_PUBLIC_NURI_CREDENTIAL_ID length=${#EXPO_PUBLIC_NURI_CREDENTIAL_ID}"
+echo "EXPO_PUBLIC_NURI_CREDENTIAL_PUBLIC_KEY length=${#EXPO_PUBLIC_NURI_CREDENTIAL_PUBLIC_KEY}"
 echo "EXPO_PUBLIC_NURI_PRF_SALT=$EXPO_PUBLIC_NURI_PRF_SALT"
 echo "ANDROID_HOME=${ANDROID_HOME:-}"
 echo "JAVA_HOME=${JAVA_HOME:-}"

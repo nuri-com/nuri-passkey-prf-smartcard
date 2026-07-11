@@ -3,6 +3,45 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-10 — Expo/web parity incident and live card payment repair
+
+### Fixed
+
+- Removed hardcoded profile identity, balance/list substitutions, merchant
+  details, and implicit credential enrollment from the live card profile and
+  checkout paths. Card key, username, Lightning address, balance, receive data,
+  merchant, memo, and recipient must now come from the inserted card, live
+  responses, or visible user input.
+- Corrected Android CTAP PIN authorization: protocol-v1 PIN token plus
+  `pinUvAuthParam`, without the incompatible `uv: true` option that returned
+  status `0x2c`.
+- Updated the Expo Nuri send request to the current flat `send/cosign` contract,
+  including the required top-level `challenge_token` and assertion fields.
+- Deleted the mobile-only `sessionMath.ts` transcript implementation and the
+  unused duplicate `cardIdentity.ts` integration. Expo now uses one active
+  identity path and one pinned `@scure/btc-signer` 2.2.0 session for
+  nonce/challenge scalars, parity folding, both partial verifications,
+  aggregation, and final BIP340 verification.
+- Started the Boltz funded monitor before Ark broadcast in both Expo and the
+  desktop runner, and made `send/complete` and monitor failures fatal instead
+  of returning success with a hidden error.
+
+### Proven
+
+- Android NFC completed two card/server MuSig2 rounds with both partials and
+  both final aggregate signatures verified.
+- Ark transaction
+  `965a299bcf8b788eb0ef23896323c4ed97133836e84df19fffcbbcd63a33cc1a`
+  is returned by the live Ark indexer.
+- This proves card signing, Nuri cosigning, final aggregation, SDK transaction
+  construction, and Ark broadcast. A fresh payment is still required to prove
+  the final monitor ordering through `send/complete`, Boltz funded status, and
+  merchant-confirmed Lightning settlement.
+
+See [`docs/expo-web-parity-incident-2026-07-10.md`](docs/expo-web-parity-incident-2026-07-10.md)
+for the complete incident timeline, identity explanation, runbook, and proof
+boundary.
+
 ## 2026-07-05 (session 2) — ETH signer v1.3: end-to-end ecrecover green
 
 ### Fixed

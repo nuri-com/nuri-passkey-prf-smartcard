@@ -1,8 +1,12 @@
 # Nuri Passkey PRF Smartcard
 
-**A fingerprint smartcard that is your passkey and your Bitcoin wallet — same wallet as the Nuri app, with the keys living inside a secure element that has no command to read them out.**
+**A smartcard that is both a passkey and a non-exportable Bitcoin MuSig2 signer, linked explicitly to a live Nuri/Arkade account.**
 
-MIT-licensed, open hardware-wallet research that is already proven on a real card: a physical Feitian fingerprint Java Card co-signed a live Bitcoin transaction, derives the *same* wallet the Nuri phone/PWA derives, and logs in over WebAuthn like any passkey.
+MIT-licensed, open hardware-wallet research proven on a physical Feitian Java
+Card: the card co-signed live Bitcoin transactions, signed an Ark transaction
+over Android NFC, and authenticates over WebAuthn like a passkey.
+The live card flow keeps the FIDO credential and MuSig2 wallet key separate and
+verifies their server mapping; see the [2026-07-10 incident report](docs/expo-web-parity-incident-2026-07-10.md).
 
 ---
 
@@ -12,7 +16,8 @@ MIT-licensed, open hardware-wallet research that is already proven on a real car
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
 - [**Bitcoin debit card: tap-to-pay Lightning** (the flagship demo)](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
-- [Status & latest findings](#status--latest-findings-2026-07-07)
+- [Expo/web parity incident and fix (2026-07-10)](docs/expo-web-parity-incident-2026-07-10.md)
+- [Status & latest findings](#status--latest-findings-2026-07-10)
 - [How it works](#how-it-works)
 - [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa-nuri-expo)
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
@@ -42,12 +47,13 @@ The card is, at once:
 
 - your **passkey** (FIDO2/WebAuthn — log into Nuri and any RP that speaks passkeys),
 - your **Bitcoin signer** (a MuSig2 cosigner key generated on-card, non-exportable),
-- and the **root of your wallet identity** (the same key the Nuri app derives, so
-  the card and the app are literally the same wallet).
+- and an **account authenticator** whose FIDO credential is explicitly mapped to
+  the separate MuSig2 wallet key.
 
-Unlock is a **fingerprint, not a PIN** — match-on-card biometrics on a Feitian
-BioCARD-class secure element. No seed phrase to leak; recovery is a published,
-deterministic time-locked Bitcoin script, not an opaque backup blob.
+The current tested payment authorization uses the card's FIDO2 PIN. Match-on-card
+fingerprint authorization is the intended hardware path but is not integrated
+into the custom signing flow yet. No seed phrase is exported; recovery is a
+published, deterministic time-locked Bitcoin script.
 
 The direction this is heading — the part worth building toward:
 
@@ -98,7 +104,7 @@ graph TB
 | **FIDO2 SSH security key** | Use the card as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key. Private key never leaves the card; every sign requires a tap. Provider bridge + one-command installer + full docs. | ✅ Real-card proven (live login to root@89.167.91.99) |
 | **Ethereum / EVM signing** | secp256k1 ECDSA signing on-card. One key → ETH address (keccak256) + BTC P2PKH address (hash160). Card signs, host verifies. **v1.3 proven: 5/5 ecrecover via `python-ecdsa`.** | ✅ Real-card proven (ecrecover green) |
 | **Fingerprint unlock (match-on-card)** | Replace PIN with a fingerprint. Feitian confirms the API; SDK is NDA-gated. | 🔒 Hardware path identified, not integrated |
-| **Tap-to-pay Lightning terminal** | Visa-style terminal: tap card + PIN → pay a Lightning invoice from the card's Ark balance. Card signs (MuSig2), terminal holds no keys. Two wallets: Nuri (`card@nuri.com`, recoverable) and pure-Arkade (no server). | ✅ **Real-card proven on mainnet** — see [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri). Phone-optional standalone terminal still on the [roadmap](#roadmap-to-the-vision). |
+| **Tap-to-pay Lightning terminal** | Visa-style terminal: tap card + PIN → pay a Lightning invoice from the card's live Ark balance. Card signs (MuSig2), terminal holds no keys, Nuri supplies the second partial. | ✅ **Android NFC signing + Ark broadcast proven on mainnet**. Fresh proof and exact remaining boundary: [2026-07-10 incident report](docs/expo-web-parity-incident-2026-07-10.md). |
 
 Two design rules hold throughout:
 
@@ -190,38 +196,43 @@ flowchart LR
 The card + Nuri hold one MuSig2 key each: **2-of-2, neither side can move funds
 alone**. The terminal and server hold **no** keys — they only relay and build.
 
-### Two wallets on one card
+### The live card account
 
-Both are the same physical card key (`card_client_pk33 = 022589ad…`), aggregated
-with a different second MuSig2 key:
+The profile and terminal now expose one real account: the wallet derived from
+the **inserted card's MuSig2 public key** and the live Nuri server public key.
+They do not offer a locally simulated second signer and do not substitute a
+remembered username, address, or balance.
 
-| | **Nuri card** (`card@nuri.com`) | **Pure Arkade** (no Nuri) |
-|---|---|---|
-| Ownership | `musig2(card, Nuri‑server)` — a recoverable 2‑of‑2 | `musig2(card, local key you hold)` |
-| Second signer | Nuri server (`/arkade/send/cosign`), gated by a card WebAuthn (FIDO2 UV) assertion | a secret on your own machine; **zero Nuri calls** |
-| Recovery | server-assisted (`nuri_client_recovery_v1`, client exit after CSV) | you hold both halves |
-| Lightning address | yes — `card@nuri.com` (LNURL) | none (receive by Ark address) |
-| Settled on | arkade.computer | arkade.computer |
+The physical card tested on 2026-07-10 returned:
 
-Pick the account with the dropdown on the profile page and the card selector on
-the terminal. The card signing is byte-for-byte identical; only the second
-MuSig2 signer differs.
+```text
+card_client_pk33 = 02b9f7051445e003e60809f888ccca2057dba6609e5c5541eee64acef41ddbf034
+Lightning address = smartcard@nuri.com
+```
+
+Those values are evidence for that card/profile pair, not application defaults.
+Every run reads the card key over APDU and obtains the Lightning account through
+an authenticated server request.
 
 ### What works today (all on real hardware, mainnet)
 
-- **Receive** to a Lightning username: `card@nuri.com` resolves as LNURL-pay and
-  mints real BOLT11 invoices (`scripts/card-nuri-lnurl-register.mjs`).
+- **Receive** to the username returned by authenticated LNURL status; the
+  2026-07-10 test profile returned `smartcard@nuri.com`.
 - **Auto-claim**: the profile page polls for inbound reverse swaps and claims
   them into the card's Ark balance (card taps to co-sign the VHTLC claim).
-- **Send** (Ark → Lightning submarine swap), two ways:
-  - *Nuri native send*: `swap-intent/create → send/prepare → card FIDO2 UV
-    assertion → send/cosign (MuSig2 round) → send/complete`, then Boltz pays the
-    invoice. **Optimistic** (`waitFor: "funded"`) — returns as soon as the
-    funding lands, no settlement wait.
-  - *Pure Arkade*: same SDK path, but the second partial is computed locally
-    with a key you hold — no Nuri, no server auth.
+- **Send**: `swap-intent/create → send/prepare → card FIDO2 UV assertion →
+  send/cosign (MuSig2 round) → Ark broadcast → send/complete → funded status`.
+  The app surfaces failures instead of converting them into success data.
 - **Terminal checkout**: a Visa-style payment terminal (`/checkout`) — amount,
-  merchant, card selector, PIN, "tap card & approve" → real broadcast + receipt.
+  merchant, Lightning address, memo, PIN, "tap card & approve" → real broadcast
+  + receipt.
+
+The 2026-07-10 Android transaction proves this flow through indexed Ark
+broadcast. The monitor was then moved ahead of broadcast and `send/complete`
+was made mandatory in both Expo and the desktop runner. A fresh payment is
+still required to prove that final ordering through funded status and
+merchant-confirmed Lightning settlement; the UI labels funded and settled as
+different states.
 
 ### How the send works (the part that was hard)
 
@@ -231,6 +242,7 @@ needs both signatures**. The flow:
 ```
 sendLightningPayment (Arkade SDK, arkade.computer)
   ├─ createSubmarineSwap (Boltz)         → Ark lockup address + expectedAmount
+  ├─ start waitForSwapFunded monitor     → subscribe before broadcast
   ├─ swap-intent/create (Nuri)           → send_intent_id
   ├─ wallet.send() spends the card VTXO into the lockup:
   │    identity.sign():
@@ -240,8 +252,8 @@ sendLightningPayment (Arkade SDK, arkade.computer)
   │                    → card FINALIZE (APDU) → aggregate BIP340 sig
   │         (funding cosign is strict; checkpoint txs are follow-ups
   │          under the same challenge_token, route_scope=direct_send_session)
-  ├─ waitForSwapFunded  (optimistic)
-  └─ send/complete → Boltz pays the merchant's BOLT11 invoice
+  ├─ send/complete                       → record the returned Ark txid
+  └─ require funded status               → Boltz pays the merchant's BOLT11 invoice
 ```
 
 Same thing as a sequence — one PIN+tap, then the 2-of-2 signing round:
@@ -256,6 +268,7 @@ sequenceDiagram
   participant A as arkade.computer
   T->>B: createSubmarineSwap(invoice)
   B-->>T: Ark lockup address + amount
+  T->>B: subscribe to funded status
   T->>N: swap-intent/create
   N-->>T: send_intent_id
   T->>N: send/prepare (funding PSBT + sighashes)
@@ -271,7 +284,8 @@ sequenceDiagram
   T->>A: submit signed VTXO spend
   T->>N: send/complete
   B->>B: sees funded swap → pays ⚡ invoice
-  T-->>T: Approved ✅ (optimistic, on funding)
+  B-->>T: funded status
+  T-->>T: Approved ✅
 ```
 
 The server re-derives every `msg32` from the PSBT (`verifyArkadePsbtSignRequests`)
@@ -285,7 +299,7 @@ the amount or recipient.
 
 ```mermaid
 flowchart TD
-  A["Merchant enters amount → Charge"] --> B["Approval screen:<br/>pick card, enter 4-digit PIN"]
+  A["Merchant enters merchant, Lightning address, memo, and amount → Charge"] --> B["Approval screen:<br/>enter 4-digit PIN"]
   B -->|"4th digit"| C{{"Scanning… 21s countdown"}}
   C -->|"card + right PIN"| D["💳 Card read → sign + broadcast"]
   C -->|"card + wrong PIN"| E["🔒 Wrong PIN"] --> B
@@ -293,22 +307,31 @@ flowchart TD
   D --> G["✅ Approved — receipt<br/>amount · card · Ark txid"]
 ```
 
-The scan **doesn't fail fast** — it keeps trying for 21s so you can demo
-"nothing happens without the card… now I place it… approved."
+The scan waits for the physical card for up to 21 seconds. Signing, broadcast,
+completion, and funded status are reported as separate steps.
 
 ### Run the wallet + terminal locally
 
 ```bash
-# 1. Physical card in the reader, then start the cosigner + web server:
-FIDO2_BACKUP_PIN=<your-card-pin> npm run checkout:web
+# 1. Physical card in the reader. Supply the exact profile and live services:
+export NURI_CARD_RECEIVE_PROFILE=<exact-profile-name>
+export NURI_CARD_RECEIVE_PROFILE_PATH=/absolute/path/to/profile.json
+export NURI_ARKADE_SIGNER_URL=https://your-live-arkade-v4.example/v4
+export EXPO_PUBLIC_NODE_URL=https://your-live-ark-node.example
+export FIDO2_BACKUP_PIN=<your-card-pin>
+npm run checkout:web
 #   serves http://127.0.0.1:8787  (profile, terminal, checkout pages)
 
-# 2. Claim a Lightning-address username for the card (one tap + PIN):
-node scripts/card-nuri-lnurl-register.mjs card --pin <pin>
-#   → card@nuri.com  (send sats to it from any Lightning wallet)
+# 2. Claim a Lightning username for this exact card/profile pair:
+node scripts/card-nuri-lnurl-register.mjs <username> \
+  --profile <exact-profile-name> \
+  --profile-path /absolute/path/to/profile.json \
+  --arkade-url https://your-live-arkade-v4.example/v4 \
+  --pin <pin>
+# The command returns the live Lightning address and physical card key.
 
 # 3. Open the pages:
-#   http://127.0.0.1:8787/profile    — balances, receive, auto-claim, account dropdown
+#   http://127.0.0.1:8787/profile    — live balance, receive, auto-claim, username
 #   http://127.0.0.1:8787/terminal   — merchant: enter amount + a Lightning address
 #   → generates a /checkout?id=… link = the Visa-style tap-to-pay terminal
 ```
@@ -318,8 +341,7 @@ Direct CLI send (no browser), for scripting/tests:
 ```bash
 # Nuri account: prints NURI_CARD_ARKADE_SEND_OK on success
 echo '{"mode":"send", ...cfg... }' | node scripts/card-arkade-claim.mjs
-# see payMerchantInvoice() / payMerchantInvoicePureArkade() in
-# scripts/local-card-cosign-server.mjs for the exact cfg each account needs.
+# see payMerchantInvoice() in scripts/local-card-cosign-server.mjs.
 ```
 
 ### Reproduce from scratch (including the card)
@@ -332,16 +354,15 @@ echo '{"mode":"send", ...cfg... }' | node scripts/card-arkade-claim.mjs
    with the `nuri-card-arkade-receive` profile.
 3. Start the server (`npm run checkout:web`) and open `/profile`; click
    **Register owner** to register the card as a Nuri Arkade receive owner.
-4. Claim a username (`card-nuri-lnurl-register.mjs`), fund it by paying the
-   BOLT11 the profile page (or `card@<domain>`) mints, let auto-claim pull it in.
+4. Claim a username with the explicit registration command above, fund it by
+   paying the BOLT11 minted by the profile page, and let auto-claim pull it in.
 5. Send: use the terminal, or the CLI runner above.
 
 Requirements: a smartcard with the Nuri applets + a PC/SC reader (tested on an
 **HID OMNIKEY 5422**), Node 20+, and the real-card Python venv (see
 [host dependencies](#1-clone-and-install-host-dependencies)). The Nuri server
-endpoints live at `https://arkade.nuri.com`; the Ark operator is
-`https://arkade.computer` (public). The pure-Arkade wallet needs **only**
-arkade.computer — no Nuri account at all.
+service URLs are supplied explicitly at runtime. The URLs above are examples,
+not embedded account or identity defaults.
 
 ### Security model (money at stake)
 
@@ -359,26 +380,21 @@ arkade.computer — no Nuri account at all.
 
 ---
 
-## Status & latest findings (2026-07-07)
+## Status & latest findings (2026-07-10)
 
 Running session notes live in [`docs/logbook.md`](docs/logbook.md); release log in
 [`CHANGELOG.md`](CHANGELOG.md). Headlines:
 
-- **✅ RESOLVED — the card is a working Bitcoin debit card, tap-to-pay Lightning
-  proven on mainnet.** The Ark→Lightning **send** path — the big missing piece —
-  is now fully wired and settled real value: a card-signed payment of 400 sats to
-  `emin@nuri.com` funded a Boltz submarine swap over Lightning
-  (`ark_txid e6af75b5…`, `NURI_CARD_ARKADE_SEND_OK`). A Visa-style `/checkout`
-  terminal (pick card → 4-digit PIN → 21-second scan ring → tap → sign +
-  broadcast) drives it. **Receive** works too (`card@nuri.com` LNURL-pay + profile
-  auto-claim), and there are **two wallets on one card key** — Nuri
-  (`musig2(card, Nuri-server)`, recoverable, Lightning address) and pure-Arkade
-  (`musig2(card, local key)`, zero Nuri). Full walkthrough:
-  [`docs/how-it-works.md`](docs/how-it-works.md) and
-  [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri).
-  *Still open:* a phone-optional standalone POS terminal (today a laptop + PC/SC
-  reader drives it) and PIN-gating the MuSig2 sign APDU on the applet itself — see
-  [Roadmap](#roadmap-to-the-vision).
+- **✅ Android NFC MuSig2 signing and Ark broadcast are live-proven.** On
+  2026-07-10 the inserted card and live Nuri server produced two verified
+  partial-signature pairs and two verified aggregate BIP340 signatures. Ark tx
+  `965a299bcf8b788eb0ef23896323c4ed97133836e84df19fffcbbcd63a33cc1a`
+  is returned by the live indexer. Hardcoded identity/balance data, the duplicate
+  Expo session math, stale CTAP options, and the obsolete send payload were
+  removed. The post-broadcast monitor now subscribes before broadcast and
+  `send/complete` is fail-closed. That final ordering still needs one fresh real
+  payment to prove completion and merchant settlement. Full root-cause report:
+  [`docs/expo-web-parity-incident-2026-07-10.md`](docs/expo-web-parity-incident-2026-07-10.md).
 - **The card is a real SSH hardware key.** `ssh nuri-wirex` → logged into
   `root@89.167.91.99` (Hetzner) using only the card. Private key generated
   on-card, never exported; every login required a tap. One-command installer
@@ -486,58 +502,33 @@ phone-TEE / smartcard threat-model comparison:
 
 ## Same wallet as the Nuri app (PWA / nuri-expo)
 
-This is the point that ties the card to the product. The Nuri app
-([`nuri-expo`](https://github.com/nuri-com)) — native **and** its web PWA — derives
-its wallet from a WebAuthn passkey's PRF output. The card derives its wallet from
-**its own** passkey's PRF output. The derivation is identical, so:
+The live card flow uses two separate applets and two separate identifiers:
 
-> The same passkey credential resolves the same wallet whether it lives in iOS
-> Keychain, in the browser at `nuri.com`, or **on the card**. The card is a
-> drop-in for the phone passkey.
+- the **FIDO credential** authorizes account operations with card presence and
+  PIN; and
+- the **MuSig2 applet key** is the Arkade client signer that owns the wallet
+  together with the Nuri server key.
 
-The app and the card agree on every constant:
+The server explicitly maps the credential to the card client key. The same FIDO
+credential ID does **not** mathematically guarantee the same MuSig2 key or wallet
+address. Reinstalling/regenerating one applet, selecting another profile, or
+using another physical card can change one side without changing the other.
 
-| Constant | Value | App location | Card location |
-|---|---|---|---|
-| PRF salt | `nuri-prf-salt-v1` | `config/constants.ts` | `scripts/card-arkade-*.mjs`, `card-prf-backup.sh` |
-| WebAuthn rpId | `nuri.com` | `config/constants.ts` | PRF profile RP ID |
-| HKDF salt / info | `app:nuri.com\|wallet\|v1` / `…\|chain=bitcoin\|fmt=taproot` | `lib/walletDerivation.ts` | `nuri-card-wallet.mjs` |
-| HD path | `m/86'/0'/0'/0/0` (BIP86) | `lib/bitcoin/bip86.ts` | same |
-| Wallet policy | `musig2(client, server)` key-path + client CSV leaf | `lib/bitcoin/…CSV.ts` | `scripts/card-cosign-tweaked.py` |
-| CSV recovery | `52500` blocks | `config/constants.ts` | same |
-| Signer lib | `@scure/btc-signer` `2.0.1` | — | same |
-
-**The integration seam is one function.** In nuri-expo, every Bitcoin/Arkade
-signature flows through `SigningKeyVault.getSigningKey()`
-(`services/arkade/internal/signingKeyVault.ts`). It returns a 32-byte client
-private key from the browser/native passkey PRF. A **card-backed vault** swaps that
-one source — the card derives the same key (or, in the stronger model, the card's
-MuSig2 applet *replaces the server* as the cosigner) — and everything downstream
-(`ArkadeRemoteIdentity`, PSBT construction, MuSig2 aggregation) is unchanged.
+That distinction is the central lesson from the 2026-07-10 incident. The app
+must read both identities and verify their live mapping; it must never infer a
+wallet or username from a remembered credential name.
 
 ```mermaid
 flowchart LR
-  subgraph Phone["nuri-expo today"]
-    Browser["browser/native passkey PRF"] --> Vault["SigningKeyVault.getSigningKey"]
-  end
-  subgraph Card["card-backed (this repo)"]
-    CardPRF["card FIDO2 PRF"] --> CardId["card-arkade-identity.getSigningKey"]
-  end
-  Vault --> Tree["ArkadeRemoteIdentity / scure session"]
-  CardId -.->|"drop-in swap"| Tree
-  Tree --> Out["MuSig2 cosign · ASP round · Boltz Lightning"]
+  Credential["FIDO credential<br/>presence + PIN assertion"] --> Mapping["Nuri account mapping"]
+  CardKey["MuSig2 applet key<br/>non-exportable"] --> Mapping
+  Mapping --> Wallet["musig2(card, Nuri server)<br/>Ark wallet + Lightning account"]
+  Wallet --> Send["scure session · Ark spend · Boltz Lightning"]
 ```
 
-Two product shapes, both honest about trade-offs, are mapped in
-[`docs/nuri-arkade-card-cosigner-plan.md`](docs/nuri-arkade-card-cosigner-plan.md):
-
-- **Card as PRF root, server stays cosigner** — smallest change. The card gates the
-  *client* key; `sign.nuri.com` remains the second MuSig2 party. Same wallet
-  address as today. Lightning works unchanged through the existing Boltz path.
-- **Card replaces the server cosigner** — a *new* `musig2(client, card)` wallet that
-  works with **no server at all** (this repo's standalone wallet). Server-independent,
-  but a new address/policy. This is the "another layer if Nuri is gone" your friend
-  asked about — already working end-to-end here.
+The older PRF compatibility commands remain research tools. They prove a card
+PRF can reproduce a software derivation, but they are not the spend identity in
+the live NFC card flow described here.
 
 Status and the exact wiring point: [`docs/arkade-lightning.md`](docs/arkade-lightning.md).
 
@@ -547,7 +538,7 @@ Status and the exact wiring point: [`docs/arkade-lightning.md`](docs/arkade-ligh
 
 | | Form | Unlock | Signing model | Open | Same-as-app wallet | Tap-to-pay |
 |---|---|---|---|---|---|---|
-| **Nuri card** | NFC smartcard | **Fingerprint** (match-on-card) | **MuSig2 2-of-2**, looks like 1 key, CSV recovery | ✅ MIT host | ✅ **passkey PRF = phone wallet** | ✅ **Lightning, proven on mainnet** |
+| **Nuri card** | NFC smartcard | PIN-authorized FIDO assertion today; fingerprint integration pending | **MuSig2 2-of-2**, looks like 1 key, CSV recovery | ✅ MIT host | Live credential-to-card mapping | ✅ Android NFC signing + Ark broadcast proven |
 | Bitkey | fob + phone + server | phone biometric | 2-of-3 multisig | ✅ | app-paired | no |
 | Keycard | NFC smartcard | PIN | single-key BIP32 | ✅ | no (separate keys) | no |
 | Tangem | NFC card | card + phone | single-key (2/3 backup) | partial | no | no |
@@ -557,10 +548,9 @@ Status and the exact wiring point: [`docs/arkade-lightning.md`](docs/arkade-ligh
 
 What is genuinely different here:
 
-- **The card is also a passkey, and that passkey *is* the wallet.** Nobody else
-  fuses WebAuthn login and Bitcoin key derivation into one credential. It means the
-  card logs you into the app *and* signs your Bitcoin, and the app on any device
-  derives the identical wallet.
+- **The card is both authenticator and wallet signer.** The FIDO applet proves
+  presence/PIN; the separate MuSig2 applet signs Bitcoin. The live server binds
+  those two identities explicitly instead of pretending they are one key.
 - **Fingerprint instead of PIN**, on a card you tap — Bitkey-class biometrics in a
   card form factor.
 - **MuSig2 key-path Taproot** — one key on-chain, full privacy, with a deterministic
@@ -597,23 +587,24 @@ Feitian confirms a Java applet can call the match-on-card fingerprint API to gat
 private-key operation, but the BioCARD SDK is NDA-gated. Until then: FIDO2 PIN/UV, or
 Feitian's preloaded biometric FIDO2 stack.
 
-**4. Tap-to-pay Lightning — _✅ DONE: built and proven on mainnet (Scenario C)._**
+**4. Tap-to-pay Lightning — _Android NFC signing and Ark broadcast proven._**
 A Visa-style terminal fetches the invoice, builds the tx, gets the card's
 signature (2-of-2 MuSig2), and broadcasts; the card holds the key and the PIN is
 enforced by the reader + the FIDO2 UV assertion in the flow. Real card-signed
-Ark→Lightning payments settle over Boltz (`NURI_CARD_ARKADE_SEND_OK`), send +
-receive both work, and two wallets (Nuri-cosigned and pure-Arkade) share one card
-key. See [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
-and [`docs/how-it-works.md`](docs/how-it-works.md).
+Ark→Lightning payments use the Nuri cosigner and Boltz. The latest Android run
+verified both partials and final signatures and broadcast an indexed Ark
+transaction. See [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
+and the [2026-07-10 incident report](docs/expo-web-parity-incident-2026-07-10.md).
 
-**The only remaining open items** (everything else on the send/terminal path is done):
+**Open verification and hardening items:**
 1. A *phone-optional standalone* POS terminal (Scenario B) — today a laptop +
    PC/SC reader drives it.
 2. PIN-gating the MuSig2 nonce/sign APDU on the applet itself — today presence +
    PIN are enforced by the reader + the FIDO2 assertion in the flow, not by the
    signing applet.
-3. Reconcile a ~997-sat Boltz lockup left by one early pre-fix send attempt.
-4. Fund + demo an end-to-end pure-Arkade send (the path is wired; needs a funded run).
+3. Re-run a real Android payment after the final pre-subscription and
+   `send/complete` ordering change, then confirm Lightning settlement.
+4. Prove the equivalent CoreNFC flow on a physical iPhone.
 
 There is **no "card alone with no internet device" scenario** — the card
 cannot broadcast, no hardware wallet can. The realistic paths are:
@@ -892,15 +883,16 @@ Open:
 
 - `http://127.0.0.1:8787/terminal` — mainnet merchant amount plus BOLT11 invoice, or Lightning address/LNURL-pay invoice resolution.
 - `http://127.0.0.1:8787/checkout?id=<session>` — Nuri-hosted approval page.
-- `http://127.0.0.1:8787/profile` — card-account Lightning invoice creation plus the mainnet on-chain fallback address.
+- `http://127.0.0.1:8787/profile` — authenticated card account, live balance,
+  Lightning username, invoices, and receive claims.
 
 Chrome does not expose raw smartcard APDUs to web pages, so this demo keeps the
 UI in the browser and uses the localhost Node bridge to talk to the attached
 PC/SC reader. The checkout now performs a **real** card-signed Lightning payment
 (Arkade/Boltz send path wired behind the PIN + tap — see
 [Bitcoin debit card](#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)).
-Profile invoices call the Nuri Arkade receive server configured by
-`NURI_ARKADE_SIGNER_URL` (defaults to `https://arkade.nuri.com/v4`).
+Profile invoices call the Nuri Arkade receive server configured explicitly by
+`NURI_ARKADE_SIGNER_URL`.
 
 PRF compatibility is still available, but it is not the preferred spend signer:
 
@@ -1276,13 +1268,13 @@ fingerprint UV replaces it once the Feitian biometric applet path is integrated.
 **We can claim:**
 
 - A physical card co-signed, broadcast, and confirmed real Bitcoin transactions.
-- A physical card **paid a real Lightning invoice on mainnet** — a self-custodial
-  tap-to-pay: the card signed a 2-of-2 MuSig2 Ark→Lightning send that funded a
-  Boltz submarine swap (`NURI_CARD_ARKADE_SEND_OK`), driven by a Visa-style
-  `/checkout` terminal that holds no keys. Receive (`card@nuri.com` LNURL) and two
-  independent wallets on one card key (Nuri-cosigned and pure-Arkade) also work.
+- Historical desktop/PCSC runs paid real Lightning invoices on mainnet. The
+  current Android NFC flow separately proves two complete MuSig2 signing rounds
+  and an indexed Ark broadcast; completion and merchant settlement after the
+  final ordering fix still require a fresh run.
 - The cosigner key was generated on-card and is non-exportable by API design.
-- The card derives the *same* wallet/identity key the Nuri app derives.
+- The live server can bind a card FIDO credential to the card's separate MuSig2
+  client key; the UI verifies that mapping instead of inferring it.
 - Real WebAuthn PRF works over desktop PC/SC and native phone NFC.
 - The MuSig2 simulator matches `@scure/btc-signer` and rejects nonce reuse.
 - The ETH/EVM signer (v1.3) produces verifiable ECDSA signatures on-card —

@@ -24,7 +24,7 @@
     "@nuri/rn": "file:../../../../nuri-design-system-official/packages/rn",
     "@nuri/spec": "file:../../../../nuri-design-system-official/packages/spec",
     "@scure/base": "^1.1.7",
-    "@scure/btc-signer": "^2.0.1",
+    "@scure/btc-signer": "2.2.0",
     "base64-js": "1.5.1",
     "cborg": "5.1.1",
     "eventsource": "^4.1.0",

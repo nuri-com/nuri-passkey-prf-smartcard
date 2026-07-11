@@ -275,6 +275,27 @@ async function getSharedSecretV1(log: LogSink): Promise<{ keyAgreement: Map<numb
   return { keyAgreement, sharedSecret };
 }
 
+async function getPinUvAuthTokenV1(pin: string, log: LogSink): Promise<Uint8Array> {
+  if (!pin) throw new Error('Card PIN is required for user verification.');
+  const { keyAgreement, sharedSecret } = await getSharedSecretV1(log);
+  const pinHashEnc = aesCbcNoPaddingEncrypt(sharedSecret, sha256(utf8(pin)).slice(0, 16));
+  const response = await sendCbor(
+    0x06,
+    new Map<number, unknown>([
+      [1, 1],
+      [2, 5],
+      [3, keyAgreement],
+      [6, pinHashEnc],
+    ]),
+    log,
+  );
+  const encryptedToken = mapGet(response, 2);
+  if (!(encryptedToken instanceof Uint8Array) || encryptedToken.length === 0) {
+    throw new Error('Authenticator returned no PIN UV auth token.');
+  }
+  return aesCbcNoPaddingDecrypt(sharedSecret, encryptedToken);
+}
+
 function webauthnPrfSalt(input: Uint8Array): Uint8Array {
   return sha256(concatBytes(utf8('WebAuthn PRF\0'), input));
 }
@@ -360,6 +381,7 @@ export async function webauthnAssert(params: {
   origin: string;
   credentialIdB64u: string;
   challengeB64u: string;
+  pin: string;
   log?: LogSink;
 }): Promise<WebAuthnAssertion> {
   const log = params.log || (() => {});
@@ -374,6 +396,9 @@ export async function webauthnAssert(params: {
       crossOrigin: false,
     });
     const clientDataHash = sha256(utf8(clientDataJson));
+    log('requesting card PIN UV token...');
+    const pinUvAuthToken = await getPinUvAuthTokenV1(params.pin, log);
+    const pinUvAuthParam = hmac(sha256, pinUvAuthToken, clientDataHash).slice(0, 16);
     const allowList = [
       new Map<string, unknown>([
         ['type', 'public-key'],
@@ -384,7 +409,8 @@ export async function webauthnAssert(params: {
       [1, params.rpId],
       [2, clientDataHash],
       [3, allowList],
-      [5, new Map<string, unknown>([['uv', true]])],
+      [6, pinUvAuthParam],
+      [7, 1],
     ]);
     const response = await sendCbor(0x02, request, log);
     const authData = mapGet(response, 2);

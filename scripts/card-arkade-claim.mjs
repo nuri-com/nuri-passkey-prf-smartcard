@@ -379,8 +379,8 @@ async function pythonSendCosign(cfg, msg32Hex, session, inputIndex) {
 }
 
 // Ark -> Lightning submarine swap, funded by a card+Nuri MuSig2 spend, then
-// consumed with send/complete. Optimistic: waitFor 'funded' returns as soon as
-// the VTXO funding lands (Boltz then pays the invoice), no settlement wait.
+// consumed with send/complete. "Funded" is not merchant settlement; callers
+// must label that boundary honestly.
 async function sendLightningNuri(cfg, wallet, swaps) {
   const { invoice } = cfg;
   if (!invoice) throw new Error('invoice is required for send mode');
@@ -421,24 +421,34 @@ async function sendLightningNuri(cfg, wallet, swaps) {
     invoice,
   };
 
+  // Subscribe before broadcast so the one mempool/funded event cannot race
+  // past a WebSocket that was opened afterward.
+  const fundedResult = swaps.waitForSwapFunded(pending).then(
+    () => ({ ok: true }),
+    (error) => ({ ok: false, error }),
+  );
+
   // Fund the lockup (triggers identity.sign -> prepare/assert/cosign).
   const txid = await wallet.send({ address: lockup, amount: fundingAmount });
 
-  // Optimistic: resolve once the funding is confirmed enough for Boltz.
-  try { await swaps.waitForSwapFunded(pending); } catch (e) { /* optimistic: funding broadcast is enough */ }
+  // Consume the verified intent immediately after broadcast. A failed complete
+  // request is a failed send flow, not a successful result with an error field.
+  const complete = await postJson(cfg.completeUrl, {
+    challenge_token: SEND_SESSION?.challenge_token,
+    send_intent_id: sendIntentId,
+    txid,
+  });
 
-  // Consume the intent.
-  let complete = null;
-  try {
-    complete = await postJson(cfg.completeUrl, {
-      challenge_token: SEND_SESSION?.challenge_token,
-      send_intent_id: sendIntentId,
-      txid,
-    });
-  } catch (e) { complete = { error: e.message }; }
+  const funded = await fundedResult;
+  if (!funded.ok) {
+    const message = funded.error instanceof Error ? funded.error.message : String(funded.error);
+    throw new Error(`swap funding monitor failed: ${message}`);
+  }
 
   return {
     status: 'NURI_CARD_ARKADE_SEND_OK',
+    card_client_pk33: cfg.cardPk33,
+    server_pk33: cfg.serverPk33,
     invoice,
     send_intent_id: sendIntentId,
     swap_id: pending.id,
@@ -484,7 +494,8 @@ async function sendLightningLocal(cfg, wallet, swaps) {
 
 async function main() {
   const cfg = JSON.parse(await readStdin());
-  const mode = cfg.mode || 'claim';
+  const mode = String(cfg.mode || '');
+  if (!['balance', 'claim', 'send'].includes(mode)) throw new Error('mode must be balance, claim, or send');
   const r = cfg.restore;
 
   const sendMode = mode === 'send';
@@ -505,7 +516,8 @@ async function main() {
   });
   cfg.aggregate33 = bytesToHex(identity.aggregatedPk33);
 
-  const nodeUrl = cfg.nodeUrl || 'https://arkade.computer';
+  const nodeUrl = String(cfg.nodeUrl || '').trim();
+  if (!nodeUrl) throw new Error('nodeUrl is required');
   const wallet = await Wallet.create({
     identity,
     arkProvider: new RestArkProvider(nodeUrl),
@@ -520,8 +532,7 @@ async function main() {
   // Read-only: show the card's actual Ark wallet balance (no card, no signing).
   if (mode === 'balance') {
     const address = await wallet.getAddress();
-    let balance = null;
-    try { balance = await wallet.getBalance(); } catch (e) { balance = { error: e.message }; }
+    const balance = await wallet.getBalance();
     return {
       status: 'NURI_CARD_ARKADE_BALANCE_OK',
       aggregate_pubkey33: bytesToHex(identity.aggregatedPk33),
@@ -533,9 +544,10 @@ async function main() {
   // Send: Ark -> Lightning submarine swap. Pays a BOLT11 merchant invoice
   // from the card's settled VTXO balance via Nuri's native send flow.
   if (mode === 'send') {
+    if (cfg.boltzNetwork !== 'bitcoin') throw new Error('boltzNetwork must be bitcoin');
     const swaps = await ArkadeSwaps.create({
       wallet,
-      swapProvider: new BoltzSwapProvider({ network: cfg.boltzNetwork || 'bitcoin' }),
+      swapProvider: new BoltzSwapProvider({ network: cfg.boltzNetwork }),
       swapRepository: new InMemorySwapRepository(),
       swapManager: false,
     });
@@ -548,17 +560,21 @@ async function main() {
     throw new Error(`aggregate ${cfg.aggregate33} != swap claimPublicKey ${r.request.claimPublicKey}`);
   }
 
+  if (!r || !r.swap_id || !Number.isFinite(Number(r.created_at_unix))) {
+    throw new Error('claim restore requires swap_id and created_at_unix');
+  }
+  if (cfg.boltzNetwork !== 'bitcoin') throw new Error('boltzNetwork must be bitcoin');
   const swaps = await ArkadeSwaps.create({
     wallet,
-    swapProvider: new BoltzSwapProvider({ network: cfg.boltzNetwork || 'bitcoin' }),
+    swapProvider: new BoltzSwapProvider({ network: cfg.boltzNetwork }),
     swapRepository: new InMemorySwapRepository(),
     swapManager: false,
   });
 
   const pendingSwap = {
-    id: r.swap_id || r.response.id,
+    id: r.swap_id,
     type: 'reverse',
-    createdAt: r.created_at_unix || 1,
+    createdAt: r.created_at_unix,
     preimage: r.preimage,
     status: r.status,
     request: {

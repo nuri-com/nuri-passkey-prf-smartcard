@@ -32,7 +32,7 @@
   button:disabled { opacity: .55; cursor: default; }
   input { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 11px 12px; font: inherit; background: #fff; color: var(--ink); }
   .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
-  .receive-grid { display: grid; grid-template-columns: minmax(0, 180px) auto auto; gap: 12px; align-items: end; }
+  .receive-grid { display: grid; grid-template-columns: minmax(0, 180px) minmax(220px, 1fr) auto auto; gap: 12px; align-items: end; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
   h2 { margin: 0 0 14px; font-size: 18px; }
   .label { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; margin-top: 13px; }
@@ -73,11 +73,6 @@
   <div class="toolbar">
     <h1>Card profile</h1>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <label class="label" for="accountSelect" style="margin:0">Account</label>
-      <select id="accountSelect" style="padding:6px 10px;border-radius:8px">
-        <option value="nuri">Nuri · card@nuri.com</option>
-        <option value="pure">Pure Arkade (no Nuri)</option>
-      </select>
       <button id="readAll">Read card account</button>
       <button id="refresh" class="secondary">Refresh card</button>
       <button id="copyLogsTop" class="secondary">Copy logs</button>
@@ -85,7 +80,7 @@
   </div>
   <section style="background:linear-gradient(135deg,#0f2f24,#15493a);color:#eafff5;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 8px 26px rgba(15,47,36,.25)">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <div id="accountLabel" style="font-weight:700;opacity:.92">Nuri · <strong>card@nuri.com</strong></div>
+      <div id="accountLabel" style="font-weight:700;opacity:.92">Card account</div>
       <div style="opacity:.65;font-size:12px;letter-spacing:1px">BITCOIN · ARK · ⚡</div>
     </div>
     <div style="font-size:46px;font-weight:850;letter-spacing:-1.5px;margin:10px 0 0;line-height:1"><span id="cardWalletBalance">–</span></div>
@@ -99,6 +94,10 @@
       <div>
         <div class="label">Amount, sats</div>
         <input id="receiveAmount" inputmode="numeric" type="number" min="1" value="1000" />
+      </div>
+      <div>
+        <div class="label">Invoice memo</div>
+        <input id="receiveMemo" type="text" placeholder="What is this payment for?" />
       </div>
       <button id="createInvoice">Create invoice</button>
       <button id="registerReceive" class="secondary">Register owner</button>
@@ -188,15 +187,28 @@ async function post(path, body) {
 
 function renderNetwork(network, account) {
   const entry = account.addresses[network];
+  if (!entry || !entry.address || !entry.internal_address) throw new Error(`${network} address response is incomplete`);
+  if (!Number.isFinite(Number(entry.confirmed_sats)) || !Number.isFinite(Number(entry.pending_sats))) {
+    throw new Error(`${network} balance response is incomplete`);
+  }
   $(`${network}Address`).textContent = entry.address;
   $(`${network}Internal`).textContent = entry.internal_address;
   $(`${network}Confirmed`).textContent = `${entry.confirmed_sats} sats`;
-  $(`${network}Pending`).textContent = entry.balance_error ? 'unavailable' : `${entry.pending_sats} sats`;
+  $(`${network}Pending`).textContent = `${entry.pending_sats} sats`;
   const liveServer = account.lightning && account.lightning.live_server_pubkey;
-  $(`${network}Keys`).textContent = `card client ${account.card_client_pk33} / live server ${liveServer || 'not registered'} / local demo ASP ${account.asp_pk33}`;
+  $(`${network}Keys`).textContent = `card client ${account.card_client_pk33} / live server ${liveServer || 'not registered'}`;
+}
+
+function renderLiveAccount(account) {
+  if (!account || !account.username || !account.lightning_address) {
+    $('accountLabel').textContent = 'Card account · no Lightning username returned';
+    return;
+  }
+  $('accountLabel').textContent = `${account.username} · ${account.lightning_address}`;
 }
 
 function renderAccount(account) {
+  if (!account || !account.card_client_pk33 || !account.addresses) throw new Error('card account response is incomplete');
   state.account = account;
   logEvent('account_rendered', {
     card_client_pk33: account.card_client_pk33,
@@ -205,6 +217,7 @@ function renderAccount(account) {
   for (const network of networks) renderNetwork(network, account);
   const receive = account.lightning && account.lightning.receive_owner;
   const recovery = account.lightning && account.lightning.recovery;
+  renderLiveAccount(account.lightning && account.lightning.account);
   if (receive) {
     const registered = recovery && recovery.registered ? 'registered' : 'not registered';
     $('receiveOwner').textContent = `${registered}: ${receive.cred_id_b64u} / card ${receive.client_public_key_33_hex}`;
@@ -218,11 +231,23 @@ function renderAccount(account) {
 }
 
 function renderReceives(result) {
+  if (!result.account || !Array.isArray(result.lightning)) throw new Error('receive sync response is incomplete');
   state.receives = result;
-  const receives = Array.isArray(result.lightning) ? result.lightning : [];
+  renderLiveAccount(result.account);
+  const receives = result.lightning.map((receive, index) => {
+    const amountMsat = Number(receive?.amount_msat);
+    const status = typeof receive?.status === 'string' ? receive.status.trim() : '';
+    const swapId = typeof receive?.swap_id === 'string' ? receive.swap_id.trim() : '';
+    const boltzStatus = typeof receive?.boltz_status === 'string' ? receive.boltz_status.trim() : '';
+    if (!Number.isFinite(amountMsat) || amountMsat < 0) throw new Error(`receive ${index} returned no valid amount_msat`);
+    if (!status) throw new Error(`receive ${index} returned no status`);
+    if (!swapId) throw new Error(`receive ${index} returned no swap_id`);
+    if (!boltzStatus) throw new Error(`receive ${index} returned no boltz_status`);
+    return { ...receive, amountSats: Math.floor(amountMsat / 1000), status, swapId, boltzStatus };
+  });
   const claimableSats = receives
     .filter((receive) => receive.status === 'claimable')
-    .reduce((sum, receive) => sum + Math.floor(Number(receive.amount_msat || 0) / 1000), 0);
+    .reduce((sum, receive) => sum + receive.amountSats, 0);
   const openCount = receives.filter((receive) => receive.status !== 'claimable').length;
   $('lightningClaimable').textContent = `${claimableSats} sats`;
   $('lightningOpen').textContent = `${openCount}`;
@@ -233,7 +258,7 @@ function renderReceives(result) {
     swaps: receives.map((receive) => ({
       swap_id: receive.swap_id,
       status: receive.status,
-      sats: Math.floor(Number(receive.amount_msat || 0) / 1000),
+      sats: receive.amountSats,
       boltz_status: receive.boltz_status,
     })),
   });
@@ -242,14 +267,13 @@ function renderReceives(result) {
     return;
   }
   $('receiveList').innerHTML = receives.map((receive) => {
-    const sats = Math.floor(Number(receive.amount_msat || 0) / 1000);
     const tx = receive.boltz_status_response && receive.boltz_status_response.transaction;
     const txLine = tx && tx.id ? `<div class="value">Lockup tx ${tx.id}${tx.eta ? `, eta ${tx.eta}` : ''}</div>` : '';
     return `
       <div class="receive-row">
-        <strong>${receive.status} · ${sats} sats</strong>
-        <div class="value">Swap ${receive.swap_id || receive.id}</div>
-        <div class="value">Boltz ${receive.boltz_status || 'unknown'}</div>
+        <strong>${receive.status} · ${receive.amountSats} sats</strong>
+        <div class="value">Swap ${receive.swapId}</div>
+        <div class="value">Boltz ${receive.boltzStatus}</div>
         ${txLine}
       </div>
     `;
@@ -272,29 +296,19 @@ function renderQr(text) {
   }
 }
 
-function selectedAccount() {
-  return $('accountSelect')?.value === 'pure' ? 'pure' : 'nuri';
-}
-
-function renderAccountLabel() {
-  const acct = selectedAccount();
-  $('accountLabel').innerHTML = acct === 'pure'
-    ? 'Pure Arkade · <strong>card + local key, no Nuri</strong>'
-    : 'Nuri · <strong>card@nuri.com</strong>';
-}
-
 async function refreshWalletBalance() {
-  const acct = selectedAccount();
   try {
-    const data = await getJson(`/api/card/wallet-balance?account=${acct}`);
-    const sats = data.balance?.available ?? data.balance?.total ?? 0;
+    const data = await getJson('/api/card/wallet-balance');
+    const sats = Number(data.balance?.available);
+    if (!Number.isFinite(sats)) throw new Error('Arkade returned an invalid wallet balance');
+    if (typeof data.ark_address !== 'string' || !data.ark_address.trim()) throw new Error('Arkade returned no wallet address');
     $('cardWalletBalance').textContent = `${sats} sats`;
-    $('accountAddress').textContent = data.ark_address || '-';
+    $('accountAddress').textContent = data.ark_address;
     state.balance = data;
-    logEvent('wallet_balance', { account: acct, available: data.balance?.available, total: data.balance?.total });
+    logEvent('wallet_balance', { available: data.balance?.available, total: data.balance?.total });
   } catch (error) {
     $('cardWalletBalance').textContent = 'n/a';
-    logEvent('wallet_balance_error', { account: acct, error: error.data || error.message });
+    logEvent('wallet_balance_error', { error: error.data || error.message });
   }
 }
 
@@ -319,8 +333,8 @@ async function loadAccount() {
 
 async function maybeAutoClaim(result) {
   if (claimInFlight || autoClaimDisabled) return;
-  if (selectedAccount() !== 'nuri') return; // Nuri LNURL receives only
-  const claimable = (result.lightning || []).filter((r) => r.status === 'claimable');
+  if (!Array.isArray(result.lightning)) throw new Error('receive sync returned no Lightning list');
+  const claimable = result.lightning.filter((r) => r.status === 'claimable');
   if (!claimable.length) return;
   claimInFlight = true;
   $('status').textContent = `Auto-claiming ${claimable.length} Lightning receive(s) into the card wallet…`;
@@ -328,9 +342,10 @@ async function maybeAutoClaim(result) {
   logEvent('auto_claim_start', { count: claimable.length, swaps: claimable.map((r) => r.swap_id) });
   try {
     const res = await post('/api/card/lightning-claim', {});
+    if (!Array.isArray(res.claims)) throw new Error('claim response returned no claims list');
     logEvent('auto_claim_done', {
       claimed_ok: res.claimed_ok,
-      claims: (res.claims || []).map((c) => ({ swap_id: c.swap_id, status: c.status, ark_address: c.ark_address, error: c.error })),
+      claims: res.claims.map((c) => ({ swap_id: c.swap_id, status: c.status, ark_address: c.ark_address, error: c.error })),
     });
     $('status').textContent = res.claimed_ok
       ? `Claimed ${res.claimed_ok} Lightning receive(s) into the card wallet.`
@@ -424,9 +439,11 @@ async function createReceiveInvoice() {
   $('status').textContent = 'Registering card owner and creating Lightning invoice...';
   $('status').className = 'muted';
   try {
+    const memo = String($('receiveMemo').value || '').trim();
+    if (!memo) throw new Error('Invoice memo is required');
     const result = await post('/api/card/lightning-invoice', {
       amountSats: Number($('receiveAmount').value),
-      memo: 'Nuri card receive',
+      memo,
     });
     state.invoice = result;
     logEvent('invoice_created', {
@@ -439,7 +456,7 @@ async function createReceiveInvoice() {
     renderQr(result.invoice);
     const owner = result.account && result.account.receive_owner;
     if (owner) $('receiveOwner').textContent = `registered: ${owner.cred_id_b64u} / card ${owner.client_public_key_33_hex}`;
-    $('status').textContent = `Lightning invoice ready: ${result.payment_hash_hex || result.swap_id || 'created'}`;
+    $('status').textContent = 'Lightning invoice created from the live receive account.';
     $('status').className = 'ok';
     $('out').hidden = false;
     $('out').textContent = JSON.stringify(result, null, 2);
@@ -479,19 +496,10 @@ async function copyLogs() {
     $('status').textContent = 'Logs copied.';
     $('status').className = 'ok';
     logEvent('logs_copied', { bytes: text.length });
-  } catch {
-    const area = document.createElement('textarea');
-    area.value = text;
-    area.setAttribute('readonly', '');
-    area.style.position = 'fixed';
-    area.style.left = '-9999px';
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
-    $('status').textContent = 'Logs copied.';
-    $('status').className = 'ok';
-    logEvent('logs_copied_fallback', { bytes: text.length });
+  } catch (error) {
+    $('status').textContent = `Could not copy logs: ${error.message}`;
+    $('status').className = 'bad';
+    logEvent('logs_copy_error', { error: error.message });
   }
 }
 
@@ -509,12 +517,10 @@ $('createInvoice').addEventListener('click', createReceiveInvoice);
 $('refreshReceives').addEventListener('click', refreshReceives);
 $('copyLogs').addEventListener('click', copyLogs);
 $('copyLogsTop').addEventListener('click', copyLogs);
-$('accountSelect').addEventListener('change', () => { renderAccountLabel(); refreshWalletBalance(); });
 $('accountAddress').addEventListener('click', () => {
   const a = $('accountAddress').textContent.trim();
   if (a && a !== '–' && navigator.clipboard) navigator.clipboard.writeText(a).then(() => { $('status').textContent = 'Address copied.'; });
 });
-renderAccountLabel();
 startAutoSync();
 refreshProfile();
 </script>

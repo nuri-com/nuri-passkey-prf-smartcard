@@ -237,7 +237,7 @@ export async function musig2SignOverNfc(params: {
   return withMusig2Card(async (card) => {
     // Lazy-load musig2 — keeps the module importable in Node for testing
     const musig2 = await import('@scure/btc-signer/musig2.js');
-    const { schnorr } = await import('@noble/curves/secp256k1.js');
+    const { schnorr, secp256k1 } = await import('@noble/curves/secp256k1.js');
 
     // 1. Card nonce
     const cardPubnonce66 = await card.nonces();
@@ -255,9 +255,11 @@ export async function musig2SignOverNfc(params: {
 
     const tweaks = params.tweak32 ? [params.tweak32] : [];
     const tweakModes = params.tweak32 ? [true] : [];
+    const curveOrder = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
     const internalAgg = musig2.keyAggregate(sortedKeys);
     const internalXonly = musig2.keyAggExport(internalAgg);
-    const verificationXonly = musig2.keyAggExport(musig2.keyAggregate(sortedKeys, tweaks, tweakModes));
+    const signingAgg = musig2.keyAggregate(sortedKeys, tweaks, tweakModes);
+    const verificationXonly = musig2.keyAggExport(signingAgg);
 
     // Verify aggregate matches what the caller expects
     if (bytesToHex(internalXonly) !== bytesToHex(params.aggregateXonly)) {
@@ -278,71 +280,69 @@ export async function musig2SignOverNfc(params: {
     const aspPartialOk = session.partialSigVerify(asp.serverPartial32, pubNonces, aspIndex);
     if (!aspPartialOk) throw new Error('ASP partial signature verification failed');
 
-    // 5. Card partial: compute a_i, b, parity, e from the session
-    // The card expects: a_i (folded signer coefficient), b (nonce coefficient),
-    // parity (aggregate nonce parity), e (BIP340 challenge).
-    // These are the same values the Python proof computes:
-    //   b = tagged_hash("MuSig/noncecoef", aggregateNonce + signingXonly + msg32)
-    //   a_i = sortedKeys coefficient * g * gAcc (folded)
-    //   parity = aggregate nonce parity (0 or 1)
-    //   e = BIP340 challenge
+    // 5. Feed the card the values from the SAME BIP327 Session that verified
+    // the server partial. Do not independently reimplement point arithmetic
+    // here: Python and JavaScript modulo semantics differ, which previously
+    // allowed the two host-side signing paths to drift.
     //
-    // @scure/btc-signer doesn't expose these intermediate values directly,
-    // so we compute them the same way the Python code does.
-    const { taggedHash } = await import('./sessionMath');
-    const signingXonly = params.tweak32
-      ? musig2.keyAggExport(musig2.keyAggregate(sortedKeys, tweaks, tweakModes))
-      : internalXonly;
-
-    const b32 = taggedHash('MuSig/noncecoef', concatBytes(aggregateNonce, signingXonly, params.msg32));
-
-    // Compute the aggregate nonce point and its parity
-    // r1 = lift(card_pubnonce[:33]) + lift(asp_pubnonce[:33])
-    // r2 = lift(card_pubnonce[33:]) + lift(asp_pubnonce[33:])
-    // aggregate_r = r1 + b * r2
-    // parity = 0 if aggregate_r.y is even, else 1
-    const { liftComp, padd, pmul, pneg, compress } = await import('./sessionMath');
-    const r1 = padd(liftComp(cardPubnonce66.slice(0, 33)), liftComp(asp.serverPubnonce66.slice(0, 33)));
-    const r2 = padd(liftComp(cardPubnonce66.slice(33)), liftComp(asp.serverPubnonce66.slice(33)));
-    const b = BigInt('0x' + bytesToHex(b32)) % BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
-    let aggregateR = padd(r1, pmul(b, r2));
-    if (aggregateR === null) aggregateR = { x: 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798n, y: 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8n };
-    const parity = (aggregateR.y % 2n === 0n) ? 0 : 1;
-    const aggregateREven = parity === 0 ? aggregateR : pneg(aggregateR);
-    if (!aggregateREven) throw new Error('aggregate nonce point is null');
-
-    // BIP340 challenge: e = tagged_hash("BIP0340/challenge", r_bytes || signing_xonly || msg32)
-    const rBytes = new Uint8Array(32);
-    let xVal = aggregateREven.x;
-    for (let i = 31; i >= 0; i--) { rBytes[i] = Number(xVal & 0xffn); xVal >>= 8n; }
-    const e32 = taggedHash('BIP0340/challenge', concatBytes(rBytes, signingXonly, params.msg32));
-
-    // Folded signer coefficient: a_i = coeff[cardPk] * g * gAcc
-    // For untweaked: g=1, gAcc=1, so a_i = coeff[cardPk]
-    // coeff comes from BIP327 key aggregation
-    const { computeCoeffs } = await import('./sessionMath');
-    const coeffs = computeCoeffs(sortedKeys);
-    const cardCoeff = coeffs[bytesToHex(card.pubkey)];
-    // For untweaked case, fold = 1. For tweaked, fold = g * gAcc.
-    // The card expects the folded coefficient as 32 bytes.
-    const fold = params.tweak32 ? BigInt(1) : BigInt(1); // simplified: untweaked fold=1
-    const cardCoeff32 = new Uint8Array(32);
-    let coeffVal = (cardCoeff * fold) % BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
-    for (let i = 31; i >= 0; i--) { cardCoeff32[i] = Number(coeffVal & 0xffn); coeffVal >>= 8n; }
+    // @scure currently marks these session values private in its TypeScript
+    // declaration, but they are ordinary runtime fields in the pinned v2 API.
+    // This checked adapter is deliberately the only place that reaches them.
+    type SessionInternals = {
+      b: bigint;
+      e: bigint;
+      R: { y: bigint };
+      Q: { y: bigint };
+      gAcc: bigint;
+      getSessionKeyAggCoeff: (point: unknown) => bigint;
+    };
+    const sessionValues = session as unknown as SessionInternals;
+    if (
+      typeof sessionValues.b !== 'bigint'
+      || typeof sessionValues.e !== 'bigint'
+      || typeof sessionValues.R?.y !== 'bigint'
+      || typeof sessionValues.Q?.y !== 'bigint'
+      || typeof sessionValues.gAcc !== 'bigint'
+      || typeof sessionValues.getSessionKeyAggCoeff !== 'function'
+    ) {
+      throw new Error('MuSig2 session internals unavailable; refusing to sign');
+    }
+    const scalar32 = (value: bigint): Uint8Array => {
+      const out = new Uint8Array(32);
+      let remaining = value % curveOrder;
+      for (let i = 31; i >= 0; i--) { out[i] = Number(remaining & 0xffn); remaining >>= 8n; }
+      return out;
+    };
+    const b32 = scalar32(sessionValues.b);
+    const e32 = scalar32(sessionValues.e);
+    const parity = sessionValues.R.y % 2n === 0n ? 0 : 1;
+    const cardPoint = secp256k1.Point.fromBytes(card.pubkey);
+    const cardCoeff = sessionValues.getSessionKeyAggCoeff(cardPoint);
+    const g = sessionValues.Q.y % 2n === 0n ? 1n : curveOrder - 1n;
+    const fold = (g * sessionValues.gAcc) % curveOrder;
+    const cardCoeff32 = scalar32((cardCoeff * fold) % curveOrder);
+    log(`session b: ${bytesToHex(b32)}`);
+    log(`session e: ${bytesToHex(e32)}`);
+    log(`session parity: ${parity}`);
 
     // 6. Send to card
     const cardPartial32 = await card.finalize(cardCoeff32, b32, parity, e32);
     log(`card partial: ${bytesToHex(cardPartial32)}`);
 
-    // 7. Verify card partial
+    // 7. Verify both partials with that same session.
     const cardPartialOk = session.partialSigVerify(cardPartial32, pubNonces, cardIndex);
+    log(`card partial verify: ${cardPartialOk}`);
     if (!cardPartialOk) throw new Error('card partial signature verification failed');
+    log(`server partial: ${bytesToHex(asp.serverPartial32)}`);
+    log(`server partial verify: ${aspPartialOk}`);
 
-    // 8. Aggregate
+    // 8. Aggregate with the same session, including any tweak term.
     const finalSignature = session.partialSigAgg([cardPartial32, asp.serverPartial32]);
 
     // 9. Verify final BIP340 signature
     const finalOk = schnorr.verify(finalSignature, params.msg32, verificationXonly);
+    log(`final signature: ${bytesToHex(finalSignature)}`);
+    log(`final aggregate verify: ${finalOk}`);
     if (!finalOk) throw new Error('final aggregate signature verification failed');
 
     return {

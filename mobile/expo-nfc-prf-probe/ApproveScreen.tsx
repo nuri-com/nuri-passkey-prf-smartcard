@@ -56,10 +56,19 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
     await new Promise(r => setTimeout(r, 2000));
     setPhase('signing'); setStatus('Card read — approving payment…');
     try {
-      const cfg = { ...config, pin: enteredPin, invoice, log: (msg: string) => setStatus(msg) };
+      const cfg = {
+        ...config,
+        pin: enteredPin,
+        invoice,
+        log: (msg: string) => {
+          console.log(`[nuri-send] ${msg}`);
+          setStatus(msg);
+        },
+      };
       const res = await sendLightning(cfg, invoice);
-      setResult(res); setPhase('done'); setStatus('Approved — payment broadcast');
+      setResult(res); setPhase('done'); setStatus('Ark broadcast and swap funded');
     } catch (e: any) {
+      console.error('[nuri-send] failed', e);
       setPhase('error'); setError(e?.message ? `${e.name}: ${e.message}` : String(e)); setStatus('');
     }
   }
@@ -92,7 +101,7 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
             <TextFieldLabel>Card PIN</TextFieldLabel>
           </TextField>
 
-          <Button variant="solid" size="lg" onPress={() => startScan(pin)} disabled={pin.length < 1}>
+          <Button variant="solid" size="lg" onPress={() => startScan(pin)} disabled={pin.length !== PIN_LEN}>
             Tap card & approve
           </Button>
         </View>
@@ -114,9 +123,9 @@ export function ApproveScreen({ config, merchantName, amountSats, memo, invoice,
       {phase === 'done' && result && (
         <View align="center" gap="md" paddingY="lg">
           <Text size="xl">✅</Text>
-          <Text size="md" emphasis>Approved — payment broadcast</Text>
+          <Text size="md" emphasis>Ark broadcast and swap funded</Text>
           <View gap="xs" paddingTop="md">
-            <ReceiptRow label="Status" value="APPROVED" />
+            <ReceiptRow label="Status" value="FUNDED — VERIFY LIGHTNING" />
             <ReceiptRow label="Paid" value={`${result.final_amount_sats} sats (funded ${result.funding_amount_sats})`} />
             <ReceiptRow label="Ark txid" value={result.ark_txid || '—'} />
           </View>
