@@ -29,17 +29,22 @@ values `Nuri Terminal` and `Nuri Terminal charge` to the existing payment flow.
 
 1. The user enters the four-digit card PIN with the embedded design-system
    keypad and presses `Read card`.
-2. One NFC session authenticates the physical card and registered FIDO
+2. The PIN keypad is replaced by one card-reading alert and one disabled
+   `Reading card…` action. Transient NFC transport loss retries automatically
+   within a 21-second read window; PIN, authentication, and server failures do
+   not retry.
+3. One NFC session authenticates the physical card and registered FIDO
    credential, reads the Lightning account, derives the Ark address, loads the
    balance, and synchronizes incoming payments.
-3. Claimable incoming payments start automatically. Receive claims use the
+4. Claimable incoming payments start automatically. Receive claims use the
    dedicated `/api/arkade/receive/claim/approve` approval flow and
    approval-token signing through `/arkade/sign`; they do not use outgoing
    `send/prepare` state.
-4. The loaded profile shows the balance first and a design-system list for the
+5. The loaded profile shows the balance first and a full-width design-system
+   list for the
    Lightning address, wallet address, card status, and card reference.
-5. Address/reference rows copy their complete value through `expo-clipboard`.
-6. The screen always exposes one primary action: `Read card`, a disabled busy
+6. Address/reference rows copy their complete value through `expo-clipboard`.
+7. The screen always exposes one primary action: `Read card`, a disabled busy
    state, `Refresh profile`, or `Try incoming payment again`.
 
 Status, copy confirmation, and errors use design-system `Alert` components.

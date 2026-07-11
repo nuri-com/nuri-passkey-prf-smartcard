@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
+import { NfcError } from 'react-native-nfc-manager';
 import {
   View,
   Stack,
@@ -36,6 +37,10 @@ type Props = {
   origin: string;
 };
 
+type ProfileOperation = 'idle' | 'reading' | 'claiming';
+
+const CARD_READ_RETRY_MS = 21_000;
+
 export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u, rpId, origin }: Props) {
   const [cardPk, setCardPk] = useState('');
   const [registered, setRegistered] = useState(false);
@@ -50,6 +55,8 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   const [claimableCount, setClaimableCount] = useState(0);
   const [pin, setPin] = useState('');
   const [copied, setCopied] = useState('');
+  const [operation, setOperation] = useState<ProfileOperation>('idle');
+  const [operationStatus, setOperationStatus] = useState('');
 
   const config: SendConfig = {
     aspSignUrl: aspInfoUrl.replace('/arkade/info', '/arkade/sign'),
@@ -72,41 +79,59 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
     setBusy(true); setError(''); setBalance(null); setClaimStatus(''); setClaimableCount(0);
     setCopied('');
     setLoaded(false); setRegistered(false); setUsername(''); setLightningAddress('');
+    setOperation('reading');
+    setOperationStatus('Waiting for your Nuri card. Keep it near the phone.');
     try {
       // Read the MuSig2 identity and authenticate the separate FIDO credential
-      // in one NFC session. This mirrors the working desktop bridge exactly.
-      const card = await withNfcCardSession(
-        'Hold the Nuri card near the phone while the account is authenticated.',
-        async () => {
-          const { pubkey } = await readCardPubkey(() => {});
-          const pkHex = pubkeyHex(pubkey);
+      // in one NFC session. A lost/partial NFC connection retries until the
+      // bounded read window expires; PIN/auth/server failures remain fail-closed.
+      const deadline = Date.now() + CARD_READ_RETRY_MS;
+      let card: Awaited<ReturnType<typeof readProfileCard>>;
+      while (true) {
+        try {
+          card = await readProfileCard();
+          break;
+        } catch (readError: unknown) {
+          if (!isRetryableCardReadError(readError) || Date.now() >= deadline) throw readError;
+          setOperationStatus('Card connection lost. Keep the card in place while we try again.');
+          await delay(350);
+        }
+      }
 
-          const url = new URL(aspInfoUrl);
-          url.searchParams.set('client_pk33', pkHex);
-          url.searchParams.set('cred_id_b64u', credIdB64u);
-          const data = await fetchJson(url.toString());
-          const serverPublicKey = String(data.server_pubkey || '').trim();
-          if (!/^(02|03)[0-9a-f]{64}$/i.test(serverPublicKey)) {
-            throw new Error('ASP info returned no valid server public key');
-          }
-          if (data.recovery?.registered !== true) {
-            throw new Error('credential is not registered for this card key');
-          }
+      async function readProfileCard() {
+        return withNfcCardSession(
+          'Hold the Nuri card near the phone while the account is authenticated.',
+          async () => {
+            const { pubkey } = await readCardPubkey(() => {});
+            const pkHex = pubkeyHex(pubkey);
 
-          const account = await readAuthenticatedLightningAccount({
-            authUrl: aspInfoUrl.replace('/arkade/info', '/arkade/auth'),
-            statusUrl: aspInfoUrl.replace('/arkade/info', '/arkade/lnurl/status'),
-            credentialIdB64u: credIdB64u,
-            credentialPublicKeyB64u: credPubkeyB64u,
-            clientPublicKey33Hex: pkHex,
-            expectedServerPublicKey33Hex: serverPublicKey,
-            rpId,
-            origin,
-            pin,
-          });
-          return { pubkey, pkHex, serverPublicKey, account };
-        },
-      );
+            const url = new URL(aspInfoUrl);
+            url.searchParams.set('client_pk33', pkHex);
+            url.searchParams.set('cred_id_b64u', credIdB64u);
+            const data = await fetchJson(url.toString());
+            const serverPublicKey = String(data.server_pubkey || '').trim();
+            if (!/^(02|03)[0-9a-f]{64}$/i.test(serverPublicKey)) {
+              throw new Error('ASP info returned no valid server public key');
+            }
+            if (data.recovery?.registered !== true) {
+              throw new Error('credential is not registered for this card key');
+            }
+
+            const account = await readAuthenticatedLightningAccount({
+              authUrl: aspInfoUrl.replace('/arkade/info', '/arkade/auth'),
+              statusUrl: aspInfoUrl.replace('/arkade/info', '/arkade/lnurl/status'),
+              credentialIdB64u: credIdB64u,
+              credentialPublicKeyB64u: credPubkeyB64u,
+              clientPublicKey33Hex: pkHex,
+              expectedServerPublicKey33Hex: serverPublicKey,
+              rpId,
+              origin,
+              pin,
+            });
+            return { pubkey, pkHex, serverPublicKey, account };
+          },
+        );
+      }
       const { pubkey, pkHex, serverPublicKey: sPk, account } = card;
       setCardPk(pkHex);
       setRegistered(true);
@@ -170,11 +195,14 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       setError(readableProfileError(e));
     } finally {
       setBusy(false);
+      setOperation('idle');
+      setOperationStatus('');
     }
   }
 
   async function claimReceives(knownClaimable?: any[]) {
     setBusy(true); setError(''); setClaimStatus('Keep the card near the phone while the payment is received.');
+    setOperation('claiming');
     try {
       await withNfcCardSession(
         'Hold the Nuri card near the phone while incoming payments are claimed.',
@@ -259,6 +287,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       setClaimStatus('');
     } finally {
       setBusy(false);
+      setOperation('idle');
     }
   }
 
@@ -278,20 +307,22 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   }
 
   const primaryLabel = busy
-    ? loaded ? 'Receiving payment…' : 'Reading card…'
+    ? operation === 'claiming' ? 'Receiving payment…' : 'Reading card…'
     : retryingIncomingPayment
       ? 'Try incoming payment again'
       : loaded ? 'Refresh profile' : 'Read card';
 
   return (
     <Scroll>
-      <View direction="column" align="stretch" gap="lg" paddingX="lg" paddingY="md">
+      <View direction="column" align="stretch" gap="lg" paddingY="md">
         {loaded ? (
           <View direction="column" align="stretch" gap="xl">
-            <Stack align="center" gap="xs">
-              <Text size="sm" muted>Balance</Text>
-              <Text size="3xl" emphasis align="center">{balance}</Text>
-            </Stack>
+            <View paddingX="lg">
+              <Stack align="center" gap="xs">
+                <Text size="sm" muted>Balance</Text>
+                <Text size="3xl" emphasis align="center">{balance}</Text>
+              </Stack>
+            </View>
 
             <List>
               <ListAction onPress={() => copyValue('Lightning address', lightningAddress)} accessibilityLabel="Copy Lightning address">
@@ -319,30 +350,45 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
               </ListAction>
             </List>
 
-            {copied ? (
-              <Alert variant="ghost">
-                <AlertIcon name="check-circle" />
-                {copied}
-              </Alert>
-            ) : null}
-            {claimStatus ? (
-              <Alert accent={busy ? 'neutral' : 'lilac'}>
-                <AlertIcon name={busy ? 'card' : 'check-circle'} />
-                {claimStatus}
-              </Alert>
+            {copied || claimStatus ? (
+              <View direction="column" gap="sm" paddingX="lg">
+                {copied ? (
+                  <Alert variant="ghost">
+                    <AlertIcon name="check-circle" />
+                    {copied}
+                  </Alert>
+                ) : null}
+                {claimStatus ? (
+                  <Alert accent={busy ? 'neutral' : 'lilac'}>
+                    <AlertIcon name={busy ? 'card' : 'check-circle'} />
+                    {claimStatus}
+                  </Alert>
+                ) : null}
+              </View>
             ) : null}
           </View>
         ) : null}
 
-        {error ? (
-          <Alert accent="orange">
-            <AlertIcon name="warning-circle" />
-            {error}
-          </Alert>
+        {operation === 'reading' && operationStatus ? (
+          <View paddingX="lg">
+            <Alert>
+              <AlertIcon name="card" />
+              {operationStatus}
+            </Alert>
+          </View>
         ) : null}
 
-        {!loaded ? (
-          <View direction="column" align="stretch" gap="xl">
+        {error ? (
+          <View paddingX="lg">
+            <Alert accent="orange">
+              <AlertIcon name="warning-circle" />
+              {error}
+            </Alert>
+          </View>
+        ) : null}
+
+        {!loaded && operation !== 'reading' ? (
+          <View direction="column" align="stretch" gap="xl" paddingX="lg">
             <Stack align="center" gap="sm">
               <Text size="lg" emphasis align="center">Enter your card PIN</Text>
               <Text size="3xl" emphasis align="center">{pin.padEnd(4, '○').replaceAll(/\d/g, '●')}</Text>
@@ -354,14 +400,16 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
           </View>
         ) : null}
 
-        <Button
-          variant="solid"
-          size="lg"
-          onPress={runPrimaryAction}
-          disabled={busy || (!loaded && pin.length !== 4)}
-        >
-          {primaryLabel}
-        </Button>
+        <View paddingX="lg">
+          <Button
+            variant="solid"
+            size="lg"
+            onPress={runPrimaryAction}
+            disabled={busy || (!loaded && pin.length !== 4)}
+          >
+            {primaryLabel}
+          </Button>
+        </View>
       </View>
     </Scroll>
   );
@@ -407,6 +455,26 @@ function pubkeyHex(bytes: Uint8Array): string {
 function shortValue(value: string): string {
   if (value.length <= 20) return value;
   return `${value.slice(0, 10)}…${value.slice(-8)}`;
+}
+
+function isRetryableCardReadError(error: unknown): boolean {
+  if (
+    error instanceof NfcError.TagConnectionLost
+    || error instanceof NfcError.RetryExceeded
+    || error instanceof NfcError.SessionInvalidated
+    || error instanceof NfcError.TagNotConnected
+    || error instanceof NfcError.Timeout
+  ) return true;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes('tag was lost')
+    || message.includes('tag connection lost')
+    || message.includes('tag not connected')
+    || message.includes('transceive failed');
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
