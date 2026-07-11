@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator } from 'react-native';
-import { View, Stack, Scroll, Text, Button } from '@nuri/rn';
+import { View, Stack, Scroll, Text, Button, TextField, TextFieldLabel } from '@nuri/rn';
 import { readCardPubkey } from './src/musig2Card';
 import { Wallet, InMemoryWalletRepository, InMemoryContractRepository } from '@arkade-os/sdk';
 import { ExpoArkProvider, ExpoIndexerProvider } from '@arkade-os/sdk/adapters/expo';
@@ -9,6 +9,8 @@ import * as musig2 from '@scure/btc-signer/musig2.js';
 import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
 import { bech32m } from '@scure/base';
 import { NfcCardIdentity, type SendConfig } from './src/sendFlow';
+import { readAuthenticatedLightningAccount } from './src/arkadeAccount';
+import { withNfcCardSession } from './src/nfcSession';
 
 type Props = {
   aspInfoUrl: string;
@@ -32,6 +34,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   const [loaded, setLoaded] = useState(false);
   const [claimStatus, setClaimStatus] = useState('');
   const [claimableCount, setClaimableCount] = useState(0);
+  const [pin, setPin] = useState('');
 
   const config: SendConfig = {
     aspSignUrl: aspInfoUrl.replace('/arkade/info', '/arkade/sign'),
@@ -47,33 +50,53 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
     credPubkeyB64u,
     rpId,
     origin,
-    pin: '',
+    pin,
   };
 
   async function loadCard() {
     setBusy(true); setError(''); setBalance(null); setClaimStatus(''); setClaimableCount(0);
     setLoaded(false); setRegistered(false); setUsername(''); setLightningAddress('');
     try {
-      // 1. Read card pubkey via NFC
-      const { pubkey } = await readCardPubkey(() => {});
-      const pkHex = pubkeyHex(pubkey);
+      // Read the MuSig2 identity and authenticate the separate FIDO credential
+      // in one NFC session. This mirrors the working desktop bridge exactly.
+      const card = await withNfcCardSession(
+        'Hold the Nuri card near the phone while the account is authenticated.',
+        async () => {
+          const { pubkey } = await readCardPubkey(() => {});
+          const pkHex = pubkeyHex(pubkey);
+
+          const url = new URL(aspInfoUrl);
+          url.searchParams.set('client_pk33', pkHex);
+          url.searchParams.set('cred_id_b64u', credIdB64u);
+          const data = await fetchJson(url.toString());
+          const serverPublicKey = String(data.server_pubkey || '').trim();
+          if (!/^(02|03)[0-9a-f]{64}$/i.test(serverPublicKey)) {
+            throw new Error('ASP info returned no valid server public key');
+          }
+          if (data.recovery?.registered !== true) {
+            throw new Error('credential is not registered for this card key');
+          }
+
+          const account = await readAuthenticatedLightningAccount({
+            authUrl: aspInfoUrl.replace('/arkade/info', '/arkade/auth'),
+            statusUrl: aspInfoUrl.replace('/arkade/info', '/arkade/lnurl/status'),
+            credentialIdB64u: credIdB64u,
+            credentialPublicKeyB64u: credPubkeyB64u,
+            clientPublicKey33Hex: pkHex,
+            expectedServerPublicKey33Hex: serverPublicKey,
+            rpId,
+            origin,
+            pin,
+          });
+          return { pubkey, pkHex, serverPublicKey, account };
+        },
+      );
+      const { pubkey, pkHex, serverPublicKey: sPk, account } = card;
       setCardPk(pkHex);
-
-      // 2. Fetch ASP info
-      const url = new URL(aspInfoUrl);
-      url.searchParams.set('client_pk33', pkHex);
-      if (credIdB64u) url.searchParams.set('cred_id_b64u', credIdB64u);
-      const data = await fetchJson(url.toString());
-      const sPk = String(data.server_pubkey || '').trim();
-      if (!/^(02|03)[0-9a-f]{64}$/i.test(sPk)) throw new Error('ASP info returned no valid server public key');
       setServerPk(sPk);
-
-      // 3. Read the existing binding. Profile reads must never create or replace
-      // a credential/card association; registration is a separate explicit act.
-      if (data.recovery?.registered !== true) {
-        throw new Error('credential is not registered for this card key');
-      }
       setRegistered(true);
+      setUsername(account.username);
+      setLightningAddress(account.lightningAddress);
 
       // 4. Compute aggregate key and Ark address
       const sortedKeys = musig2.sortKeys([pubkey, hexToBytes(sPk)]);
@@ -109,15 +132,14 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cred_id_b64u: credIdB64u, client_public_key_33_hex: pkHex }),
       });
-      const account = synced.account;
-      const exactUsername = typeof account?.username === 'string' ? account.username.trim() : '';
-      const exactLightningAddress = typeof account?.lightning_address === 'string' ? account.lightning_address.trim() : '';
-      if (!exactUsername || !exactLightningAddress) {
-        throw new Error('receive sync returned no registered Lightning username for this card credential');
+      if (synced.account != null) {
+        const syncUsername = typeof synced.account.username === 'string' ? synced.account.username.trim() : '';
+        const syncAddress = typeof synced.account.lightning_address === 'string' ? synced.account.lightning_address.trim() : '';
+        if (syncUsername !== account.username || syncAddress !== account.lightningAddress) {
+          throw new Error('receive sync account does not match the authenticated Lightning account');
+        }
       }
       if (!Array.isArray(synced.lightning)) throw new Error('receive sync returned no Lightning receive list');
-      setUsername(exactUsername);
-      setLightningAddress(exactLightningAddress);
       const receives = synced.lightning;
       const claimable = receives.filter((r: any) => r.status === 'claimable' && r.restore);
       setClaimableCount(claimable.length);
@@ -274,7 +296,18 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
         {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
         {error ? <Text size="sm" muted align="center">{error}</Text> : null}
 
-        <Button variant="solid" size="lg" onPress={loadCard} disabled={busy}>
+        <TextField
+          value={pin}
+          onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 4))}
+          inputMode="numeric"
+          secureTextEntry
+          placeholder="Enter 4-digit card PIN"
+          accessibilityLabel="Card PIN for profile authentication"
+        >
+          <TextFieldLabel>Card PIN</TextFieldLabel>
+        </TextField>
+
+        <Button variant="solid" size="lg" onPress={loadCard} disabled={busy || pin.length !== 4}>
           {busy ? 'Reading card…' : loaded ? 'Refresh (tap card)' : 'Read card'}
         </Button>
       </View>

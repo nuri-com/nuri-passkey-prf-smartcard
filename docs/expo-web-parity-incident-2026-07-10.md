@@ -7,6 +7,39 @@ Branch: `challenge/nfc-tap-to-pay`
 Scope: physical Nuri smartcard, Android Expo app, desktop browser/local bridge,
 live Nuri Arkade signer, Ark mainnet, and Boltz Lightning send flow.
 
+## 2026-07-11 profile follow-up
+
+The deployed `/api/arkade/receive/sync` response was probed for the exact current
+credential/card owner. It returned HTTP 200 and the `lightning`, `boarding`, and
+`receives` arrays, but no `account` property. Expo incorrectly treated
+`synced.account.username` as the username source and produced:
+
+```text
+receive sync returned no registered Lightning username for this card credential
+```
+
+The desktop page appeared correct because its local bridge did extra work:
+
+```text
+/arkade/info (existing registration)
+  -> /arkade/auth (challenge)
+  -> physical-card FIDO assertion
+  -> /arkade/lnurl/status (smartcard@nuri.com)
+  -> /api/arkade/receive/sync (receive rows)
+```
+
+Expo now runs the same two-source contract. Authenticated LNURL status is the
+only username/address source; receive sync is the receive-row source. Both
+operations use the exact configured credential and physical MuSig2 key. A
+future sync `account` field is accepted only as redundant data and must exactly
+match the authenticated account.
+
+The live auth response also returns `origin` as a comma-separated allowlist,
+not one literal origin. Expo verifies that the credential profile origin is a
+member of that list, while still using the exact profile origin in WebAuthn
+client data. Profile authentication now asks for the four-digit card PIN and
+switches between the MuSig2 and FIDO applets inside one NFC session.
+
 ## Executive summary
 
 The physical card and its FIDO credential did not spontaneously become invalid.

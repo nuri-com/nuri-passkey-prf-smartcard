@@ -3,6 +3,25 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-11 — Expo profile reads the authenticated Lightning account
+
+### Fixed
+
+- The Expo profile no longer expects `/api/arkade/receive/sync` to return
+  `account.username`. The deployed endpoint returns receive arrays but no
+  account field, while the desktop bridge separately authenticated
+  `/arkade/lnurl/status` and therefore showed `smartcard@nuri.com`.
+- Expo now mirrors that proven flow inside one NFC session: read the physical
+  MuSig2 key, require the existing `/arkade/info` registration, request an auth
+  challenge, produce the PIN-authorized FIDO assertion, and read the registered
+  username/address from `/arkade/lnurl/status`.
+- The profile origin remains the exact configured credential origin. The live
+  server returns a comma-separated origin allowlist, which is validated for
+  membership instead of being mistaken for one literal origin.
+- Receive sync remains the source of receive rows only. If a future deployment
+  also returns an account field, Expo verifies that it matches the separately
+  authenticated account and rejects disagreement.
+
 ## 2026-07-10 — Expo/web parity incident and live card payment repair
 
 ### Fixed

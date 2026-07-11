@@ -212,7 +212,9 @@ Lightning address = smartcard@nuri.com
 
 Those values are evidence for that card/profile pair, not application defaults.
 Every run reads the card key over APDU and obtains the Lightning account through
-an authenticated server request.
+an authenticated `/arkade/auth` → card assertion → `/arkade/lnurl/status`
+request. `/api/arkade/receive/sync` supplies receive rows; the profile does not
+assume that sync also supplies the username.
 
 ### What works today (all on real hardware, mainnet)
 
