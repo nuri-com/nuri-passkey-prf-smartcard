@@ -13,6 +13,7 @@
     "ios:profile": "../../scripts/run-expo-nfc-prf-probe.sh ios --device",
     "ios:server": "expo start --ios --dev-client",
     "web": "expo start --web",
+    "check:design-system": "node scripts/check-design-system-ui.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

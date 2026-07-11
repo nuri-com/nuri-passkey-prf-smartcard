@@ -4,10 +4,15 @@ import {
   Stack,
   Text,
   Button,
-  ButtonIcon,
   IconAvatar,
+  List,
+  ListAction,
+  ListActionText,
+  ListActionTrailingText,
+  ListSeparator,
 } from '@nuri/rn';
 import { sendLightning, type SendConfig, type SendResult } from './src/sendFlow';
+import { NumericKeypad } from './NumericKeypad';
 
 const PIN_LEN = 4;
 const SCAN_SECONDS = 21;
@@ -130,12 +135,12 @@ export function ApproveScreen({ config, amountSats, invoice, onBack }: Props) {
   return (
     <View direction="column" align="stretch" justify="between" gap="xl" padding="lg" fill="grow">
       <Stack gap="xs">
-        <Text size="sm" emphasis muted>Confirm payment</Text>
+        <Text size="lg" emphasis>Confirm payment</Text>
         <Stack direction="row" align="baseline" gap="xs">
           <Text size="3xl" emphasis>{Number(amountSats).toLocaleString('en-US')}</Text>
-          <Text size="lg" muted>sats</Text>
+          <Text size="md" muted>sats</Text>
         </Stack>
-        <Text size="sm" muted>Lightning payment</Text>
+        <Text size="md" muted>Lightning payment</Text>
       </Stack>
 
       {phase === 'pin' ? (
@@ -145,7 +150,11 @@ export function ApproveScreen({ config, amountSats, invoice, onBack }: Props) {
             <Text size="3xl" emphasis align="center">{pin.padEnd(PIN_LEN, '○').replaceAll(/\d/g, '●')}</Text>
           </Stack>
 
-          <PinPad onDigit={enterPinDigit} onDelete={deletePinDigit} />
+          <NumericKeypad
+            onDigit={enterPinDigit}
+            onDelete={deletePinDigit}
+            deleteAccessibilityLabel="Delete PIN digit"
+          />
 
           <Button variant="solid" size="lg" onPress={startScan} disabled={pin.length !== PIN_LEN}>
             Confirm
@@ -175,11 +184,22 @@ export function ApproveScreen({ config, amountSats, invoice, onBack }: Props) {
               <Text size="xl" emphasis align="center">Payment successful</Text>
               <Text size="sm" muted align="center">The Lightning payment has been funded and confirmed.</Text>
             </Stack>
-            <View direction="column" align="stretch" gap="sm">
-              <ReceiptRow label="Recipient receives" value={`${result.final_amount_sats.toLocaleString('en-US')} sats`} />
-              <ReceiptRow label="Amount sent" value={`${result.funding_amount_sats.toLocaleString('en-US')} sats`} />
-              <ReceiptRow label="Payment reference" value={shortReference(result.ark_txid)} />
-            </View>
+            <List>
+              <ListAction accessibilityLabel="Recipient receives">
+                <ListActionText>Recipient receives</ListActionText>
+                <ListActionTrailingText>{result.final_amount_sats.toLocaleString('en-US')} sats</ListActionTrailingText>
+              </ListAction>
+              <ListSeparator />
+              <ListAction accessibilityLabel="Amount sent">
+                <ListActionText>Amount sent</ListActionText>
+                <ListActionTrailingText>{result.funding_amount_sats.toLocaleString('en-US')} sats</ListActionTrailingText>
+              </ListAction>
+              <ListSeparator />
+              <ListAction accessibilityLabel="Payment reference">
+                <ListActionText>Payment reference</ListActionText>
+                <ListActionTrailingText>{shortReference(result.ark_txid)}</ListActionTrailingText>
+              </ListAction>
+            </List>
           </View>
           <Button variant="solid" size="lg" onPress={onBack}>New payment</Button>
         </View>
@@ -200,48 +220,6 @@ export function ApproveScreen({ config, amountSats, invoice, onBack }: Props) {
           </Stack>
         </View>
       ) : null}
-    </View>
-  );
-}
-
-function PinPad({ onDigit, onDelete }: { onDigit: (digit: string) => void; onDelete: () => void }) {
-  return (
-    <View direction="column" gap="sm">
-      {[
-        ['1', '2', '3'],
-        ['4', '5', '6'],
-        ['7', '8', '9'],
-      ].map((row) => (
-        <View key={row.join('')} direction="row" gap="sm">
-          {row.map((digit) => (
-            <View key={digit} fill="even">
-              <Button size="lg" onPress={() => onDigit(digit)}>{digit}</Button>
-            </View>
-          ))}
-        </View>
-      ))}
-      <View direction="row" gap="sm">
-        <View fill="even">
-          <Button size="lg" disabled accessibilityLabel="Empty keypad key" />
-        </View>
-        <View fill="even">
-          <Button size="lg" onPress={() => onDigit('0')}>0</Button>
-        </View>
-        <View fill="even">
-          <Button size="lg" onPress={onDelete} accessibilityLabel="Delete PIN digit">
-            <ButtonIcon name="chevron-left" />
-          </Button>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function ReceiptRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View direction="row" justify="between" gap="md">
-      <Text size="sm" muted>{label}</Text>
-      <Text size="sm" emphasis align="end" flow="truncate" lines={1}>{value}</Text>
     </View>
   );
 }

@@ -7,7 +7,6 @@ import {
   Scroll,
   Text,
   Button,
-  ButtonIcon,
   Alert,
   AlertIcon,
   List,
@@ -16,7 +15,9 @@ import {
   ListActionText,
   ListActionTextMuted,
   ListActionTrailIcon,
+  ListSeparator,
 } from '@nuri/rn';
+import { NumericKeypad } from './NumericKeypad';
 import { readCardPubkey } from './src/musig2Card';
 import { Wallet, InMemoryWalletRepository, InMemoryContractRepository } from '@arkade-os/sdk';
 import { ExpoArkProvider, ExpoIndexerProvider } from '@arkade-os/sdk/adapters/expo';
@@ -333,17 +334,20 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
                 <ListActionTextMuted>{lightningAddress || username}</ListActionTextMuted>
                 <ListActionTrailIcon name="copy" />
               </ListAction>
+              <ListSeparator />
               <ListAction onPress={() => copyValue('Wallet address', arkAddress)} accessibilityLabel="Copy wallet address">
                 <ListActionLeadingAvatar name="wallet" variant="soft" />
                 <ListActionText>Wallet address</ListActionText>
                 <ListActionTextMuted>{shortValue(arkAddress)}</ListActionTextMuted>
                 <ListActionTrailIcon name="copy" />
               </ListAction>
+              <ListSeparator />
               <ListAction accessibilityLabel="Card status">
                 <ListActionLeadingAvatar name="check-circle" variant="soft" accent={registered ? 'lilac' : 'orange'} />
                 <ListActionText>Card status</ListActionText>
                 <ListActionTextMuted>{registered ? 'Connected and registered' : 'Not registered'}</ListActionTextMuted>
               </ListAction>
+              <ListSeparator />
               <ListAction onPress={() => copyValue('Card reference', cardPk)} accessibilityLabel="Copy card reference">
                 <ListActionLeadingAvatar name="card" variant="soft" />
                 <ListActionText>Card reference</ListActionText>
@@ -395,9 +399,10 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
               <Text size="lg" emphasis align="center">Enter your card PIN</Text>
               <Text size="3xl" emphasis align="center">{pin.padEnd(4, '○').replaceAll(/\d/g, '●')}</Text>
             </Stack>
-            <PinPad
+            <NumericKeypad
               onDigit={(digit) => setPin((current) => current.length < 4 ? `${current}${digit}` : current)}
               onDelete={() => setPin((current) => current.slice(0, -1))}
+              deleteAccessibilityLabel="Delete PIN digit"
             />
           </View>
         ) : null}
@@ -417,38 +422,6 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   );
 }
 
-function PinPad({ onDigit, onDelete }: { onDigit: (digit: string) => void; onDelete: () => void }) {
-  return (
-    <View direction="column" gap="sm">
-      {[
-        ['1', '2', '3'],
-        ['4', '5', '6'],
-        ['7', '8', '9'],
-      ].map((row) => (
-        <View key={row.join('')} direction="row" gap="sm">
-          {row.map((digit) => (
-            <View key={digit} fill="even">
-              <Button size="lg" onPress={() => onDigit(digit)}>{digit}</Button>
-            </View>
-          ))}
-        </View>
-      ))}
-      <View direction="row" gap="sm">
-        <View fill="even">
-          <Button size="lg" disabled accessibilityLabel="Empty keypad key" />
-        </View>
-        <View fill="even">
-          <Button size="lg" onPress={() => onDigit('0')}>0</Button>
-        </View>
-        <View fill="even">
-          <Button size="lg" onPress={onDelete} accessibilityLabel="Delete PIN digit">
-            <ButtonIcon name="chevron-left" />
-          </Button>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 function pubkeyHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');

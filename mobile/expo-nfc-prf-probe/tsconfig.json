@@ -3,11 +3,10 @@
   "compilerOptions": {
     "strict": true,
     "moduleResolution": "bundler",
+    "preserveSymlinks": true,
     "paths": {
-      "@nuri/rn": ["../../../nuri-design-system-official/packages/rn/index.ts"],
-      "@nuri/rn/*": ["../../../nuri-design-system-official/packages/rn/*"],
-      "@nuri/spec/descriptors/*": ["../../../nuri-design-system-official/packages/spec/components/*"],
-      "@nuri/spec/*": ["../../../nuri-design-system-official/packages/spec/*"]
+      "@nuri/rn": ["./node_modules/@nuri/rn/index.ts"],
+      "@nuri/rn/*": ["./node_modules/@nuri/rn/*"]
     }
   },
   "include": [

@@ -6,6 +6,9 @@ point-of-sale terminal and an authenticated card profile over ISO-DEP NFC.
 The app uses the Nuri React Native design system (`@nuri/rn`) for every visible
 screen element. Business logic remains in the app; visual components, spacing,
 typography, lists, alerts, fields, and buttons come from the design system.
+The shared numeric keypad is the exact `View`/`Button` composition from the
+official Nuri RN `AmountSheet` example; it introduces no custom visual
+primitive, size, or spacing value.
 
 ## Current user flow
 
@@ -42,8 +45,8 @@ values `Nuri Terminal` and `Nuri Terminal charge` to the existing payment flow.
    approval-token signing through `/arkade/sign`; they do not use outgoing
    `send/prepare` state.
 5. The loaded profile shows the balance first and a full-width design-system
-   list for the
-   Lightning address, wallet address, card status, and card reference.
+   list for the Lightning address, wallet address, card status, and card
+   reference.
 6. Address/reference rows copy their complete value through `expo-clipboard`.
 7. The screen always exposes one primary action: `Read card`, a disabled busy
    state, `Refresh profile`, or `Try incoming payment again`.
@@ -94,6 +97,14 @@ npm run ios:profile
 ```
 
 ## Verification
+
+Reject direct React Native UI, inline styles, and custom visual values in the
+visible screen modules, then run the strict TypeScript check:
+
+```bash
+npm run check:design-system
+npm run typecheck
+```
 
 Bundle the complete Android JavaScript path:
 

@@ -4,11 +4,13 @@ import {
   Stack,
   Text,
   Button,
-  ButtonIcon,
+  Alert,
+  AlertIcon,
   TextField,
   TextFieldButton,
   TextFieldLabel,
 } from '@nuri/rn';
+import { NumericKeypad } from './NumericKeypad';
 
 type Props = {
   onCharge: (amountSats: number, invoice: string, memo: string, merchantName: string) => void;
@@ -85,40 +87,22 @@ export function TerminalScreen({ onCharge }: Props) {
         <Text size="sm" muted>sats</Text>
       </Stack>
 
-      <View direction="column" gap="sm">
-        {[
-          ['1', '2', '3'],
-          ['4', '5', '6'],
-          ['7', '8', '9'],
-        ].map((row) => (
-          <View key={row.join('')} direction="row" gap="sm">
-            {row.map((digit) => (
-              <View key={digit} fill="even">
-                <Button size="lg" onPress={() => enterDigit(digit)}>{digit}</Button>
-              </View>
-            ))}
-          </View>
-        ))}
-        <View direction="row" gap="sm">
-          <View fill="even">
-            <Button size="lg" disabled accessibilityLabel="Empty keypad key" />
-          </View>
-          <View fill="even">
-            <Button size="lg" onPress={() => enterDigit('0')}>0</Button>
-          </View>
-          <View fill="even">
-            <Button size="lg" onPress={deleteDigit} accessibilityLabel="Delete digit">
-              <ButtonIcon name="chevron-left" />
-            </Button>
-          </View>
-        </View>
-      </View>
+      <NumericKeypad
+        onDigit={enterDigit}
+        onDelete={deleteDigit}
+        deleteAccessibilityLabel="Delete digit"
+      />
 
       <Button variant="solid" size="lg" onPress={charge} disabled={!canCharge}>
         {busy ? '…' : 'Charge'}
       </Button>
 
-      {status ? <Text size="sm" emphasis muted align="center">{status}</Text> : null}
+      {status ? (
+        <Alert accent={busy ? 'neutral' : 'orange'}>
+          <AlertIcon name={busy ? 'bitcoin-wallet' : 'warning-circle'} />
+          {status}
+        </Alert>
+      ) : null}
     </View>
   );
 }

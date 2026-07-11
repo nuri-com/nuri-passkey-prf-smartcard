@@ -80,7 +80,7 @@ export default function App() {
           <Screen>
             <Topbar>
               <TopbarCenter>
-                <Text size="md" emphasis>Nuri Terminal</Text>
+                <Text size="lg" emphasis>Nuri Terminal</Text>
               </TopbarCenter>
             </Topbar>
             {tab === 'terminal' ? (
