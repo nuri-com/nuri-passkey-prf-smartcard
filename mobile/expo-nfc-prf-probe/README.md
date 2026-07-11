@@ -32,7 +32,8 @@ values `Nuri Terminal` and `Nuri Terminal charge` to the existing payment flow.
 2. The PIN keypad is replaced by one card-reading alert and one disabled
    `Reading card…` action. Transient NFC transport loss retries automatically
    within a 21-second read window; PIN, authentication, and server failures do
-   not retry.
+   not retry. The alert advances through waiting, card detected/authenticating,
+   and card read/profile loading states.
 3. One NFC session authenticates the physical card and registered FIDO
    credential, reads the Lightning account, derives the Ark address, loads the
    balance, and synchronizes incoming payments.

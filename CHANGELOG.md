@@ -27,7 +27,9 @@ see [`docs/logbook.md`](docs/logbook.md).
 - Made card-reading state explicit after PIN confirmation. The keypad is hidden
   while reading, a design-system alert reports the current state, and transient
   NFC connection loss retries automatically within a bounded read window.
-  PIN/auth/server failures remain fail-closed and require an explicit retry.
+  The alert distinguishes waiting, card detected/authenticating, and card
+  read/profile loading. PIN/auth/server failures remain fail-closed and require
+  an explicit retry.
 - Receive claims no longer route through outgoing `send/prepare` state. The
   mobile card identity now uses `/api/arkade/receive/claim/approve` and
   approval-token `/arkade/sign` rounds for `claimVHTLC`.

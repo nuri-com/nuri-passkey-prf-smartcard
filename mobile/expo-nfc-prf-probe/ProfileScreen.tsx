@@ -103,6 +103,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
           'Hold the Nuri card near the phone while the account is authenticated.',
           async () => {
             const { pubkey } = await readCardPubkey(() => {});
+            setOperationStatus('Card detected. Authenticating…');
             const pkHex = pubkeyHex(pubkey);
 
             const url = new URL(aspInfoUrl);
@@ -128,6 +129,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
               origin,
               pin,
             });
+            setOperationStatus('Card read. Loading your profile…');
             return { pubkey, pkHex, serverPublicKey, account };
           },
         );
