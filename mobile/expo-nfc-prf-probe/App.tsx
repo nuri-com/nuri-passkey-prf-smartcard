@@ -4,16 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import {
   NuriThemeProvider,
   Screen,
-  View,
-  Scroll,
   Text,
-  Button,
   Topbar,
   TopbarCenter,
   TabBar,
   TabBarItem,
-  TextField,
-  TextFieldLabel,
 } from '@nuri/rn';
 import { TerminalScreen } from './TerminalScreen';
 import { ApproveScreen } from './ApproveScreen';
@@ -33,11 +28,8 @@ const PROFILE_RP_ID = requiredEnv('EXPO_PUBLIC_NURI_RP_ID', process.env.EXPO_PUB
 const PROFILE_ORIGIN = requiredEnv('EXPO_PUBLIC_NURI_ORIGIN', process.env.EXPO_PUBLIC_NURI_ORIGIN);
 const PROFILE_CREDENTIAL_ID = requiredEnv('EXPO_PUBLIC_NURI_CREDENTIAL_ID', process.env.EXPO_PUBLIC_NURI_CREDENTIAL_ID);
 const PROFILE_CREDENTIAL_PUBLIC_KEY = requiredEnv('EXPO_PUBLIC_NURI_CREDENTIAL_PUBLIC_KEY', process.env.EXPO_PUBLIC_NURI_CREDENTIAL_PUBLIC_KEY);
-const MERCHANT_NAME = String(process.env.EXPO_PUBLIC_MERCHANT_NAME || '').trim();
-const MERCHANT_TARGET = String(process.env.EXPO_PUBLIC_MERCHANT_TARGET || '').trim();
-
 type Tab = 'terminal' | 'profile';
-type Checkout = { amountSats: number; invoice: string; memo: string; merchantName: string };
+type Checkout = { amountSats: number; invoice: string };
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('terminal');
@@ -67,18 +59,12 @@ export default function App() {
           <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
             <StatusBar style="dark" />
             <Screen>
-              <Scroll>
-                <View padding="lg" paddingBottom="xl">
-                  <ApproveScreen
-                    config={config}
-                    merchantName={checkout.merchantName}
-                    amountSats={checkout.amountSats}
-                    memo={checkout.memo}
-                    invoice={checkout.invoice}
-                    onBack={() => { setCheckout(null); setTab('terminal'); }}
-                  />
-                </View>
-              </Scroll>
+              <ApproveScreen
+                config={config}
+                amountSats={checkout.amountSats}
+                invoice={checkout.invoice}
+                onBack={() => { setCheckout(null); setTab('terminal'); }}
+              />
             </Screen>
           </SafeAreaView>
         </NuriThemeProvider>
@@ -98,17 +84,11 @@ export default function App() {
               </TopbarCenter>
             </Topbar>
             {tab === 'terminal' ? (
-              <Scroll>
-                <View padding="lg" paddingBottom="xl">
-                  <TerminalScreen
-                    merchantName={MERCHANT_NAME}
-                    merchantTarget={MERCHANT_TARGET}
-                    onCharge={(amountSats, invoice, memo, merchantName) =>
-                      setCheckout({ amountSats, invoice, memo, merchantName })
-                    }
-                  />
-                </View>
-              </Scroll>
+              <TerminalScreen
+                onCharge={(amountSats, invoice) =>
+                  setCheckout({ amountSats, invoice })
+                }
+              />
             ) : (
               <ProfileScreen
                 aspInfoUrl={config.aspInfoUrl}

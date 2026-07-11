@@ -3,6 +3,39 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-11 — Design-system terminal, profile, and receive claim flow
+
+### Changed
+
+- Rebuilt the Expo terminal with Nuri design-system components only: one
+  editable Lightning address prefilled with `smartcard@nuri.com`, a sats amount
+  display, the embedded button keypad, and one `Charge` action. Removed the
+  nested app-authored card and the merchant/memo form fields.
+- Rebuilt payment confirmation around the same keypad, one `Confirm` action,
+  design-system card/progress states, human-readable English status messages,
+  and clear success/error exits.
+- Simplified the profile into a balance-first design-system list. Lightning,
+  wallet, and card references are copyable; status, copy confirmation, and
+  errors use design-system alerts; each state exposes exactly one primary
+  action.
+
+### Fixed
+
+- Receive claims no longer route through outgoing `send/prepare` state. The
+  mobile card identity now uses `/api/arkade/receive/claim/approve` and
+  approval-token `/arkade/sign` rounds for `claimVHTLC`.
+- Claimable incoming payments start automatically after authenticated profile
+  sync while retry remains an explicit single-action error state.
+- Corrected the local `@nuri/rn` and `@nuri/spec` package paths and added the
+  native `expo-clipboard` dependency.
+
+### Verified
+
+- Android Metro export succeeds for the complete app bundle.
+- A clean native Android debug build succeeds with JDK 17 and autolinks
+  `expo-clipboard`.
+- The updated debug APK loads through Metro on a physical Android device.
+
 ## 2026-07-11 — Expo profile reads the authenticated Lightning account
 
 ### Fixed

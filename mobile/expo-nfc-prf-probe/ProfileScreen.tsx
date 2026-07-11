@@ -1,6 +1,21 @@
 import { useState } from 'react';
-import { ActivityIndicator } from 'react-native';
-import { View, Stack, Scroll, Text, Button, TextField, TextFieldLabel } from '@nuri/rn';
+import * as Clipboard from 'expo-clipboard';
+import {
+  View,
+  Stack,
+  Scroll,
+  Text,
+  Button,
+  ButtonIcon,
+  Alert,
+  AlertIcon,
+  List,
+  ListAction,
+  ListActionLeadingAvatar,
+  ListActionText,
+  ListActionTextMuted,
+  ListActionTrailIcon,
+} from '@nuri/rn';
 import { readCardPubkey } from './src/musig2Card';
 import { Wallet, InMemoryWalletRepository, InMemoryContractRepository } from '@arkade-os/sdk';
 import { ExpoArkProvider, ExpoIndexerProvider } from '@arkade-os/sdk/adapters/expo';
@@ -23,7 +38,6 @@ type Props = {
 
 export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u, rpId, origin }: Props) {
   const [cardPk, setCardPk] = useState('');
-  const [serverPk, setServerPk] = useState('');
   const [registered, setRegistered] = useState(false);
   const [arkAddress, setArkAddress] = useState('');
   const [balance, setBalance] = useState<string | null>(null);
@@ -35,6 +49,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   const [claimStatus, setClaimStatus] = useState('');
   const [claimableCount, setClaimableCount] = useState(0);
   const [pin, setPin] = useState('');
+  const [copied, setCopied] = useState('');
 
   const config: SendConfig = {
     aspSignUrl: aspInfoUrl.replace('/arkade/info', '/arkade/sign'),
@@ -55,6 +70,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
 
   async function loadCard() {
     setBusy(true); setError(''); setBalance(null); setClaimStatus(''); setClaimableCount(0);
+    setCopied('');
     setLoaded(false); setRegistered(false); setUsername(''); setLightningAddress('');
     try {
       // Read the MuSig2 identity and authenticate the separate FIDO credential
@@ -93,7 +109,6 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       );
       const { pubkey, pkHex, serverPublicKey: sPk, account } = card;
       setCardPk(pkHex);
-      setServerPk(sPk);
       setRegistered(true);
       setUsername(account.username);
       setLightningAddress(account.lightningAddress);
@@ -122,8 +137,8 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
         settlementConfig: false,
       });
 
-      const { available, total } = parseBalance(await wallet.getBalance());
-      setBalance(`${available} sats (total ${total})`);
+      const { available } = parseBalance(await wallet.getBalance());
+      setBalance(`${available.toLocaleString('en-US')} sats`);
 
       // 6. Sync receives — check for claimable incoming payments
       const syncUrl = aspInfoUrl.replace('/v4/arkade/info', '/api/arkade/receive/sync');
@@ -145,24 +160,27 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       setClaimableCount(claimable.length);
       if (claimable.length > 0) {
         const totalSats = claimable.reduce((sum: number, r: any) => sum + Number(r.restore.request.invoiceAmount), 0);
-        setClaimStatus(`${claimable.length} incoming payment(s) waiting: ${totalSats} sats.`);
+        setClaimStatus(`${claimable.length} incoming payment${claimable.length === 1 ? '' : 's'} found (${totalSats.toLocaleString('en-US')} sats). Receiving automatically…`);
       } else {
-        setClaimStatus('The server returned no claimable incoming payments.');
+        setClaimStatus('No incoming payments are waiting.');
       }
       setLoaded(true);
+      if (claimable.length > 0) await claimReceives(claimable);
     } catch (e: any) {
-      setError(e.message || 'Failed to read card or fetch balance');
+      setError(readableProfileError(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function claimReceives() {
-    setBusy(true); setError(''); setClaimStatus('Claiming — hold card on phone...');
+  async function claimReceives(knownClaimable?: any[]) {
+    setBusy(true); setError(''); setClaimStatus('Keep the card near the phone while the payment is received.');
     try {
-      // Use the same NfcCardIdentity from sendFlow — it handles card NFC signing
-      const identity = new NfcCardIdentity(config);
-      await (identity as any).initialize();
+      await withNfcCardSession(
+        'Hold the Nuri card near the phone while incoming payments are claimed.',
+        async () => {
+          const identity = new NfcCardIdentity(config);
+          await identity.initialize();
 
       // Re-fetch ASP info to get server pubkey
       const url = new URL(aspInfoUrl);
@@ -177,21 +195,22 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       identity.aggregatedPk33 = musig2.keyAggregate(identity.sortedKeys).aggPublicKey.toBytes(true);
       identity.aggregatedXonly = identity.aggregatedPk33.slice(1);
 
-      // Sync receives
-      const syncUrl = aspInfoUrl.replace('/v4/arkade/info', '/api/arkade/receive/sync');
-      const synced = await fetchJson(syncUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cred_id_b64u: credIdB64u, client_public_key_33_hex: bytesToHex(identity.clientPk33) }),
-      });
-      if (!Array.isArray(synced.lightning)) throw new Error('receive sync returned no Lightning receive list');
-      const receives = synced.lightning;
-      const claimable = receives.filter((r: any) => r.status === 'claimable' && r.restore);
+          let claimable: any[] = knownClaimable ?? [];
+          if (!knownClaimable) {
+            const syncUrl = aspInfoUrl.replace('/v4/arkade/info', '/api/arkade/receive/sync');
+            const synced = await fetchJson(syncUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ cred_id_b64u: credIdB64u, client_public_key_33_hex: bytesToHex(identity.clientPk33) }),
+            });
+            if (!Array.isArray(synced.lightning)) throw new Error('receive sync returned no Lightning receive list');
+            claimable = synced.lightning.filter((r: any) => r.status === 'claimable' && r.restore);
+          }
 
-      if (claimable.length === 0) {
-        setClaimStatus('No incoming payments to claim.');
-        return;
-      }
+          if (claimable.length === 0) {
+            setClaimStatus('No incoming payments are waiting.');
+            return;
+          }
 
       // Create wallet + swaps with the card-backed identity
       const wallet = await Wallet.create({
@@ -213,6 +232,7 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       let totalSats = 0;
 
       for (const r of claimable) {
+        identity.claimSwapId = r.swap_id;
         const pendingSwap = {
           id: r.swap_id,
           response: r.restore.response,
@@ -226,97 +246,167 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
         totalSats += claimedSats;
       }
 
-      setClaimStatus(`Claimed ${claimed}/${claimable.length} (${totalSats} sats)`);
+      setClaimStatus(`${claimed} incoming payment${claimed === 1 ? '' : 's'} received (${totalSats.toLocaleString('en-US')} sats).`);
 
       // Refresh balance
-      const { available, total } = parseBalance(await wallet.getBalance());
-      setBalance(`${available} sats (total ${total})`);
+      const { available } = parseBalance(await wallet.getBalance());
+      setBalance(`${available.toLocaleString('en-US')} sats`);
       setClaimableCount(0);
+        },
+      );
     } catch (e: any) {
-      setError(e.message || 'Claim failed');
+      setError(readableProfileError(e));
       setClaimStatus('');
     } finally {
       setBusy(false);
     }
   }
 
+  async function copyValue(label: string, value: string) {
+    await Clipboard.setStringAsync(value);
+    setCopied(`${label} copied`);
+  }
+
+  const retryingIncomingPayment = loaded && claimableCount > 0 && Boolean(error);
+
+  function runPrimaryAction() {
+    if (retryingIncomingPayment) {
+      void claimReceives();
+      return;
+    }
+    void loadCard();
+  }
+
+  const primaryLabel = busy
+    ? loaded ? 'Receiving payment…' : 'Reading card…'
+    : retryingIncomingPayment
+      ? 'Try incoming payment again'
+      : loaded ? 'Refresh profile' : 'Read card';
+
   return (
     <Scroll>
-      <View padding="lg" paddingBottom="xl" gap="lg">
+      <View direction="column" align="stretch" gap="lg" paddingX="lg" paddingY="md">
         {loaded ? (
-          <>
-            <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>Wallet</Text>
-              {username ? <Text size="sm" muted>{username}</Text> : null}
-              {lightningAddress ? <Text size="sm" muted>{lightningAddress}</Text> : null}
-              <Stack gap="xs">
-                <Text size="xs" emphasis muted>Ark address</Text>
-                <Text size="xs" flow="truncate" lines={1}>{arkAddress}</Text>
-              </Stack>
-              <Stack gap="xs">
-                <Text size="xs" emphasis muted>Balance</Text>
-                <Text size="xl" emphasis>{balance}</Text>
-              </Stack>
-            </View>
+          <View direction="column" align="stretch" gap="xl">
+            <Stack align="center" gap="xs">
+              <Text size="sm" muted>Balance</Text>
+              <Text size="3xl" emphasis align="center">{balance}</Text>
+            </Stack>
 
-            <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>Card</Text>
-              <Stack gap="xs">
-                <Text size="xs" emphasis muted>Card MuSig2 pubkey</Text>
-                <Text size="xs" flow="truncate" lines={1}>{cardPk}</Text>
-              </Stack>
-              <Stack gap="xs">
-                <Text size="xs" emphasis muted>Registered</Text>
-                <Text size="sm">{registered ? 'yes' : 'no'}</Text>
-              </Stack>
-            </View>
+            <List>
+              <ListAction onPress={() => copyValue('Lightning address', lightningAddress)} accessibilityLabel="Copy Lightning address">
+                <ListActionLeadingAvatar name="bitcoin-wallet" variant="soft" />
+                <ListActionText>Lightning address</ListActionText>
+                <ListActionTextMuted>{lightningAddress || username}</ListActionTextMuted>
+                <ListActionTrailIcon name="copy" />
+              </ListAction>
+              <ListAction onPress={() => copyValue('Wallet address', arkAddress)} accessibilityLabel="Copy wallet address">
+                <ListActionLeadingAvatar name="wallet" variant="soft" />
+                <ListActionText>Wallet address</ListActionText>
+                <ListActionTextMuted>{shortValue(arkAddress)}</ListActionTextMuted>
+                <ListActionTrailIcon name="copy" />
+              </ListAction>
+              <ListAction accessibilityLabel="Card status">
+                <ListActionLeadingAvatar name="check-circle" variant="soft" accent={registered ? 'lilac' : 'orange'} />
+                <ListActionText>Card status</ListActionText>
+                <ListActionTextMuted>{registered ? 'Connected and registered' : 'Not registered'}</ListActionTextMuted>
+              </ListAction>
+              <ListAction onPress={() => copyValue('Card reference', cardPk)} accessibilityLabel="Copy card reference">
+                <ListActionLeadingAvatar name="card" variant="soft" />
+                <ListActionText>Card reference</ListActionText>
+                <ListActionTextMuted>{shortValue(cardPk)}</ListActionTextMuted>
+                <ListActionTrailIcon name="copy" />
+              </ListAction>
+            </List>
 
-            <View chrome="canvas" radius="md" padding="xl" gap="md">
-              <Text size="lg" emphasis>Arkade ASP</Text>
-              <Stack gap="xs">
-                <Text size="xs" emphasis muted>ASP server pubkey</Text>
-                <Text size="xs" flow="truncate" lines={1}>{serverPk}</Text>
-              </Stack>
-            </View>
-
-            {claimStatus ? <Text size="sm" emphasis muted align="center">{claimStatus}</Text> : null}
-            {claimableCount > 0 ? (
-              <Button variant="solid" size="lg" onPress={claimReceives} disabled={busy}>
-                {busy ? 'Claiming…' : 'Claim incoming'}
-              </Button>
+            {copied ? (
+              <Alert variant="ghost">
+                <AlertIcon name="check-circle" />
+                {copied}
+              </Alert>
             ) : null}
-          </>
-        ) : (
-          <View chrome="canvas" radius="md" padding="xl" gap="md" align="center">
-            <Text size="lg" emphasis>Card Profile</Text>
-            <Text size="sm" muted>Tap the button below and hold your card on the phone to see your wallet balance, Ark address, and incoming payments.</Text>
+            {claimStatus ? (
+              <Alert accent={busy ? 'neutral' : 'lilac'}>
+                <AlertIcon name={busy ? 'card' : 'check-circle'} />
+                {claimStatus}
+              </Alert>
+            ) : null}
           </View>
-        )}
+        ) : null}
 
-        {busy ? <ActivityIndicator style={{ alignSelf: 'center' }} /> : null}
-        {error ? <Text size="sm" muted align="center">{error}</Text> : null}
+        {error ? (
+          <Alert accent="orange">
+            <AlertIcon name="warning-circle" />
+            {error}
+          </Alert>
+        ) : null}
 
-        <TextField
-          value={pin}
-          onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 4))}
-          inputMode="numeric"
-          secureTextEntry
-          placeholder="Enter 4-digit card PIN"
-          accessibilityLabel="Card PIN for profile authentication"
+        {!loaded ? (
+          <View direction="column" align="stretch" gap="xl">
+            <Stack align="center" gap="sm">
+              <Text size="lg" emphasis align="center">Enter your card PIN</Text>
+              <Text size="3xl" emphasis align="center">{pin.padEnd(4, '○').replaceAll(/\d/g, '●')}</Text>
+            </Stack>
+            <PinPad
+              onDigit={(digit) => setPin((current) => current.length < 4 ? `${current}${digit}` : current)}
+              onDelete={() => setPin((current) => current.slice(0, -1))}
+            />
+          </View>
+        ) : null}
+
+        <Button
+          variant="solid"
+          size="lg"
+          onPress={runPrimaryAction}
+          disabled={busy || (!loaded && pin.length !== 4)}
         >
-          <TextFieldLabel>Card PIN</TextFieldLabel>
-        </TextField>
-
-        <Button variant="solid" size="lg" onPress={loadCard} disabled={busy || pin.length !== 4}>
-          {busy ? 'Reading card…' : loaded ? 'Refresh (tap card)' : 'Read card'}
+          {primaryLabel}
         </Button>
       </View>
     </Scroll>
   );
 }
 
+function PinPad({ onDigit, onDelete }: { onDigit: (digit: string) => void; onDelete: () => void }) {
+  return (
+    <View direction="column" gap="sm">
+      {[
+        ['1', '2', '3'],
+        ['4', '5', '6'],
+        ['7', '8', '9'],
+      ].map((row) => (
+        <View key={row.join('')} direction="row" gap="sm">
+          {row.map((digit) => (
+            <View key={digit} fill="even">
+              <Button size="lg" onPress={() => onDigit(digit)}>{digit}</Button>
+            </View>
+          ))}
+        </View>
+      ))}
+      <View direction="row" gap="sm">
+        <View fill="even">
+          <Button size="lg" disabled accessibilityLabel="Empty keypad key" />
+        </View>
+        <View fill="even">
+          <Button size="lg" onPress={() => onDigit('0')}>0</Button>
+        </View>
+        <View fill="even">
+          <Button size="lg" onPress={onDelete} accessibilityLabel="Delete PIN digit">
+            <ButtonIcon name="chevron-left" />
+          </Button>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function pubkeyHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function shortValue(value: string): string {
+  if (value.length <= 20) return value;
+  return `${value.slice(0, 10)}…${value.slice(-8)}`;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -334,4 +424,22 @@ function parseBalance(value: any): { available: number; total: number } {
     throw new Error('Arkade returned an invalid wallet balance');
   }
   return { available, total };
+}
+
+function readableProfileError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const text = message.toLowerCase();
+  if (text.includes('pin') || text.includes('verification') || text.includes('63c')) {
+    return 'The PIN was not accepted. Check the PIN and try again.';
+  }
+  if (text.includes('nfc') || text.includes('card') || text.includes('tag')) {
+    return 'We could not read the card. Keep it close to the phone and try again.';
+  }
+  if (text.includes('network') || text.includes('fetch') || text.includes('http')) {
+    return 'We could not connect to the payment service. Check your connection and try again.';
+  }
+  if (text.includes('claim') || text.includes('swap')) {
+    return 'The incoming payment could not be received. Keep the card nearby and try again.';
+  }
+  return 'We could not open the card profile. Please try again.';
 }

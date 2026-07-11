@@ -301,12 +301,12 @@ the amount or recipient.
 
 ```mermaid
 flowchart TD
-  A["Merchant enters merchant, Lightning address, memo, and amount → Charge"] --> B["Approval screen:<br/>enter 4-digit PIN"]
-  B -->|"4th digit"| C{{"Scanning… 21s countdown"}}
-  C -->|"card + right PIN"| D["💳 Card read → sign + broadcast"]
-  C -->|"card + wrong PIN"| E["🔒 Wrong PIN"] --> B
-  C -->|"no card in 21s"| F["😔 No card detected"] --> B
-  D --> G["✅ Approved — receipt<br/>amount · card · Ark txid"]
+  A["Merchant confirms the Lightning address and enters sats with the keypad"] --> B["Charge"]
+  B --> C["Customer enters the 4-digit card PIN with the keypad"]
+  C --> D["Confirm and hold the Nuri card near the phone"]
+  D -->|"card + accepted PIN"| E["Card signs; app broadcasts and waits for funded status"]
+  D -->|"card or PIN error"| F["Human-readable error and retry"]
+  E --> G["Payment successful → New payment"]
 ```
 
 The scan waits for the physical card for up to 21 seconds. Signing, broadcast,

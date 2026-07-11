@@ -282,13 +282,20 @@ label.
 
 ### 4. Expo crashed on `trim` of `undefined`
 
+> **Superseded UI note (2026-07-11):** the incident fix below records the
+> temporary diagnostic form used on 10 July. The current terminal intentionally
+> pre-fills `smartcard@nuri.com`, exposes only that editable Lightning address
+> plus a keypad-driven sats amount, and supplies merchant/memo internally. See
+> `mobile/expo-nfc-prf-probe/README.md` for the current contract.
+
 The terminal assumed a compiled-in merchant Lightning target. Once hardcoded
 values were removed, an unset Expo environment value reached `.trim()`.
 
 Fix:
 
 - require runtime ASP, node, RP, credential ID, and credential public key;
-- make merchant name, Lightning address, memo, and amount visible inputs;
+- temporarily expose merchant name, Lightning address, memo, and amount as
+  diagnostic inputs (superseded by the 11 July terminal contract above);
 - validate Lightning targets before resolving LNURL;
 - do not invent a merchant or recipient.
 
@@ -477,7 +484,7 @@ server.
 | Area | Files | Result |
 |---|---|---|
 | Expo configuration | `App.tsx`, `run-expo-nfc-prf-probe.sh` | Exact profile and live endpoints required |
-| Expo terminal/profile | `TerminalScreen.tsx`, `ProfileScreen.tsx`, `lnurl.ts` | No hardcoded merchant, username, address, or balance |
+| Expo terminal/profile | `TerminalScreen.tsx`, `ProfileScreen.tsx`, `lnurl.ts` | Current DS-only terminal/profile contract is documented in the mobile README |
 | CTAP PIN authorization | `ctapPrf.ts` | Protocol-v1 PIN UV token and correct assertion request |
 | MuSig2 | `musig2Card.ts`, deleted `sessionMath.ts` and `cardIdentity.ts` | One active Expo identity/session core, fail-closed verification |
 | Nuri send | `sendFlow.ts`, `card-arkade-claim.mjs` | Current payload contract, pre-broadcast monitoring, mandatory completion in both transports |
@@ -498,13 +505,9 @@ export EXPO_PUBLIC_NODE_URL=https://your-live-ark-node.example
 npm run mobile:start -- --host lan
 ```
 
-Open the installed Android development client. Enter all merchant data in the
-visible terminal fields:
-
-- merchant name;
-- Lightning address;
-- memo; and
-- amount in sats.
+Open the installed Android development client. Confirm or edit the prefilled
+Lightning address, enter the amount in sats with the embedded keypad, and press
+`Charge`.
 
 Then tap the card and enter its PIN. A valid send must log, for every input:
 

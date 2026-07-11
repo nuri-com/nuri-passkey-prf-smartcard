@@ -1,42 +1,60 @@
 import { useState } from 'react';
-import { View, Stack, Text, Button, TextField, TextFieldLabel } from '@nuri/rn';
+import {
+  View,
+  Stack,
+  Text,
+  Button,
+  ButtonIcon,
+  TextField,
+  TextFieldButton,
+  TextFieldLabel,
+} from '@nuri/rn';
 
 type Props = {
-  merchantName?: string;
-  merchantTarget?: string;
   onCharge: (amountSats: number, invoice: string, memo: string, merchantName: string) => void;
 };
 
-export function TerminalScreen({ merchantName, merchantTarget, onCharge }: Props) {
-  const [name, setName] = useState(() => String(merchantName || '').trim());
-  const [target, setTarget] = useState(() => String(merchantTarget || '').trim());
-  const [memo, setMemo] = useState('');
+const DEFAULT_LIGHTNING_ADDRESS = 'smartcard@nuri.com';
+const MERCHANT_NAME = 'Nuri Terminal';
+const PAYMENT_MEMO = 'Nuri Terminal charge';
+
+export function TerminalScreen({ onCharge }: Props) {
+  const [target, setTarget] = useState(DEFAULT_LIGHTNING_ADDRESS);
+  const [editingTarget, setEditingTarget] = useState(false);
   const [amount, setAmount] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const amountSats = amount.trim() ? Number(amount) : Number.NaN;
-  const canCharge = Number.isInteger(amountSats) && amountSats > 0 && Boolean(name.trim()) && Boolean(target.trim()) && Boolean(memo.trim()) && !busy;
+  const amountSats = amount ? Number(amount) : Number.NaN;
+  const canCharge = Number.isInteger(amountSats) && amountSats > 0 && Boolean(target.trim()) && !busy;
+
+  function enterDigit(digit: string) {
+    setAmount((current) => `${current}${digit}`.replace(/^0+(?=\d)/, ''));
+    setStatus('');
+  }
+
+  function deleteDigit() {
+    setAmount((current) => current.slice(0, -1));
+    setStatus('');
+  }
 
   async function charge() {
     if (!Number.isInteger(amountSats) || amountSats <= 0) {
       setStatus('Amount must be a positive whole number of sats');
       return;
     }
-    const exactName = name.trim();
     const exactTarget = target.trim();
-    const exactMemo = memo.trim();
-    if (!exactName || !exactTarget || !exactMemo) {
-      setStatus('Merchant name, Lightning address, and memo are required');
+    if (!exactTarget) {
+      setStatus('Lightning address is required');
       return;
     }
     setBusy(true);
     setStatus(`Creating checkout for ${amountSats.toLocaleString('en-US')} sats…`);
     try {
       const { resolveLightningInvoice } = await import('./src/lnurl');
-      const resolved = await resolveLightningInvoice(exactTarget, amountSats, exactMemo);
+      const resolved = await resolveLightningInvoice(exactTarget, amountSats, PAYMENT_MEMO);
       setStatus('Forwarding to checkout…');
-      onCharge(amountSats, resolved.invoice, exactMemo, exactName);
+      onCharge(amountSats, resolved.invoice, PAYMENT_MEMO, MERCHANT_NAME);
     } catch (e: any) {
       setStatus(e.message || 'Failed to create checkout');
       setBusy(false);
@@ -44,50 +62,57 @@ export function TerminalScreen({ merchantName, merchantTarget, onCharge }: Props
   }
 
   return (
-    <View chrome="canvas" radius="lg" padding="xl" gap="lg">
-      <Stack gap="xs">
-        <Text size="sm" emphasis muted>{name || 'Merchant not configured'}</Text>
-        <Text size="3xl" emphasis>{Number.isFinite(amountSats) ? amountSats.toLocaleString('en-US') : '—'}</Text>
-        <Text size="xs" muted>sats · Charges {target || 'no Lightning address'} · mainnet</Text>
-      </Stack>
-
-      <TextField
-        value={name}
-        onChangeText={setName}
-        placeholder="Merchant name"
-        accessibilityLabel="Merchant name"
-      >
-        <TextFieldLabel>Merchant</TextFieldLabel>
-      </TextField>
-
+    <View direction="column" align="stretch" justify="between" gap="xl" padding="lg" fill="grow">
       <TextField
         value={target}
         onChangeText={setTarget}
         inputMode="email"
-        placeholder="merchant@example.com"
-        accessibilityLabel="Merchant Lightning address"
+        disabled={!editingTarget}
+        placeholder={DEFAULT_LIGHTNING_ADDRESS}
+        accessibilityLabel="Lightning address"
       >
         <TextFieldLabel>Lightning address</TextFieldLabel>
+        <TextFieldButton onPress={() => setEditingTarget((current) => !current)}>
+          {editingTarget ? 'Done' : 'Edit'}
+        </TextFieldButton>
       </TextField>
 
-      <TextField
-        value={memo}
-        onChangeText={setMemo}
-        placeholder="What is being paid for"
-        accessibilityLabel="Payment memo"
-      >
-        <TextFieldLabel>Memo</TextFieldLabel>
-      </TextField>
+      <Stack gap="xs" align="center">
+        <Text size="sm" muted>Amount</Text>
+        <Text size="3xl" emphasis align="center">
+          {amount ? Number(amount).toLocaleString('en-US') : '0'}
+        </Text>
+        <Text size="sm" muted>sats</Text>
+      </Stack>
 
-      <TextField
-        value={amount}
-        onChangeText={setAmount}
-        inputMode="decimal"
-        placeholder="Enter amount in sats"
-        accessibilityLabel="Amount in satoshis"
-      >
-        <TextFieldLabel>Amount (sats)</TextFieldLabel>
-      </TextField>
+      <View direction="column" gap="sm">
+        {[
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+        ].map((row) => (
+          <View key={row.join('')} direction="row" gap="sm">
+            {row.map((digit) => (
+              <View key={digit} fill="even">
+                <Button size="lg" onPress={() => enterDigit(digit)}>{digit}</Button>
+              </View>
+            ))}
+          </View>
+        ))}
+        <View direction="row" gap="sm">
+          <View fill="even">
+            <Button size="lg" disabled accessibilityLabel="Empty keypad key" />
+          </View>
+          <View fill="even">
+            <Button size="lg" onPress={() => enterDigit('0')}>0</Button>
+          </View>
+          <View fill="even">
+            <Button size="lg" onPress={deleteDigit} accessibilityLabel="Delete digit">
+              <ButtonIcon name="chevron-left" />
+            </Button>
+          </View>
+        </View>
+      </View>
 
       <Button variant="solid" size="lg" onPress={charge} disabled={!canCharge}>
         {busy ? '…' : 'Charge'}

@@ -129,6 +129,11 @@ npm run card:prf:derive -- --raw
 
 ## What Would Count As Success
 
+> **Historical probe criteria:** this section describes the original standalone
+> PRF diagnostic UI. The current Expo app is the Nuri Card Terminal documented
+> in `mobile/expo-nfc-prf-probe/README.md`; it no longer exposes the two buttons
+> named below.
+
 Minimum Android success:
 
 - Native app `Read Card Info` returns versions/extensions including `hmac-secret`.

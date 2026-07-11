@@ -67,6 +67,12 @@ function uint8ArrayToB64u(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+function uint8ArrayToB64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
 function b64uToUint8Array(b64u: string): Uint8Array {
   const base64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
@@ -106,6 +112,8 @@ export class NfcCardIdentity {
   sendState: any = null;
   sendSession: any = null;
   sendCosignDone = false;
+  claimSwapId = '';
+  claimSessionToken = '';
 
   constructor(cfg: SendConfig) {
     this.cfg = cfg;
@@ -199,8 +207,11 @@ export class NfcCardIdentity {
       msg32: bytesToHex(p.msg32),
       client_pk33: bytesToHex(this.clientPk33),
     }));
-    const psbtB64 = uint8ArrayToB64u(txCopy.toPSBT());
-    const session = await this.prepareNuriSend(psbtB64, signRequests);
+    const session = this.sendState
+      ? await this.prepareNuriSend(uint8ArrayToB64u(txCopy.toPSBT()), signRequests)
+      : this.claimSwapId
+        ? await this.prepareNuriClaim(uint8ArrayToB64(txCopy.toPSBT()), signRequests)
+        : (() => { throw new Error('signing context not initialized'); })();
 
     // Pass 2: card+ASP sign each input.
     for (const p of plan) {
@@ -218,6 +229,50 @@ export class NfcCardIdentity {
       );
     }
     return txCopy;
+  }
+
+  private async prepareNuriClaim(psbtB64: string, signRequests: any[]): Promise<any> {
+    const approveUrl = this.cfg.prepareUrl.replace('/send/prepare', '/receive/claim/approve');
+    if (this.claimSessionToken) {
+      const approved = await postJson(approveUrl, {
+        claim_session_token: this.claimSessionToken,
+        swap_id: this.claimSwapId,
+        psbt_b64: psbtB64,
+        sign_requests: signRequests,
+      });
+      if (!approved.approval_token) throw new Error('The claim could not be approved.');
+      return { kind: 'claim', approvalToken: approved.approval_token };
+    }
+
+    this.log('Authenticating incoming payment claim…');
+    const auth = await postJson(this.cfg.aspAuthUrl, {
+      cred_id_b64u: this.cfg.credIdB64u,
+      client_signer_pubkey: bytesToHex(this.clientPk33),
+      cred_pubkey_b64u: this.cfg.credPubkeyB64u,
+    });
+    if (!auth.token || !auth.challenge) throw new Error('The card claim challenge could not be created.');
+
+    const assertion = await webauthnAssert({
+      rpId: this.cfg.rpId,
+      origin: this.cfg.origin,
+      credentialIdB64u: this.cfg.credIdB64u,
+      challengeB64u: auth.challenge,
+      pin: this.cfg.pin,
+      log: this.log,
+    });
+
+    const approved = await postJson(approveUrl, {
+      token: auth.token,
+      client_data_b64u: assertion.clientDataB64u,
+      auth_data_b64u: assertion.authDataB64u,
+      sig_b64u: assertion.sigB64u,
+      swap_id: this.claimSwapId,
+      psbt_b64: psbtB64,
+      sign_requests: signRequests,
+    });
+    if (!approved.approval_token) throw new Error('The incoming payment claim was not approved.');
+    if (approved.claim_session_token) this.claimSessionToken = approved.claim_session_token;
+    return { kind: 'claim', approvalToken: approved.approval_token };
   }
 
   // send/prepare -> challenge_token + challenge. Then one card FIDO2 UV
@@ -288,6 +343,26 @@ export class NfcCardIdentity {
       aggregateXonly: this.aggregatedXonly,
       log: this.log,
       getAspPartial: async (cardPubnonce66: Uint8Array) => {
+        if (session.kind === 'claim') {
+          const response = await postJson(this.cfg.aspSignUrl, {
+            approval_token: session.approvalToken,
+            msg32: msg32Hex,
+            client_pk33: bytesToHex(this.clientPk33),
+            client_pub_nonce: bytesToHex(cardPubnonce66),
+            tweak32: '',
+          });
+          const serverPk = response.server_pubkey || response.server_pubkey33;
+          const pubnonce = response.server_pub_nonce66 || response.server_pubnonce66;
+          const partial = response.server_partial32;
+          if (!serverPk || !pubnonce || !partial) {
+            throw new Error('The card claim signature response was incomplete.');
+          }
+          return {
+            serverPubkey33: hexToBytes(serverPk),
+            serverPubnonce66: hexToBytes(pubnonce),
+            serverPartial32: hexToBytes(partial),
+          };
+        }
         const cosignRequest = {
           kind: 'direct',
           input_index: inputIndex,
