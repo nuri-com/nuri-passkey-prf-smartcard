@@ -20,8 +20,8 @@ const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-ca
 const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const REAL_CARD_ARKADE_SCRIPT = process.env.REAL_CARD_ARKADE_SCRIPT || 'scripts/real-card-arkade-signer-proof.py';
 const REAL_CARD_PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';
-const ARKADE_SIGNER_URL = process.env.NURI_ARKADE_SIGNER_URL || process.env.EXPO_PUBLIC_ARKADE_SIGNER_URL || 'https://arkade.nuri.com/v4';
-const PROFILE_LIGHTNING_TARGET = process.env.NURI_PROFILE_LIGHTNING_TARGET || process.env.NURI_LIGHTNING_ADDRESS || '';
+const ARKADE_SIGNER_URL = process.env.NURI_ARKADE_SIGNER_URL || process.env.EXPO_PUBLIC_ARKADE_SIGNER_URL || '';
+const ARKADE_NODE_URL = process.env.NURI_ARKADE_NODE_URL || process.env.EXPO_PUBLIC_NODE_URL || '';
 const CARD_IDENTITY_CACHE_MS = Number(process.env.NURI_CARD_IDENTITY_CACHE_MS || 300000);
 const checkoutSessions = new Map();
 let cachedCardAccountIdentity = null;
@@ -453,12 +453,8 @@ async function handlePasskeySign(req, res) {
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 const READER_PRF_PROFILE = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
 const READER_PRF_SALT = process.env.NURI_WALLET_PRF_SALT || 'nuri-prf-salt-v1';
-const CARD_RECEIVE_PROFILE = process.env.NURI_CARD_RECEIVE_PROFILE || 'nuri-card-arkade-receive';
+const CARD_RECEIVE_PROFILE = process.env.NURI_CARD_RECEIVE_PROFILE || '';
 const CARD_RECEIVE_PROFILE_PATH = process.env.NURI_CARD_RECEIVE_PROFILE_PATH || '';
-const CARD_RECEIVE_RP_ID = process.env.NURI_CARD_RECEIVE_RP_ID || 'nuri.com';
-const CARD_RECEIVE_ORIGIN = process.env.NURI_CARD_RECEIVE_ORIGIN || 'https://nuri.com';
-const CARD_RECEIVE_RP_NAME = process.env.NURI_CARD_RECEIVE_RP_NAME || 'Nuri Wallet';
-const CARD_RECEIVE_USER_NAME = process.env.NURI_CARD_RECEIVE_USER_NAME || 'nuri-card-receive';
 const CARD_CLAIM_RUNNER = process.env.NURI_CARD_CLAIM_RUNNER || 'scripts/card-arkade-claim.mjs';
 const CARD_CLAIM_SIGNER = process.env.NURI_CARD_CLAIM_SIGNER || 'scripts/card-arkade-claim-signer.py';
 // ponytail: PIN in server env so receive-claims (pulling your own funds in) auto-run.
@@ -596,37 +592,35 @@ function arkadeIdentityFromProof(proof) {
 }
 
 async function addressBalance(address, network) {
-  try {
-    const utxos = await fetchUtxos(address, network);
-    const confirmed = utxos.filter((u) => u.status?.confirmed);
-    const pending = utxos.filter((u) => !u.status?.confirmed);
-    return {
-      utxos,
-      confirmed_sats: confirmed.reduce((sum, u) => sum + u.value, 0),
-      pending_sats: pending.reduce((sum, u) => sum + u.value, 0),
-    };
-  } catch (error) {
-    return {
-      utxos: [],
-      confirmed_sats: 0,
-      pending_sats: 0,
-      balance_error: error?.message || String(error),
-    };
-  }
+  const utxos = await fetchUtxos(address, network);
+  const confirmed = utxos.filter((u) => u.status?.confirmed);
+  const pending = utxos.filter((u) => !u.status?.confirmed);
+  return {
+    utxos,
+    confirmed_sats: confirmed.reduce((sum, u) => sum + u.value, 0),
+    pending_sats: pending.reduce((sum, u) => sum + u.value, 0),
+  };
 }
 
 function signerOriginUrl() {
-  return String(ARKADE_SIGNER_URL || '').replace(/\/+$/, '').replace(/\/v4$/i, '');
+  return signerV4Url().replace(/\/v4$/i, '');
 }
 
 function signerV4Url() {
-  return String(ARKADE_SIGNER_URL || '').replace(/\/+$/, '');
+  const value = String(ARKADE_SIGNER_URL).trim().replace(/\/+$/, '');
+  if (!value) throw new Error('NURI_ARKADE_SIGNER_URL is required');
+  return value;
 }
 
 function cardReceiveProfilePath() {
-  if (CARD_RECEIVE_PROFILE_PATH) return CARD_RECEIVE_PROFILE_PATH;
-  const safeProfile = CARD_RECEIVE_PROFILE.replace(/[\\/]/g, '_');
-  return `.nuri-card-prf/${safeProfile}.json`;
+  if (!CARD_RECEIVE_PROFILE_PATH) throw new Error('NURI_CARD_RECEIVE_PROFILE_PATH is required');
+  return CARD_RECEIVE_PROFILE_PATH;
+}
+
+function arkadeNodeUrl() {
+  const value = String(ARKADE_NODE_URL).trim().replace(/\/+$/, '');
+  if (!value) throw new Error('NURI_ARKADE_NODE_URL or EXPO_PUBLIC_NODE_URL is required');
+  return value;
 }
 
 async function readCardReceiveProfile() {
@@ -638,51 +632,21 @@ async function readCardReceiveProfile() {
     }
     return profile;
   } catch (error) {
-    if (error?.code === 'ENOENT') return null;
+    if (error?.code === 'ENOENT') throw new Error(`card receive profile not found: ${cardReceiveProfilePath()}`);
     throw error;
   }
 }
 
-function profileNeedsReceiveEnroll(profile) {
-  if (!profile) return true;
-  if (profile.rp_id !== CARD_RECEIVE_RP_ID) return true;
-  if (profile.origin !== CARD_RECEIVE_ORIGIN) return true;
-  if (!String(profile.credential_id || '').trim()) return true;
-  if (!String(profile.credential_public_key_spki_b64u || '').trim()) return true;
-  return false;
-}
-
-async function enrollCardReceiveProfile({ force = false } = {}) {
-  const args = [
-    PRF_SCRIPT,
-    'enroll',
-    '--profile', CARD_RECEIVE_PROFILE,
-    '--rp-id', CARD_RECEIVE_RP_ID,
-    '--origin', CARD_RECEIVE_ORIGIN,
-    '--rp-name', CARD_RECEIVE_RP_NAME,
-    '--user-name', CARD_RECEIVE_USER_NAME,
-    '--resident-key', 'discouraged',
-    '--user-verification', 'discouraged',
-    '--registration-prf', 'disabled',
-  ];
-  if (CARD_RECEIVE_PROFILE_PATH) args.push('--profile-path', CARD_RECEIVE_PROFILE_PATH);
-  if (force) args.push('--force');
-  await execFileJson(REAL_CARD_PYTHON, args);
-  const profile = await readCardReceiveProfile();
-  if (profileNeedsReceiveEnroll(profile)) {
-    throw new Error('card receive enrollment did not write credential id and SPKI public key');
-  }
-  return profile;
-}
-
-async function ensureCardReceiveProfile() {
-  const existing = await readCardReceiveProfile();
-  if (!profileNeedsReceiveEnroll(existing)) return { profile: existing, enrolled: false };
-  return { profile: await enrollCardReceiveProfile({ force: Boolean(existing) }), enrolled: true };
+function assertCardReceiveProfile(profile) {
+  if (!CARD_RECEIVE_PROFILE) throw new Error('NURI_CARD_RECEIVE_PROFILE is required');
+  if (!String(profile?.credential_id || '').trim()) throw new Error('card receive profile has no credential_id');
+  if (!String(profile?.credential_public_key_spki_b64u || '').trim()) throw new Error('card receive profile has no credential public key');
+  if (!String(profile?.rp_id || '').trim()) throw new Error('card receive profile has no rp_id');
+  if (!String(profile?.origin || '').trim()) throw new Error('card receive profile has no origin');
 }
 
 function cardReceiveOwnerFromProfile(identity, profile) {
-  if (!profile || profileNeedsReceiveEnroll(profile)) return null;
+  assertCardReceiveProfile(profile);
   return {
     cred_id_b64u: String(profile.credential_id || '').trim(),
     client_public_key_33_hex: identity.card_client_pk33,
@@ -703,13 +667,7 @@ async function fetchArkadeInfo(identity, owner = null) {
 async function describeLiveReceive(identity) {
   const profile = await readCardReceiveProfile();
   const owner = cardReceiveOwnerFromProfile(identity, profile);
-  let info = null;
-  let infoError = null;
-  try {
-    info = await fetchArkadeInfo(identity, owner);
-  } catch (error) {
-    infoError = error?.message || String(error);
-  }
+  const info = await fetchArkadeInfo(identity, owner);
   return {
     receive_owner: owner ? {
       cred_id_b64u: owner.cred_id_b64u,
@@ -718,26 +676,30 @@ async function describeLiveReceive(identity) {
       origin: owner.origin,
       profile: owner.profile,
     } : null,
-    registration_required: !owner || info?.recovery?.registered !== true,
-    profile_present: Boolean(profile),
-    profile_has_spki_public_key: Boolean(profile?.credential_public_key_spki_b64u),
+    registration_required: info?.recovery?.registered !== true,
+    profile_present: true,
+    profile_has_spki_public_key: true,
     arkade_signer_url: ARKADE_SIGNER_URL,
     live_server_pubkey: info?.server_pubkey || null,
     recovery: info?.recovery || null,
-    info_error: infoError,
   };
 }
 
-async function ensureLiveReceiveRegistration(identity) {
-  const { profile, enrolled } = await ensureCardReceiveProfile();
+async function receiveProfileAndOwner(identity) {
+  const profile = await readCardReceiveProfile();
+  assertCardReceiveProfile(profile);
   const owner = cardReceiveOwnerFromProfile(identity, profile);
-  if (!owner) throw new Error('card receive owner profile is incomplete');
+  return { profile, owner };
+}
+
+async function registerLiveReceiveOwner(identity) {
+  const { owner } = await receiveProfileAndOwner(identity);
   const registered = await fetchJsonRequest(`${signerV4Url()}/arkade/auth`, 'Nuri Arkade receive owner registration', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-arkade-client': 'nuri-card-browser-demo',
-      'x-arkade-sdk': 'nuri-card-browser-demo',
+      'x-arkade-client': 'nuri-card-browser',
+      'x-arkade-sdk': 'nuri-card-browser',
     },
     body: JSON.stringify({
       cred_id_b64u: owner.cred_id_b64u,
@@ -746,8 +708,86 @@ async function ensureLiveReceiveRegistration(identity) {
     }),
   });
   return {
-    enrolled,
     registered,
+    receive_owner: {
+      cred_id_b64u: owner.cred_id_b64u,
+      client_public_key_33_hex: owner.client_public_key_33_hex,
+      rp_id: owner.rp_id,
+      origin: owner.origin,
+      profile: owner.profile,
+    },
+  };
+}
+
+async function fetchLiveLnurlAccount(identity, registration, profile) {
+  const auth = await fetchJsonRequest(`${signerV4Url()}/arkade/auth`, 'Nuri Arkade account authentication', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-arkade-client': 'nuri-card-browser',
+      'x-arkade-sdk': 'nuri-card-browser',
+    },
+    body: JSON.stringify({
+      cred_id_b64u: registration.receive_owner.cred_id_b64u,
+      cred_pubkey_b64u: profile.credential_public_key_spki_b64u,
+      client_signer_pubkey: identity.card_client_pk33,
+    }),
+  });
+  if (!auth?.token || !auth?.challenge) {
+    throw new Error('Nuri Arkade auth returned no LNURL status challenge');
+  }
+  if (!CARD_PIN) {
+    throw new Error('card PIN required to read the authenticated Lightning username');
+  }
+
+  const assertionArgs = [
+    PRF_SCRIPT,
+    'webauthn-assert',
+    '--profile', CARD_RECEIVE_PROFILE,
+    `--challenge-b64u=${auth.challenge}`,
+    '--rp-id', profile.rp_id,
+    '--origin', profile.origin,
+    `--credential-id=${registration.receive_owner.cred_id_b64u}`,
+    '--user-verification', 'required',
+    '--pin', CARD_PIN,
+  ];
+  if (CARD_RECEIVE_PROFILE_PATH) assertionArgs.push('--profile-path', CARD_RECEIVE_PROFILE_PATH);
+  const assertion = await execFileJson(REAL_CARD_PYTHON, assertionArgs);
+  const status = await fetchJsonRequest(`${signerV4Url()}/arkade/lnurl/status`, 'Nuri Arkade LNURL status', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-arkade-client': 'nuri-card-browser',
+      'x-arkade-sdk': 'nuri-card-browser',
+    },
+    body: JSON.stringify({
+      token: auth.token,
+      client_signer_pubkey: identity.card_client_pk33,
+      client_data_b64u: assertion.client_data_b64u,
+      auth_data_b64u: assertion.auth_data_b64u,
+      sig_b64u: assertion.sig_b64u,
+    }),
+  });
+  if (status.registered !== true || !status.username || !status.lightning_address) {
+    throw new Error('Nuri Arkade returned no registered Lightning username for this credential');
+  }
+  return {
+    username: status.username,
+    lightning_address: status.lightning_address,
+  };
+}
+
+async function requireLiveReceiveRegistration(identity) {
+  const { owner } = await receiveProfileAndOwner(identity);
+  const info = await fetchArkadeInfo(identity, owner);
+  if (info?.recovery?.registered !== true) {
+    throw new Error('card credential is not registered for this MuSig2 client key');
+  }
+  if (!/^(02|03)[0-9a-f]{64}$/i.test(String(info.server_pubkey || ''))) {
+    throw new Error('Nuri Arkade info returned no valid server public key');
+  }
+  return {
+    registered: info,
     receive_owner: {
       cred_id_b64u: owner.cred_id_b64u,
       client_public_key_33_hex: owner.client_public_key_33_hex,
@@ -781,13 +821,10 @@ async function cardAccountView({ includeLive = true } = {}) {
   return {
     status: 'NURI_CARD_ARKADE_ACCOUNT_READY',
     model: 'card MuSig2 key is the Arkade client signer; live Nuri Arkade signs as the second signer after receive-owner registration',
-    demo_only: true,
     identity_cached_at_ms: identityCachedAtMs,
     identity_cache_ms: CARD_IDENTITY_CACHE_MS,
     ...identity,
     lightning: {
-      receive_target: PROFILE_LIGHTNING_TARGET || null,
-      receive_configured: Boolean(PROFILE_LIGHTNING_TARGET),
       ...(liveReceive || {
         arkade_signer_url: ARKADE_SIGNER_URL,
         receive_owner: null,
@@ -818,11 +855,10 @@ async function handleCardReceiveRegistration(req, res) {
     const identity = {
       card_client_pk33: account.card_client_pk33,
     };
-    const registration = await ensureLiveReceiveRegistration(identity);
+    const registration = await registerLiveReceiveOwner(identity);
     const live = await describeLiveReceive(identity);
     json(res, 200, {
       status: 'NURI_CARD_RECEIVE_OWNER_REGISTERED',
-      enrolled_new_credential: registration.enrolled,
       receive_owner: registration.receive_owner,
       live_server_pubkey: registration.registered.server_pubkey || live.live_server_pubkey || null,
       recovery: registration.registered.recovery || live.recovery || null,
@@ -841,9 +877,9 @@ async function handleResolveLightningInvoice(req, res) {
   }
   try {
     const result = await resolveLightningInvoice({
-      target: body.target || body.invoice,
+      target: body.target,
       amountSats,
-      comment: body.comment || body.memo || '',
+      comment: body.comment,
     });
     json(res, 200, {
       status: 'NURI_LIGHTNING_INVOICE_RESOLVED',
@@ -863,25 +899,30 @@ async function handleCardLightningInvoice(req, res) {
     json(res, 400, { error: 'amountSats must be a positive integer' });
     return;
   }
+  const memo = String(body.memo || '').trim();
+  if (!memo) {
+    json(res, 400, { error: 'memo is required' });
+    return;
+  }
   try {
     const account = await cardAccountView({ includeLive: false });
     const identity = {
       card_client_pk33: account.card_client_pk33,
     };
-    const registration = await ensureLiveReceiveRegistration(identity);
+    const registration = await requireLiveReceiveRegistration(identity);
     const receiveOwner = registration.receive_owner;
     const receiveUrl = `${signerOriginUrl()}/api/arkade/receive/invoice`;
     const created = await fetchJsonRequest(receiveUrl, 'Nuri Arkade receive invoice', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-arkade-client': 'nuri-card-browser-demo',
-        'x-arkade-sdk': 'nuri-card-browser-demo',
+        'x-arkade-client': 'nuri-card-browser',
+        'x-arkade-sdk': 'nuri-card-browser',
       },
       body: JSON.stringify({
         ...receiveOwner,
         amount_sats: amountSats,
-        memo: String(body.memo || 'Nuri card Lightning receive').trim() || undefined,
+        memo,
       }),
     });
     if (created.ok !== true || !created.invoice) {
@@ -893,15 +934,14 @@ async function handleCardLightningInvoice(req, res) {
       network: 'mainnet',
       account: {
         card_client_pk33: account.card_client_pk33,
-        local_demo_asp_pk33: account.asp_pk33,
-        live_server_pubkey: registration.registered.server_pubkey || null,
+        live_server_pubkey: registration.registered.server_pubkey,
         receive_owner: receiveOwner,
       },
       invoice: created.invoice,
       payment_hash_hex: created.payment_hash_hex || null,
       swap_id: created.swap_id || null,
       expires_at_ms: created.expires_at_ms || null,
-      source: created.source || 'app_invoice',
+      source: created.source,
       restore: created.restore || null,
     });
   } catch (error) {
@@ -938,13 +978,16 @@ function spawnClaimRunner(cfg) {
 function buildClaimCfg(identity, receiveOwner, profile, serverPk33, r) {
   const v4 = signerV4Url();
   const base = signerOriginUrl();
+  const createdAtMs = Number(r?.restore?.createdAt);
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) throw new Error(`claim ${r?.swap_id || ''} has no valid createdAt`);
   return {
+    mode: 'claim',
     cardPk33: identity.card_client_pk33,
     serverPk33,
     restore: {
       swap_id: r.swap_id,
       status: r.status,
-      created_at_unix: Math.floor((r.restore.createdAt || 1000) / 1000),
+      created_at_unix: Math.floor(createdAtMs / 1000),
       preimage: r.restore.preimage,
       request: r.restore.request,
       response: r.restore.response,
@@ -955,23 +998,23 @@ function buildClaimCfg(identity, receiveOwner, profile, serverPk33, r) {
     credId: receiveOwner.cred_id_b64u,
     credPubkeyB64u: profile.credential_public_key_spki_b64u,
     credProfile: CARD_RECEIVE_PROFILE,
-    rpId: profile.rp_id || CARD_RECEIVE_RP_ID,
-    origin: profile.origin || CARD_RECEIVE_ORIGIN,
+    rpId: profile.rp_id,
+    origin: profile.origin,
     pin: CARD_PIN,
     python: REAL_CARD_PYTHON,
     prfScript: PRF_SCRIPT,
     claimSigner: CARD_CLAIM_SIGNER,
-    nodeUrl: 'https://arkade.computer',
+    nodeUrl: arkadeNodeUrl(),
     boltzNetwork: 'bitcoin',
   };
 }
 
 async function claimReceiveVHTLCs() {
   if (!CARD_PIN) {
-    return { skipped: 'pin-not-set', claims: [] };
+    throw new Error('card PIN is required to claim Lightning receives');
   }
   const { identity } = await cardAccountIdentity();
-  const registration = await ensureLiveReceiveRegistration(identity);
+  const registration = await requireLiveReceiveRegistration(identity);
   const receiveOwner = registration.receive_owner;
   const serverPk33 = registration.registered.server_pubkey;
   const profile = await readCardReceiveProfile();
@@ -980,11 +1023,11 @@ async function claimReceiveVHTLCs() {
 
   const synced = await fetchJsonRequest(`${signerOriginUrl()}/api/arkade/receive/sync`, 'Nuri Arkade receive sync', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-arkade-client': 'nuri-card-browser-demo', 'x-arkade-sdk': 'nuri-card-browser-demo' },
+    headers: { 'content-type': 'application/json', 'x-arkade-client': 'nuri-card-browser', 'x-arkade-sdk': 'nuri-card-browser' },
     body: JSON.stringify({ cred_id_b64u: receiveOwner.cred_id_b64u, client_public_key_33_hex: receiveOwner.client_public_key_33_hex }),
   });
-  const claimable = (Array.isArray(synced.lightning) ? synced.lightning : [])
-    .filter((r) => r.status === 'claimable' && r.restore);
+  if (!Array.isArray(synced.lightning)) throw new Error('Nuri Arkade receive sync returned no Lightning list');
+  const claimable = synced.lightning.filter((r) => r.status === 'claimable' && r.restore);
 
   const claims = [];
   for (const r of claimable) {
@@ -1004,36 +1047,26 @@ async function claimReceiveVHTLCs() {
 // just swaps.sendLightningPayment instead of swaps.claimVHTLC.
 // Read the Nuri account's available sats (read-only, no card).
 async function cardAvailableSats(cardPk33, serverPk33) {
-  try {
-    const r = await spawnClaimRunner({ mode: 'balance', cardPk33, serverPk33, nodeUrl: 'https://arkade.computer' });
-    return Number(r?.balance?.available ?? 0);
-  } catch { return 0; }
+  const r = await spawnClaimRunner({ mode: 'balance', cardPk33, serverPk33, nodeUrl: arkadeNodeUrl() });
+  const available = Number(r?.balance?.available);
+  if (!Number.isFinite(available)) throw new Error('Arkade returned no numeric available balance');
+  return available;
 }
 
-async function payMerchantInvoice(invoice, pinOverride, amountSats = 0) {
-  const pin = pinOverride || CARD_PIN;
-  if (!pin) {
-    return { skipped: 'pin-not-set' };
-  }
+async function payMerchantInvoice(invoice, pinOverride, amountSats) {
+  const pin = String(pinOverride || '');
+  if (!pin) throw new Error('card PIN is required to pay a Lightning invoice');
+  if (!Number.isInteger(Number(amountSats)) || Number(amountSats) <= 0) throw new Error('payment amount must be a positive integer');
   const { identity } = await cardAccountIdentity();
-  const registration = await ensureLiveReceiveRegistration(identity);
+  const registration = await requireLiveReceiveRegistration(identity);
   const serverPk33 = registration.registered.server_pubkey;
   if (!serverPk33) throw new Error('live server public key unavailable');
   const profile = await readCardReceiveProfile();
   if (!profile) throw new Error('card receive profile missing');
   const receiveOwner = cardReceiveOwnerFromProfile(identity, profile);
 
-  // Fast strategy: if the balance already covers the payment (+ swap fee buffer),
-  // pay now and top up in the background afterward. If it's short, claim any
-  // pending Lightning receives FIRST so we spend one funded VTXO (avoids a
-  // failed send + a duplicate Boltz swap on retry).
-  const needSats = Number(amountSats || 0) + 60;
-  if (amountSats > 0) {
-    const avail = await cardAvailableSats(identity.card_client_pk33, serverPk33);
-    if (avail < needSats) {
-      try { await claimReceiveVHTLCs(); } catch { /* proceed; send fails clearly if still short */ }
-    }
-  }
+  const available = await cardAvailableSats(identity.card_client_pk33, serverPk33);
+  if (available < Number(amountSats)) throw new Error(`insufficient Ark balance: ${available} sats available, ${amountSats} requested`);
 
   const v4 = signerV4Url();
   const base = signerOriginUrl();
@@ -1048,55 +1081,23 @@ async function payMerchantInvoice(invoice, pinOverride, amountSats = 0) {
     claimSigner: CARD_CLAIM_SIGNER,
     credId: receiveOwner.cred_id_b64u,
     credProfile: CARD_RECEIVE_PROFILE,
-    rpId: profile.rp_id || CARD_RECEIVE_RP_ID,
-    origin: profile.origin || CARD_RECEIVE_ORIGIN,
+    rpId: profile.rp_id,
+    origin: profile.origin,
     // Nuri native send: swap-intent -> prepare -> card WebAuthn -> cosign -> complete.
     intentUrl: `${v4}/arkade/swap-intent/create`,
     prepareUrl: `${base}/api/arkade/send/prepare`,
     cosignUrl: `${base}/api/arkade/send/cosign`,
     completeUrl: `${base}/api/arkade/send/complete`,
-    nodeUrl: 'https://arkade.computer',
+    nodeUrl: arkadeNodeUrl(),
     boltzNetwork: 'bitcoin',
   };
   const result = await spawnClaimRunner(cfg);
-  // After a successful payment, claim any newly-arrived receives in the
-  // background (best-effort; needs the card still on the reader).
-  if (result?.status === 'NURI_CARD_ARKADE_SEND_OK') {
-    claimReceiveVHTLCs().catch(() => {});
-  }
   return result;
-}
-
-// Pure-Arkade send: card + a locally-held key (LOCAL_DEMO_ASP_SECRET32), no Nuri.
-async function payMerchantInvoicePureArkade(invoice, pinOverride) {
-  const pin = pinOverride || CARD_PIN;
-  if (!pin) return { skipped: 'pin-not-set' };
-  const { identity } = await cardAccountIdentity();
-  const cfg = {
-    mode: 'send',
-    cardPk33: identity.card_client_pk33,
-    serverPk33: identity.asp_pk33, // local demo ASP pubkey (we hold the secret)
-    localAspSecret: LOCAL_DEMO_ASP_SECRET32,
-    invoice,
-    python: REAL_CARD_PYTHON,
-    prfScript: PRF_SCRIPT,
-    claimSigner: CARD_CLAIM_SIGNER,
-    nodeUrl: 'https://arkade.computer',
-    boltzNetwork: 'bitcoin',
-  };
-  return await spawnClaimRunner(cfg);
 }
 
 async function handleCardLightningClaim(req, res) {
   try {
-    const { claims, claimable_count, skipped } = await claimReceiveVHTLCs();
-    if (skipped) {
-      json(res, 400, {
-        error: 'card PIN not configured',
-        next_step: 'start the server with FIDO2_BACKUP_PIN=<card pin> to enable auto-claim',
-      });
-      return;
-    }
+    const { claims, claimable_count } = await claimReceiveVHTLCs();
     json(res, 200, {
       status: 'NURI_CARD_LIGHTNING_CLAIM_DONE',
       claimable_count,
@@ -1110,23 +1111,17 @@ async function handleCardLightningClaim(req, res) {
 
 async function handleCardWalletBalance(req, res, url) {
   try {
-    const account = url?.searchParams.get('account') === 'pure' ? 'pure' : 'nuri';
     const { identity } = await cardAccountIdentity();
-    let serverPk33;
-    if (account === 'pure') {
-      serverPk33 = identity.asp_pk33; // local demo ASP pubkey (we hold the secret)
-    } else {
-      const live = await describeLiveReceive(identity);
-      serverPk33 = live.live_server_pubkey;
-      if (!serverPk33) throw new Error('live server public key unavailable');
-    }
+    const live = await describeLiveReceive(identity);
+    const serverPk33 = live.live_server_pubkey;
+    if (!serverPk33) throw new Error('live server public key unavailable');
     const result = await spawnClaimRunner({
       mode: 'balance',
       cardPk33: identity.card_client_pk33,
       serverPk33,
-      nodeUrl: 'https://arkade.computer',
+      nodeUrl: arkadeNodeUrl(),
     });
-    json(res, 200, { status: 'NURI_CARD_WALLET_BALANCE_OK', account, ...result });
+    json(res, 200, { status: 'NURI_CARD_WALLET_BALANCE_OK', ...result });
   } catch (error) {
     json(res, 400, { error: error?.message || String(error) });
   }
@@ -1137,7 +1132,7 @@ async function handleCardWalletBalance(req, res, url) {
 async function handleCardProbe(req, res) {
   try {
     const body = await readJson(req);
-    const pin = String(body.pin || '') || CARD_PIN;
+    const pin = String(body.pin || '');
     if (!pin) { json(res, 200, { present: false, error: 'pin required' }); return; }
     const profile = await readCardReceiveProfile();
     if (!profile) throw new Error('card receive profile missing');
@@ -1147,8 +1142,8 @@ async function handleCardProbe(req, res) {
       PRF_SCRIPT, 'webauthn-probe',
       '--profile', CARD_RECEIVE_PROFILE,
       `--challenge-b64u=${dummy}`,
-      '--rp-id', profile.rp_id || CARD_RECEIVE_RP_ID,
-      '--origin', profile.origin || CARD_RECEIVE_ORIGIN,
+      '--rp-id', profile.rp_id,
+      '--origin', profile.origin,
       `--credential-id=${credId}`,
       '--pin', pin,
     ]);
@@ -1161,34 +1156,42 @@ async function handleCardProbe(req, res) {
 async function handleCardLightningSync(req, res) {
   try {
     const { identity, cached_at_ms: identityCachedAtMs } = await cardAccountIdentity();
-    const registration = await ensureLiveReceiveRegistration(identity);
+    const registration = await requireLiveReceiveRegistration(identity);
     const receiveOwner = registration.receive_owner;
+    const profile = await readCardReceiveProfile();
+    if (!profile) throw new Error('card receive profile missing');
+    const liveAccount = await fetchLiveLnurlAccount(identity, registration, profile);
     const syncUrl = `${signerOriginUrl()}/api/arkade/receive/sync`;
     const synced = await fetchJsonRequest(syncUrl, 'Nuri Arkade receive sync', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-arkade-client': 'nuri-card-browser-demo',
-        'x-arkade-sdk': 'nuri-card-browser-demo',
+        'x-arkade-client': 'nuri-card-browser',
+        'x-arkade-sdk': 'nuri-card-browser',
       },
       body: JSON.stringify({
         cred_id_b64u: receiveOwner.cred_id_b64u,
         client_public_key_33_hex: receiveOwner.client_public_key_33_hex,
       }),
     });
+    if (!Array.isArray(synced.receives) || !Array.isArray(synced.lightning) || !Array.isArray(synced.boarding)) {
+      throw new Error('Nuri Arkade receive sync returned malformed receive lists');
+    }
     json(res, 200, {
       status: 'NURI_CARD_LIGHTNING_RECEIVES_SYNCED',
       account: {
+        username: liveAccount.username,
+        lightning_address: liveAccount.lightning_address,
         card_client_pk33: identity.card_client_pk33,
         identity_cached_at_ms: identityCachedAtMs,
         identity_cache_ms: CARD_IDENTITY_CACHE_MS,
         live_server_pubkey: registration.registered.server_pubkey || null,
         receive_owner: receiveOwner,
       },
-      receives: Array.isArray(synced.receives) ? synced.receives : [],
-      lightning: Array.isArray(synced.lightning) ? synced.lightning : [],
-      boarding: Array.isArray(synced.boarding) ? synced.boarding : [],
-      boarding_address: synced.boarding_address || null,
+      receives: synced.receives,
+      lightning: synced.lightning,
+      boarding: synced.boarding,
+      boarding_address: synced.boarding_address,
       server: {
         nuri_server_api: synced.nuri_server_api || null,
         nuri_server_version: synced.nuri_server_version || null,
@@ -1231,11 +1234,19 @@ async function handleMerchantCheckout(req, res) {
     json(res, 400, { error: 'amountSats must be a positive integer' });
     return;
   }
-  const merchantName = String(body.merchantName || 'Demo merchant').trim().slice(0, 80);
-  const memo = String(body.memo || 'Local Nuri checkout demo').trim().slice(0, 160);
-  const requestedNetwork = String(body.network || 'mainnet').trim().toLowerCase();
+  const merchantName = String(body.merchantName || '').trim().slice(0, 80);
+  if (!merchantName) {
+    json(res, 400, { error: 'merchantName is required' });
+    return;
+  }
+  const memo = String(body.memo || '').trim().slice(0, 160);
+  if (!memo) {
+    json(res, 400, { error: 'memo is required' });
+    return;
+  }
+  const requestedNetwork = String(body.network || '').trim().toLowerCase();
   if (requestedNetwork !== 'mainnet') {
-    json(res, 400, { error: 'this checkout demo is mainnet-only' });
+    json(res, 400, { error: 'checkout network must be mainnet' });
     return;
   }
   const network = 'mainnet';
@@ -1306,76 +1317,30 @@ async function handleCheckoutConfirm(req, res) {
     json(res, 400, { error: 'checkout session expired' });
     return;
   }
-  if (session.status === 'paid_demo') {
+  if (session.status === 'funded') {
     json(res, 200, sessionPublicView(session));
     return;
   }
-  const identity = arkadeIdentityFromProof(await runArkadeProof(sha256Hex(`nuri-local-checkout-identity:${session.id}`)));
-  const paymentPackage = {
-    version: 'nuri-local-checkout-v1',
-    session_id: session.id,
-    merchant_name: session.merchant_name,
-    network: session.network,
-    amount_sats: session.amount_sats,
-    invoice: session.invoice,
-    payment_hash: session.payment_hash,
-    invoice_kind: session.invoice_kind,
-    invoice_expires_at: session.invoice_expires_at,
-    invoice_source: session.invoice_source,
-    memo: session.memo,
-    client_pk33: identity.card_client_pk33,
-    asp_pk33: identity.asp_pk33,
-    sorted_pubkeys33: identity.sorted_pubkeys33,
-    internal_aggregate_xonly32: identity.internal_aggregate_xonly32,
-    script_root32: identity.script_root32,
-    tweak32: identity.tweak32,
-    signing_xonly32: identity.tweaked_signing_xonly32,
-    created_at: session.created_at,
-    expires_at: session.expires_at,
-    approval_scope: 'demo-local-card-arkade-client-signer',
+  const send = await payMerchantInvoice(session.invoice, body.pin || '', session.amount_sats);
+  if (send.skipped) throw new Error(`payment skipped: ${send.skipped}`);
+  if (send.error) throw new Error(send.error);
+  if (!/_OK$/.test(String(send.status || ''))) throw new Error(`payment failed: ${send.status || 'missing status'}`);
+  if (!/^(02|03)[0-9a-f]{64}$/i.test(String(send.card_client_pk33 || ''))) throw new Error('payment returned no valid card client key');
+  if (!/^[0-9a-f]{64}$/i.test(String(send.ark_txid || ''))) throw new Error('payment returned no valid Ark txid');
+  if (!Number.isFinite(Number(send.funding_amount_sats)) || !Number.isFinite(Number(send.final_amount_sats))) {
+    throw new Error('payment returned no exact funding/final amounts');
+  }
+  const broadcast = {
+    attempted: true,
+    card_client_pk33: send.card_client_pk33,
+    status: send.status,
+    funding_amount_sats: send.funding_amount_sats,
+    final_amount_sats: send.final_amount_sats,
+    ark_txid: send.ark_txid,
+    ark_address: send.ark_address,
   };
-  const msg32 = sha256Hex(canonicalJson(paymentPackage));
-  const proof = await runArkadeProof(msg32);
-  if (!proof.cases?.every((c) =>
-    c.card_client_pk33 === identity.card_client_pk33
-    && c.asp_pk33 === identity.asp_pk33
-    && (c.case !== 'tweaked' || c.tweak32 === identity.tweak32)
-  )) {
-    throw new Error('checkout proof signer identity did not match the bound payment package');
-  }
-  session.status = 'paid_demo';
-  session.paid_at = new Date().toISOString();
-  session.paymentPackage = paymentPackage;
-  session.proof = proof;
-
-  // Real swap-out: pay the merchant BOLT11 invoice from the card's Ark
-  // VTXO balance via a Boltz submarine swap. The card signs the VTXO
-  // forfeit leaves (same MuSig2 card+ASP round as the claim path), the
-  // SDK builds the offchain tx, sends it to the ASP, and Boltz pays the
-  // Lightning invoice. This is a real payment, not a demo.
-  let broadcast = { attempted: false };
-  try {
-    const account = body.account === 'pure' ? 'pure' : 'nuri';
-    const send = account === 'pure'
-      ? await payMerchantInvoicePureArkade(session.invoice, body.pin || '')
-      : await payMerchantInvoice(session.invoice, body.pin || '', session.amount_sats);
-    if (send.skipped) {
-      broadcast = { attempted: false, account, skipped: send.skipped };
-    } else {
-      broadcast = {
-        attempted: true,
-        account,
-        status: send.status,
-        funding_amount_sats: send.funding_amount_sats,
-        final_amount_sats: send.final_amount_sats,
-        ark_txid: send.ark_txid,
-        ark_address: send.ark_address,
-        error: send.error,
-      };
-    }
-  } catch (error) {
-    broadcast = { attempted: true, error: error?.message || String(error) };
-  }
+  session.status = 'funded';
+  session.funded_at = new Date().toISOString();
   session.broadcast = broadcast;
   json(res, 200, sessionPublicView(session));
 }

@@ -1,14 +1,12 @@
 # Arkade / Lightning Card Paths
 
-> **⚡ Status update (2026-07-07): the Ark→Lightning SEND path is now BUILT and
-> PROVEN ON MAINNET.** A card-signed 2-of-2 MuSig2 send funded a Boltz submarine
-> swap and settled real Lightning value (`NURI_CARD_ARKADE_SEND_OK`); receive via
-> `card@nuri.com` (LNURL) and two wallets on one card key (Nuri-cosigned and
-> pure-Arkade) also work. For the end-to-end walkthrough see
-> [`how-it-works.md`](how-it-works.md) and the README's
-> [Bitcoin debit card](../README.md#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
-> section. The design notes below remain the deeper reference for the signing
-> model and APDU flow.
+> **Status update (2026-07-10):** Android NFC produced two verified card/server
+> MuSig2 rounds and broadcast an Ark transaction returned by the live indexer.
+> The profile now uses the authenticated username for the inserted
+> credential/card pair; it does not substitute an older username or local
+> account. The final monitor/`send/complete` ordering requires the next real
+> payment for completion and Lightning-settlement proof. See
+> [`expo-web-parity-incident-2026-07-10.md`](expo-web-parity-incident-2026-07-10.md).
 
 This file is a map, not the source of truth. For the implemented card-client
 signer proof, use [`arkade-card-signer-proof.md`](arkade-card-signer-proof.md)
@@ -69,12 +67,15 @@ client key material. That can support login, pairing, migration, recovery, or
 browser fallback. It is not the preferred spend-signing path when the card can
 hold and use the Arkade client MuSig2 key directly.
 
-## App Work
+## App integration
 
-The app should introduce an `ArkadeClientSigner` below `ArkadeRemoteIdentity`.
-The current software passkey flow remains the default signer. Card mode should
-stay behind an explicit debug/feature flag until there is production onboarding,
-migration handling, and card-side PIN/UV gating.
+The Expo probe now implements the card-backed identity directly over NFC. It
+uses the Arkade SDK for transaction construction, the live Nuri server for the
+second partial, and one pinned `@scure/btc-signer` session for card inputs,
+partial verification, aggregation, and final BIP340 verification.
+
+The FIDO credential and MuSig2 applet key remain separate identities. The app
+must verify their server mapping before displaying account data or signing.
 
 The Lightning path remains Arkade plus Boltz. The card changes who supplies the
 client MuSig2 partial; it does not replace Arkade, the ASP, or the Boltz payment

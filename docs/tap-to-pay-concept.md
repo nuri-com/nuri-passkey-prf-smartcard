@@ -1,17 +1,10 @@
 # Tap-to-pay: concept & implementation plan
 
-> **⚡ Status update (2026-07-07): the core is now BUILT and PROVEN ON MAINNET.**
-> The tap-to-pay Lightning **send** path, the Visa-style `/checkout` terminal, the
-> `card@nuri.com` receive/auto-claim, and the two wallets on one card key all work
-> — a card-signed payment settled real Lightning value (`NURI_CARD_ARKADE_SEND_OK`).
-> For the plain-English end-to-end walkthrough see
-> [`how-it-works.md`](how-it-works.md) and the main README's
-> [Bitcoin debit card](../README.md#bitcoin-debit-card-tap-to-pay-lightning-arkade--nuri)
-> section. This document is kept as the deeper design/APDU reference and the
-> record of the hardware boundary; treat its "buildable today / not built"
-> framing below as the historical planning view. The genuinely remaining open
-> items are the *phone-optional standalone* POS terminal (Scenario B) and
-> PIN-gating the MuSig2 sign APDU on the applet itself.
+> **Status update (2026-07-10):** desktop history proves card-signed Lightning
+> sends; Android NFC now proves two complete MuSig2 rounds and an indexed Ark
+> broadcast. The current UI exposes only the inserted card's authenticated live
+> account. Exact root causes, fixes, and the remaining completion boundary:
+> [`expo-web-parity-incident-2026-07-10.md`](expo-web-parity-incident-2026-07-10.md).
 
 > The vision: hold a Bitcoin debit card up to a phone or a Bitcoin POS terminal
 > and pay — backed by your own keys, self-custody, no seed phrase, no custodian.
@@ -74,7 +67,7 @@ hardware class that exists today.
 | Whose device is involved | your phone (or anyone's phone running our app) | the merchant's POS terminal (running our firmware) |
 | Card alone? | no — needs a phone | yes — the terminal is the merchant's, not yours |
 | Internet | the phone has it | the terminal has it |
-| Buildable today | yes — every primitive proven | no — needs a reference terminal implementation |
+| Buildable today | yes — Android NFC signing and Ark broadcast proven | no — needs a standalone reference terminal implementation |
 | "At any POS" | everywhere a phone is | only at merchants running our terminal software |
 | Self-custody | yes (card holds the key, phone holds nothing) | yes |
 
@@ -141,29 +134,28 @@ partial). A stolen card cannot steal funds (it has no ASP partial).
 
 ### Why this is the realistic path today
 
-Every primitive in the table above is already proven on a real card in this
-repo:
+The Scenario C path is now wired and has produced a real indexed Ark transaction
+from Android NFC. Its current proof stops before the post-broadcast
+`send/complete`/Boltz-funded/merchant-settlement sequence; see the incident
+report linked at the top. The proven components are:
 
 - ISO-DEP NFC + CTAP2 transport — `mobile/expo-nfc-prf-probe/`
-  (Android APK, verified). The probe already speaks ISO-DEP and CTAP2;
-  switching the AID to the MuSig2 applet (`4E5552494D554701`) and wrapping
-  the MuSig2 APDUs is plumbing, not new research.
-- CTAP2 `clientPin` PIN protocol — `scripts/manage-fido2-pin.py` (set /
-  change / verify / get_pin_token, all proven over PC/SC; the NFC probe
-  already does the `getKeyAgreement` ECDH step).
+  (Android APK, verified).
+- CTAP2 `clientPin` PIN protocol — `scripts/manage-fido2-pin.py` (PC/SC) and
+  `mobile/expo-nfc-prf-probe/src/ctapPrf.ts` (NFC PIN-token assertion).
 - MuSig2 partial signing — `dist/nuri-musig2-v20-keygen.cap`, on-chain
   proven (Signet tx `c85a73fa…`). The card as *client signer* (Model A)
   uses the exact same protocol as the card as *cosigner* (Model B) — only
   the role changes, not the APDUs.
-- Arkade ASP + Boltz swap — wired in `nuri-expo` (`@arkade-os/sdk`,
-  `@arkade-os/boltz-swap`). The ASP expects a client pubkey + partial;
-  the card produces both. The registration flow needs to accept a
-  card-generated pubkey instead of a phone-derived one.
+- Arkade ASP + Boltz swap — wired directly in the Expo probe with
+  `@arkade-os/sdk` and `@arkade-os/boltz-swap`. The ASP accepts the physical
+  card's client key and verified partial.
 - Boltz-swap-ready tx building — `scripts/card-cosign-tweaked.py`,
   `scripts/nuri-card-wallet.mjs` (receive/spend/broadcast over PC/SC).
 
-What is missing is wiring these together in the mobile app, and moving the
-MuSig2 APDU exchange from PC/SC to NFC. Both are plumbing, not research.
+The remaining proof step is a fresh payment after the monitor-ordering fix:
+successful `send/complete`, observed Boltz funded status, and merchant-confirmed
+Lightning settlement.
 
 ---
 
@@ -298,9 +290,10 @@ phone/terminal                                 card
                                                 too many mismatches brick the PIN)
 ```
 
-The mobile NFC probe already does steps 1-4 (the ECDH establishment) for
-the `hmac-secret` path. Adding PIN verification is `subCommand 5` on the
-same transport — a few hours of work, not a new protocol.
+The mobile NFC implementation now performs the complete protocol-v1 PIN-token
+flow over ISO-DEP. Its assertion includes `pinUvAuthParam` and
+`pinUvAuthProtocol = 1`; it deliberately does not add `options.uv = true`, which
+this card rejected with CTAP status `0x2c`.
 
 ### What the PIN protects today vs what it should protect
 
@@ -369,59 +362,40 @@ Long term, the NDA path is the real fingerprint-on-card story.
 | CTAP2 `hmac-secret` PRF over NFC | ✅ proven | same |
 | CTAP2 `clientPin` PIN set/change/verify | ✅ proven over PC/SC | `scripts/manage-fido2-pin.py` |
 | CTAP2 `clientPin` `getKeyAgreement` ECDH | ✅ in the NFC probe | `mobile/expo-nfc-prf-probe/src/ctapPrf.ts:242` |
-| CTAP2 `clientPin` `getPinToken` over NFC | ⚙️ ECDH done, `subCommand 5` not wired | same file |
+| CTAP2 `clientPin` PIN token over NFC | ✅ proven with protocol v1 | same file |
 | MuSig2 applet (on-card keygen + partial sign) | ✅ proven on-chain | `dist/nuri-musig2-v20-keygen.cap` |
-| MuSig2 APDU exchange over NFC | ⚙️ probe speaks ISO-DEP, AID switch + APDU wrap not done | `mobile/expo-nfc-prf-probe/` |
+| MuSig2 APDU exchange over NFC | ✅ two complete live signing rounds verified | `mobile/expo-nfc-prf-probe/src/musig2Card.ts` |
 | MuSig2 applet PIN gate (`INS_PARTIAL_SIGN` refuses without `pinAuth`) | ❌ not built | `card/eth/NuriEcdsaSigner.java` (pattern), MuSig2 source not in repo |
 | PRF → BIP86 client key | ✅ proven | `scripts/card-arkade-identity.mjs` |
 | Boltz submarine swap tx building | ✅ proven over PC/SC | `scripts/card-cosign-tweaked.py`, `scripts/nuri-card-wallet.mjs` |
-| Boltz swap in the mobile app | ❌ not wired | needs `@arkade-os/boltz-swap` in the Expo app |
-| Arkade ASP client in the mobile app | ❌ not wired | needs `@arkade-os/sdk` |
-| Reference POS terminal (Scenario B) | ❌ not built | new project |
+| Boltz swap in the mobile app | ⚙️ create + pre-broadcast monitor wired; fresh completion proof pending | `mobile/expo-nfc-prf-probe/src/sendFlow.ts` |
+| Arkade ASP client in the mobile app | ✅ prepare, cosign, aggregate, send, and indexed broadcast proven | same file |
+| Reference POS terminal (Scenario B) | ⚙️ Expo terminal UI works; standalone terminal product not built | `mobile/expo-nfc-prf-probe/` |
 | ETH / EVM signer over NFC | ⚙️ applet proven over PC/SC, NFC path same as MuSig2 | `card/eth/NuriEcdsaSigner.java` |
 
 ---
 
-## Implementation order
+## Remaining implementation order
 
-Numbered by dependency, smallest first. Each step is independently
-verifiable.
+The previously planned NFC transport, PIN-token, MuSig2, SDK, ASP, and Boltz
+integration steps are implemented. The remaining work is:
 
-1. **CTAP2 `getPinToken` over NFC** — add `subCommand 5` to
-   `mobile/expo-nfc-prf-probe/src/ctapPrf.ts`, verify a known PIN returns
-   a `pinToken`, wrong PIN increments the retry counter. ~1-2 days.
-   Unblocks every signing flow that needs a card-side PIN.
+1. **Prove the corrected completion order with a fresh real payment.** Require
+   `send/complete`, observe Boltz funded status, and confirm merchant Lightning
+   settlement. Retain the txid and application logs.
 
-2. **MVP: tap → address + balance via NFC (read-only).** Extend the mobile
-   probe: tap → `hmac-secret` PRF (with PIN if set) → HKDF → BIP86 → BTC
-   address → fetch UTXOs from mempool.space → display address + balance.
-   No signing. Proves the NFC-wallet path end-to-end. ~1 day.
+2. **Add regression vectors shared by desktop and Expo.** Feed identical keys,
+   nonces, message, and tweak into the Python and pinned scure implementations;
+   assert identical `b`, `e`, parity fold, partial verification, and final
+   signature.
 
-3. **MuSig2 APDUs over NFC.** The probe already speaks ISO-DEP; switch AID
-   to `4E5552494D554701` and wrap `INS_GET_INDIVIDUAL_PUBKEY` /
-   `INS_NONCE_GEN` / `INS_PARTIAL_SIGN`. Verify a partial over NFC matches
-   a partial over PC/SC for the same key. ~2-3 days.
-
-4. **Testnet on-chain tap-to-pay (Scenario C, on-chain only).** Tap →
-   enter amount → MuSig2 sign over NFC → aggregate → broadcast →
-   signet explorer. Proves Scenario C end-to-end without Lightning. ~1 day.
-
-5. **MuSig2 applet PIN gate (on-card).** `INS_NONCE_GEN` and
+3. **MuSig2 applet PIN gate (on-card).** `INS_NONCE_GEN` and
    `INS_PARTIAL_SIGN` refuse until a `pinAuth` has been presented in the
    session. This is the single most important on-card change for the
    debit-card UX. Requires the MuSig2 applet source (not currently in
-   this repo — only the built CAP is). ~2-3 days once source is available.
+   this repo — only the built CAP is).
 
-6. **Boltz Lightning integration in the mobile app.** Pull in
-   `@arkade-os/boltz-swap`, build a submarine swap tx in the app, sign
-   with the card over NFC, broadcast, pay a real Lightning invoice.
-   ~3-5 days.
-
-7. **Arkade ASP integration in the mobile app.** `@arkade-os/sdk`,
-   `TreeSignerSession`, live boarding round against `arkade.computer`
-   with the card in the reader. ~3-5 days.
-
-8. **Reference POS terminal (Scenario B, vision).** Open-source terminal
+4. **Reference POS terminal (Scenario B, vision).** Open-source terminal
    firmware (Android or Raspberry Pi + NFC HAT) that speaks our APDUs,
    CTAP2 PIN, Boltz, and a merchant UI. Research project, not in scope
    for this repo today.
@@ -463,13 +437,14 @@ verifiable.
 This document is the concept spec for the tap-to-pay north-star described
 in the main README's Roadmap track 4. It is honest about the hardware
 boundary because pretending otherwise would cost real money later. The
-primitives are all proven in this repo; the missing piece is wiring them
-together in a mobile app and (for Scenario B) a reference terminal.
+Scenario C pieces are wired in the Expo app through indexed Ark broadcast.
+The immediate missing proof is the corrected post-broadcast completion sequence;
+Scenario B still needs a standalone reference terminal.
 
 Related files:
 
-- `mobile/expo-nfc-prf-probe/` — the native NFC PRF probe (Scenario C
-  foundation).
+- `mobile/expo-nfc-prf-probe/` — the native NFC card wallet and terminal
+  (Scenario C implementation).
 - `docs/musig2-card-extension.md` — the APDU spec both scenarios use.
 - `docs/arkade-lightning.md` — how Arkade + Boltz fit in (Scenario C
   Lightning path).

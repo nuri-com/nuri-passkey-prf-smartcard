@@ -3,6 +3,97 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-11 — Design-system terminal, profile, and receive claim flow
+
+### Changed
+
+- Rebuilt the Expo terminal with Nuri design-system components only: one
+  editable Lightning address prefilled with `smartcard@nuri.com`, a sats amount
+  display, the embedded button keypad, and one `Charge` action. Removed the
+  nested app-authored card and the merchant/memo form fields.
+- Rebuilt payment confirmation around the same keypad, one `Confirm` action,
+  design-system card/progress states, human-readable English status messages,
+  and clear success/error exits.
+- Simplified the profile into a balance-first design-system list. Lightning,
+  wallet, and card references are copyable; status, copy confirmation, and
+  errors use design-system alerts; each state exposes exactly one primary
+  action.
+
+### Fixed
+
+- Receive claims no longer route through outgoing `send/prepare` state. The
+  mobile card identity now uses `/api/arkade/receive/claim/approve` and
+  approval-token `/arkade/sign` rounds for `claimVHTLC`.
+- Claimable incoming payments start automatically after authenticated profile
+  sync while retry remains an explicit single-action error state.
+- Corrected the local `@nuri/rn` and `@nuri/spec` package paths and added the
+  native `expo-clipboard` dependency.
+
+### Verified
+
+- Android Metro export succeeds for the complete app bundle.
+- A clean native Android debug build succeeds with JDK 17 and autolinks
+  `expo-clipboard`.
+- The updated debug APK loads through Metro on a physical Android device.
+
+## 2026-07-11 — Expo profile reads the authenticated Lightning account
+
+### Fixed
+
+- The Expo profile no longer expects `/api/arkade/receive/sync` to return
+  `account.username`. The deployed endpoint returns receive arrays but no
+  account field, while the desktop bridge separately authenticated
+  `/arkade/lnurl/status` and therefore showed `smartcard@nuri.com`.
+- Expo now mirrors that proven flow inside one NFC session: read the physical
+  MuSig2 key, require the existing `/arkade/info` registration, request an auth
+  challenge, produce the PIN-authorized FIDO assertion, and read the registered
+  username/address from `/arkade/lnurl/status`.
+- The profile origin remains the exact configured credential origin. The live
+  server returns a comma-separated origin allowlist, which is validated for
+  membership instead of being mistaken for one literal origin.
+- Receive sync remains the source of receive rows only. If a future deployment
+  also returns an account field, Expo verifies that it matches the separately
+  authenticated account and rejects disagreement.
+
+## 2026-07-10 — Expo/web parity incident and live card payment repair
+
+### Fixed
+
+- Removed hardcoded profile identity, balance/list substitutions, merchant
+  details, and implicit credential enrollment from the live card profile and
+  checkout paths. Card key, username, Lightning address, balance, receive data,
+  merchant, memo, and recipient must now come from the inserted card, live
+  responses, or visible user input.
+- Corrected Android CTAP PIN authorization: protocol-v1 PIN token plus
+  `pinUvAuthParam`, without the incompatible `uv: true` option that returned
+  status `0x2c`.
+- Updated the Expo Nuri send request to the current flat `send/cosign` contract,
+  including the required top-level `challenge_token` and assertion fields.
+- Deleted the mobile-only `sessionMath.ts` transcript implementation and the
+  unused duplicate `cardIdentity.ts` integration. Expo now uses one active
+  identity path and one pinned `@scure/btc-signer` 2.2.0 session for
+  nonce/challenge scalars, parity folding, both partial verifications,
+  aggregation, and final BIP340 verification.
+- Started the Boltz funded monitor before Ark broadcast in both Expo and the
+  desktop runner, and made `send/complete` and monitor failures fatal instead
+  of returning success with a hidden error.
+
+### Proven
+
+- Android NFC completed two card/server MuSig2 rounds with both partials and
+  both final aggregate signatures verified.
+- Ark transaction
+  `965a299bcf8b788eb0ef23896323c4ed97133836e84df19fffcbbcd63a33cc1a`
+  is returned by the live Ark indexer.
+- This proves card signing, Nuri cosigning, final aggregation, SDK transaction
+  construction, and Ark broadcast. A fresh payment is still required to prove
+  the final monitor ordering through `send/complete`, Boltz funded status, and
+  merchant-confirmed Lightning settlement.
+
+See [`docs/expo-web-parity-incident-2026-07-10.md`](docs/expo-web-parity-incident-2026-07-10.md)
+for the complete incident timeline, identity explanation, runbook, and proof
+boundary.
+
 ## 2026-07-05 (session 2) — ETH signer v1.3: end-to-end ecrecover green
 
 ### Fixed

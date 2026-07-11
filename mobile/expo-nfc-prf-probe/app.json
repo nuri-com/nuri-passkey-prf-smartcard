@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "expo-nfc-prf-probe",
+    "name": "Nuri Card",
     "slug": "expo-nfc-prf-probe",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -32,13 +32,33 @@
       [
         "react-native-nfc-manager",
         {
-          "nfcPermission": "Allow Nuri PRF Probe to talk to the FIDO2 smartcard over NFC.",
+          "nfcPermission": "Allow Nuri to talk to the smartcard over NFC (FIDO2 + MuSig2).",
           "selectIdentifiers": [
-            "A0000006472F0001"
+            "A0000006472F0001",
+            "4E5552494D554701"
           ],
           "includeNdefEntitlement": false
         }
-      ]
-    ]
+      ],
+      "expo-status-bar"
+    ],
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-nfc-manager",
+          "@arkade-os/sdk",
+          "@arkade-os/boltz-swap",
+          "eventsource",
+          "@nuri/rn",
+          "@nuri/spec"
+        ]
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4bb5687e-1e08-4b25-b696-428d25a230e0"
+      }
+    },
+    "owner": "nuriwallet"
   }
 }

@@ -9,21 +9,22 @@
 //        -> { lightning_address, callback_url, ... }
 //
 // The card's secp256k1 key never leaves the card; this is a presence+PIN proof.
-// Usage: node scripts/card-nuri-lnurl-register.mjs <username> [--pin 1996]
+// Usage:
+//   node scripts/card-nuri-lnurl-register.mjs <username> \
+//     --profile <profile-name> \
+//     --profile-path <profile-json> \
+//     --arkade-url <v4-url>
 
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 
 const PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
-const V4 = (process.env.NURI_ARKADE_SIGNER_URL || 'https://arkade.nuri.com/v4').replace(/\/+$/, '');
-const PROFILE = process.env.NURI_CARD_RECEIVE_PROFILE || 'nuri-card-arkade-receive';
-const PROFILE_PATH = process.env.NURI_CARD_RECEIVE_PROFILE_PATH || `.nuri-card-prf/${PROFILE}.json`;
-const CARD_PK33 = process.env.NURI_CARD_PK33 || '022589ad2c011a9002a0e2f7ef885541aa79560752dae155c916239831ce9aea9e';
+const CARD_KEY_SCRIPT = process.env.NURI_MUSIG2_CARD_KEY_SCRIPT || 'scripts/read-musig2-card-key.py';
 
-function arg(flag, fallback) {
+function arg(flag) {
   const i = process.argv.indexOf(flag);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : '';
 }
 
 function postJson(url, body) {
@@ -51,45 +52,61 @@ function execFileJson(cmd, args) {
 
 async function main() {
   const username = (process.argv[2] || '').trim();
-  if (!username || username.startsWith('--')) throw new Error('usage: card-nuri-lnurl-register.mjs <username> [--pin 1996]');
-  const pin = arg('--pin', process.env.FIDO2_BACKUP_PIN || '');
-  if (!pin) throw new Error('PIN required (--pin or FIDO2_BACKUP_PIN)');
+  const profileName = arg('--profile');
+  const profilePath = arg('--profile-path');
+  const arkadeUrl = arg('--arkade-url').replace(/\/+$/, '');
+  const pin = arg('--pin');
+  if (!username || username.startsWith('--') || !profileName || !profilePath || !arkadeUrl) {
+    throw new Error('usage: card-nuri-lnurl-register.mjs <username> --profile <name> --profile-path <json> --arkade-url <v4-url> [--pin <pin>]');
+  }
 
-  const profile = JSON.parse(await readFile(PROFILE_PATH, 'utf8'));
-  const credId = profile.credential_id || profile.credential_id_b64u || profile.cred_id_b64u;
+  const profile = JSON.parse(await readFile(profilePath, 'utf8'));
+  const credId = String(profile.credential_id || '').trim();
   const credPubkeyB64u = String(profile.credential_public_key_spki_b64u || '').trim();
-  if (!credId || !credPubkeyB64u) throw new Error(`profile ${PROFILE_PATH} missing credential id / spki pubkey`);
+  const rpId = String(profile.rp_id || '').trim();
+  const origin = String(profile.origin || '').trim();
+  if (!credId || !credPubkeyB64u || !rpId || !origin) {
+    throw new Error(`profile ${profilePath} missing credential id, SPKI public key, RP ID, or origin`);
+  }
+
+  const card = await execFileJson(PYTHON, [CARD_KEY_SCRIPT]);
+  const cardPk33 = String(card.card_pk33 || '').trim().toLowerCase();
+  if (!/^(02|03)[0-9a-f]{64}$/.test(cardPk33)) {
+    throw new Error('physical card did not return a valid MuSig2 public key');
+  }
 
   // 1. request-auth challenge
-  const auth = await postJson(`${V4}/arkade/auth`, {
+  const auth = await postJson(`${arkadeUrl}/arkade/auth`, {
     cred_id_b64u: credId,
     cred_pubkey_b64u: credPubkeyB64u,
-    client_signer_pubkey: CARD_PK33,
+    client_signer_pubkey: cardPk33,
   });
   if (!auth.token || !auth.challenge) throw new Error(`/arkade/auth failed: ${JSON.stringify(auth)}`);
 
   // 2. card UV assertion over the challenge
-  const assertion = await execFileJson(PYTHON, [
+  const assertionArgs = [
     PRF_SCRIPT, 'webauthn-assert',
-    '--profile', PROFILE,
+    '--profile', profileName,
+    '--profile-path', profilePath,
     `--challenge-b64u=${auth.challenge}`,
-    '--rp-id', profile.rp_id || auth.rp_id,
-    '--origin', profile.origin || String(auth.origin || '').split(',')[0].trim(),
+    '--rp-id', rpId,
+    '--origin', origin,
     `--credential-id=${credId}`,
     '--user-verification', 'required',
-    '--pin', pin,
-  ]);
+  ];
+  if (pin) assertionArgs.push('--pin', pin);
+  const assertion = await execFileJson(PYTHON, assertionArgs);
 
   // 3. claim the username
-  const result = await postJson(`${V4}/arkade/lnurl/register`, {
+  const result = await postJson(`${arkadeUrl}/arkade/lnurl/register`, {
     token: auth.token,
     username,
-    client_signer_pubkey: CARD_PK33,
+    client_signer_pubkey: cardPk33,
     client_data_b64u: assertion.client_data_b64u,
     auth_data_b64u: assertion.auth_data_b64u,
     sig_b64u: assertion.sig_b64u,
   });
-  return result;
+  return { ...result, card_client_pk33: cardPk33 };
 }
 
 main().then((out) => {
