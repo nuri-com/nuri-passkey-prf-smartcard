@@ -40,20 +40,31 @@ values `Nuri Terminal` and `Nuri Terminal charge` to the existing payment flow.
 3. One NFC session authenticates the physical card and registered FIDO
    credential, reads the Lightning account, derives the Ark address, loads the
    balance, and synchronizes incoming payments.
-4. Claimable incoming payments start automatically. Receive claims use the
-   dedicated `/api/arkade/receive/claim/approve` approval flow and
-   approval-token signing through `/arkade/sign`; they do not use outgoing
-   `send/prepare` state.
-5. The loaded profile shows the balance first and a full-width design-system
+4. After the authenticated profile has learned the public card identity, the
+   app checks `/api/arkade/receive/sync` every eight seconds. This read-only
+   polling continues while the loaded Profile screen is mounted and does not
+   require the physical card. The status alert distinguishes a pending incoming
+   payment, a claimable payment, an empty queue, and a temporary sync failure.
+5. A newly claimable payment triggers one automatic claim attempt. The app then
+   asks the user to hold the card near the phone because approval and signing
+   require the physical card and PIN-authorized credential. A failed attempt is
+   not repeated in a prompt loop; the single primary action becomes
+   `Try incoming payment again` while background polling continues.
+6. Receive claims use the dedicated
+   `/api/arkade/receive/claim/approve` approval flow and approval-token signing
+   through `/arkade/sign`; they do not use outgoing `send/prepare` state.
+7. The loaded profile shows the balance first and a full-width design-system
    list for the Lightning address, wallet address, card status, and card
    reference.
-6. Address/reference rows copy their complete value through `expo-clipboard`.
-7. The screen always exposes one primary action: `Read card`, a disabled busy
+8. Address/reference rows copy their complete value through `expo-clipboard`.
+9. The screen always exposes one primary action: `Read card`, a disabled busy
    state, `Refresh profile`, or `Try incoming payment again`.
 
 Status, copy confirmation, and errors use design-system `Alert` components.
 Raw protocol logs remain in the development console and are not displayed to
-users.
+users. Receive diagnostics use the `[nuri-receive]` prefix and report only
+counts, human-readable progress, and totals; credential tokens and swap restore
+material are not logged.
 
 ## Required configuration
 

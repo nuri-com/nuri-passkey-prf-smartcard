@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { NfcError } from 'react-native-nfc-manager';
 import {
@@ -39,8 +39,10 @@ type Props = {
 };
 
 type ProfileOperation = 'idle' | 'reading' | 'claiming';
+type IncomingState = 'idle' | 'empty' | 'pending' | 'ready' | 'receiving' | 'received';
 
 const CARD_READ_RETRY_MS = 21_000;
+const RECEIVE_POLL_MS = 8_000;
 
 export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u, rpId, origin }: Props) {
   const [cardPk, setCardPk] = useState('');
@@ -53,11 +55,15 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [claimStatus, setClaimStatus] = useState('');
+  const [incomingState, setIncomingState] = useState<IncomingState>('idle');
+  const [receiveSyncError, setReceiveSyncError] = useState('');
   const [claimableCount, setClaimableCount] = useState(0);
   const [pin, setPin] = useState('');
   const [copied, setCopied] = useState('');
   const [operation, setOperation] = useState<ProfileOperation>('idle');
   const [operationStatus, setOperationStatus] = useState('');
+  const receiveSyncInFlight = useRef(false);
+  const lastAutoClaimKey = useRef('');
 
   const config: SendConfig = {
     aspSignUrl: aspInfoUrl.replace('/arkade/info', '/arkade/sign'),
@@ -74,10 +80,40 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
     rpId,
     origin,
     pin,
+    log: (message: string) => console.log(`[nuri-receive] ${message}`),
   };
 
+  useEffect(() => {
+    if (!loaded || !cardPk || busy || operation !== 'idle') return;
+
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled || receiveSyncInFlight.current) return;
+      try {
+        const { claimable } = await syncIncomingPayments(cardPk);
+        if (cancelled || claimable.length === 0) return;
+        const claimKey = claimable.map((row: any) => String(row.swap_id || '')).sort().join(':');
+        if (!claimKey || lastAutoClaimKey.current === claimKey) return;
+        lastAutoClaimKey.current = claimKey;
+        console.log(`[nuri-receive] auto-claim starting for ${claimable.length} payment(s)`);
+        void claimReceives(claimable);
+      } catch (syncError: unknown) {
+        if (cancelled) return;
+        console.error('[nuri-receive] polling failed', syncError);
+        setReceiveSyncError('Incoming payments could not be checked. Retrying automatically…');
+      }
+    };
+
+    const timer = setInterval(() => void poll(), RECEIVE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [loaded, cardPk, busy, operation]);
+
   async function loadCard() {
-    setBusy(true); setError(''); setBalance(null); setClaimStatus(''); setClaimableCount(0);
+    setBusy(true); setError(''); setBalance(null); setClaimStatus(''); setIncomingState('idle'); setReceiveSyncError(''); setClaimableCount(0);
+    lastAutoClaimKey.current = '';
     setCopied('');
     setLoaded(false); setRegistered(false); setUsername(''); setLightningAddress('');
     setOperation('reading');
@@ -168,32 +204,14 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       const { available } = parseBalance(await wallet.getBalance());
       setBalance(`${available.toLocaleString('en-US')} sats`);
 
-      // 6. Sync receives — check for claimable incoming payments
-      const syncUrl = aspInfoUrl.replace('/v4/arkade/info', '/api/arkade/receive/sync');
-      const synced = await fetchJson(syncUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cred_id_b64u: credIdB64u, client_public_key_33_hex: pkHex }),
-      });
-      if (synced.account != null) {
-        const syncUsername = typeof synced.account.username === 'string' ? synced.account.username.trim() : '';
-        const syncAddress = typeof synced.account.lightning_address === 'string' ? synced.account.lightning_address.trim() : '';
-        if (syncUsername !== account.username || syncAddress !== account.lightningAddress) {
-          throw new Error('receive sync account does not match the authenticated Lightning account');
-        }
-      }
-      if (!Array.isArray(synced.lightning)) throw new Error('receive sync returned no Lightning receive list');
-      const receives = synced.lightning;
-      const claimable = receives.filter((r: any) => r.status === 'claimable' && r.restore);
-      setClaimableCount(claimable.length);
-      if (claimable.length > 0) {
-        const totalSats = claimable.reduce((sum: number, r: any) => sum + Number(r.restore.request.invoiceAmount), 0);
-        setClaimStatus(`${claimable.length} incoming payment${claimable.length === 1 ? '' : 's'} found (${totalSats.toLocaleString('en-US')} sats). Receiving automatically…`);
-      } else {
-        setClaimStatus('No incoming payments are waiting.');
-      }
+      // Receive sync is prompt-free. After this initial check the screen keeps
+      // polling with the public card identity, even when the card is removed.
+      const { claimable } = await syncIncomingPayments(pkHex, account);
       setLoaded(true);
-      if (claimable.length > 0) await claimReceives(claimable);
+      if (claimable.length > 0) {
+        lastAutoClaimKey.current = claimable.map((row: any) => String(row.swap_id || '')).sort().join(':');
+        await claimReceives(claimable);
+      }
     } catch (e: any) {
       setError(readableProfileError(e));
     } finally {
@@ -203,8 +221,57 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
     }
   }
 
+  async function syncIncomingPayments(
+    clientPublicKey33Hex: string,
+    expectedAccount?: { username: string; lightningAddress: string },
+  ): Promise<{ claimable: any[]; pendingCount: number; cleanupCount: number }> {
+    if (receiveSyncInFlight.current) return { claimable: [], pendingCount: 0, cleanupCount: 0 };
+    receiveSyncInFlight.current = true;
+    setReceiveSyncError('');
+    try {
+      const syncUrl = aspInfoUrl.replace('/v4/arkade/info', '/api/arkade/receive/sync');
+      const synced = await fetchJson(syncUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cred_id_b64u: credIdB64u, client_public_key_33_hex: clientPublicKey33Hex }),
+      });
+      if (expectedAccount && synced.account != null) {
+        const syncUsername = typeof synced.account.username === 'string' ? synced.account.username.trim() : '';
+        const syncAddress = typeof synced.account.lightning_address === 'string' ? synced.account.lightning_address.trim() : '';
+        if (syncUsername !== expectedAccount.username || syncAddress !== expectedAccount.lightningAddress) {
+          throw new Error('receive sync account does not match the authenticated Lightning account');
+        }
+      }
+      if (!Array.isArray(synced.lightning)) throw new Error('receive sync returned no Lightning receive list');
+
+      const receives = synced.lightning;
+      const claimable = receives.filter((row: any) => row.status === 'claimable' && row.restore);
+      const pending = receives.filter((row: any) => row.status !== 'claimable' && row.status !== 'cleanup_needed');
+      const cleanupCount = receives.filter((row: any) => row.status === 'cleanup_needed').length;
+      const claimableSats = claimable.reduce((sum: number, row: any) => sum + receiveAmountSats(row), 0);
+      const pendingSats = pending.reduce((sum: number, row: any) => sum + receiveAmountSats(row), 0);
+
+      setClaimableCount(claimable.length);
+      if (claimable.length > 0) {
+        setIncomingState('ready');
+        setClaimStatus(`${claimable.length} incoming payment${claimable.length === 1 ? '' : 's'} ready (${claimableSats.toLocaleString('en-US')} sats). Hold your card near the phone to receive automatically.`);
+      } else if (pending.length > 0) {
+        setIncomingState('pending');
+        setClaimStatus(`${pending.length} incoming payment${pending.length === 1 ? ' is' : 's are'} pending${pendingSats > 0 ? ` (${pendingSats.toLocaleString('en-US')} sats)` : ''}. Checking automatically…`);
+      } else {
+        setIncomingState('empty');
+        setClaimStatus('No incoming payments are waiting. Checking automatically…');
+      }
+      console.log(`[nuri-receive] sync complete: ${claimable.length} ready, ${pending.length} pending, ${cleanupCount} closed`);
+      return { claimable, pendingCount: pending.length, cleanupCount };
+    } finally {
+      receiveSyncInFlight.current = false;
+    }
+  }
+
   async function claimReceives(knownClaimable?: any[]) {
     setBusy(true); setError(''); setClaimStatus('Keep the card near the phone while the payment is received.');
+    setIncomingState('receiving');
     setOperation('claiming');
     try {
       await withNfcCardSession(
@@ -239,9 +306,12 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
           }
 
           if (claimable.length === 0) {
-            setClaimStatus('No incoming payments are waiting.');
+            setIncomingState('empty');
+            setClaimStatus('No incoming payments are ready yet. Checking automatically…');
             return;
           }
+
+          console.log(`[nuri-receive] card connected; claiming ${claimable.length} payment(s)`);
 
       // Create wallet + swaps with the card-backed identity
       const wallet = await Wallet.create({
@@ -283,11 +353,16 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
       const { available } = parseBalance(await wallet.getBalance());
       setBalance(`${available.toLocaleString('en-US')} sats`);
       setClaimableCount(0);
+      setIncomingState('received');
+      lastAutoClaimKey.current = '';
+      console.log(`[nuri-receive] claim complete: ${claimed} payment(s), ${totalSats} sats`);
         },
       );
     } catch (e: any) {
+      console.error('[nuri-receive] claim failed', e);
       setError(readableProfileError(e));
-      setClaimStatus('');
+      setIncomingState('ready');
+      setClaimStatus('The incoming payment is still waiting. Keep the card nearby and try again.');
     } finally {
       setBusy(false);
       setOperation('idle');
@@ -365,8 +440,14 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
                   </Alert>
                 ) : null}
                 {claimStatus ? (
-                  <Alert accent={busy ? 'neutral' : 'lilac'}>
-                    <AlertIcon name={busy ? 'card' : 'check-circle'} />
+                  <Alert accent={incomingState === 'received' ? 'lilac' : 'neutral'}>
+                    <AlertIcon name={
+                      incomingState === 'pending'
+                        ? 'bitcoin-wallet'
+                        : incomingState === 'ready' || incomingState === 'receiving'
+                          ? 'card'
+                          : 'check-circle'
+                    } />
                     {claimStatus}
                   </Alert>
                 ) : null}
@@ -389,6 +470,15 @@ export function ProfileScreen({ aspInfoUrl, nodeUrl, credIdB64u, credPubkeyB64u,
             <Alert accent="orange">
               <AlertIcon name="warning-circle" />
               {error}
+            </Alert>
+          </View>
+        ) : null}
+
+        {receiveSyncError ? (
+          <View paddingX="lg">
+            <Alert accent="orange">
+              <AlertIcon name="warning-circle" />
+              {receiveSyncError}
             </Alert>
           </View>
         ) : null}
@@ -430,6 +520,13 @@ function pubkeyHex(bytes: Uint8Array): string {
 function shortValue(value: string): string {
   if (value.length <= 20) return value;
   return `${value.slice(0, 10)}…${value.slice(-8)}`;
+}
+
+function receiveAmountSats(receive: any): number {
+  const amountMsat = Number(receive?.amount_msat);
+  if (Number.isFinite(amountMsat) && amountMsat >= 0) return Math.floor(amountMsat / 1000);
+  const invoiceAmount = Number(receive?.restore?.request?.invoiceAmount);
+  return Number.isFinite(invoiceAmount) && invoiceAmount >= 0 ? invoiceAmount : 0;
 }
 
 function isRetryableCardReadError(error: unknown): boolean {
