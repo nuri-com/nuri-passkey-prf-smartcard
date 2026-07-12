@@ -1,5 +1,9 @@
 node_modules/
 vendor/
+# Confidential vendor material. Keep the Feitian BioCARD NDA SDK local only.
+# Do not force-add files from either path.
+vendor/feitian-nda-sdk/
+docs/feitian/nda/
 .build/
 __pycache__/
 *.py[cod]

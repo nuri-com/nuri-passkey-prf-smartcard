@@ -43,6 +43,13 @@ if [[ -n "$tracked_generated" ]]; then
   exit 1
 fi
 
+tracked_nda="$(git ls-files 'vendor/feitian-nda-sdk/**' 'docs/feitian/nda/**')"
+if [[ -n "$tracked_nda" ]]; then
+  echo "Confidential Feitian NDA SDK material must never be tracked:" >&2
+  echo "$tracked_nda" >&2
+  exit 1
+fi
+
 if rg -n 'org\.gradle\.java\.home=|/Users/[^/]+/|/private/tmp/nuri-fido2-real-card-venv' \
   package.json scripts card third_party mobile/expo-nfc-prf-probe \
   --glob '!scripts/audit-source-completeness.sh' \
