@@ -3,6 +3,15 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-12 — Card V1.0.1 portability fix
+
+- Removed the last machine-specific Java home from the vendored FIDO2 Gradle
+  properties. The release builder now supplies its validated JDK 8 through the
+  environment on macOS and Linux.
+- Added after the first public CI run exposed the stale macOS-only property;
+  local builds had masked it because the same JDK existed on the development
+  machine.
+
 ## 2026-07-12 — Reproducible Card V1 release foundation
 
 ### Added
