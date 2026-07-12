@@ -8,7 +8,7 @@ import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
 import { SigHash, Transaction } from '@scure/btc-signer';
 
 const PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';
-const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 
 const NETWORKS = {

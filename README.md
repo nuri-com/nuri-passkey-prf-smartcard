@@ -2,7 +2,7 @@
 
 **A smartcard that is both a passkey and a non-exportable Bitcoin MuSig2 signer, linked explicitly to a live Nuri/Arkade account.**
 
-MIT-licensed, open hardware-wallet research proven on a physical Feitian Java
+Open hardware-wallet research (MIT plus documented GPL applet portions) proven on a physical Feitian Java
 Card: the card co-signed live Bitcoin transactions, signed an Ark transaction
 over Android NFC, and authenticates over WebAuthn like a passkey.
 The live card flow keeps the FIDO credential and MuSig2 wallet key separate and
@@ -24,6 +24,8 @@ verifies their server mapping; see the [2026-07-10 incident report](docs/expo-we
 - [Roadmap to the vision](#roadmap-to-the-vision)
 - [Quick start](#quick-start)
 - [From scratch: clone, install, run your own card](#from-scratch-clone-install-run-your-own-card)
+- [Card V1 reproducible release](docs/card-v1-release.md)
+- [Physical-card acceptance runbook](docs/card-v1-acceptance.md)
 - [Capability reference](#capability-reference)
 - [SSH with the smartcard](#fido2-ssh-security-key)
 - [Ethereum / EVM signing](#ethereum-evm-signing)
@@ -361,7 +363,7 @@ echo '{"mode":"send", ...cfg... }' | node scripts/card-arkade-claim.mjs
 5. Send: use the terminal, or the CLI runner above.
 
 Requirements: a smartcard with the Nuri applets + a PC/SC reader (tested on an
-**HID OMNIKEY 5422**), Node 20+, and the real-card Python venv (see
+**HID OMNIKEY 5422**), Node 20+, and the pinned real-card Python environment (see
 [host dependencies](#1-clone-and-install-host-dependencies)). The Nuri server
 service URLs are supplied explicitly at runtime. The URLs above are examples,
 not embedded account or identity defaults.
@@ -656,7 +658,7 @@ preferred for libsecp256k1-grade speed but has no wheel for Python 3.14 yet;
 OMNIKEY 5422 contact slot.
 
 ```bash
-npm install
+npm ci
 npm test            # MuSig2 simulator tests vs @scure/btc-signer
 npm run musig2:demo # prints verified=true
 npm run cosign:demo # prints NURI_CARD_COSIGN_FLOW_OK, final_signature_verified=true
@@ -695,12 +697,12 @@ GlobalPlatform transport key, and this repo.
 ```bash
 git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git
 cd nuri-passkey-prf-smartcard
-npm install
+npm ci
 ```
 
-Requirements: **Node 20+**, **Java 17** (FIDO2 simulator), **Python 3.10+**,
-**git**. A physical card is only needed for the `card:*` / `cosign:real-card` /
-`nuri:wallet:*` steps; everything else runs against simulators.
+Requirements: **Node 20+**, **Java 17** (host/Expo), **JDK 8** (CAP builds),
+**Python 3.10+**, **Ant**, `patch`, `rsync`, `shasum`, and **git**. A physical
+card is only needed for provisioning and real-card acceptance.
 
 Install [GlobalPlatformPro](https://github.com/martinpaljak/GlobalPlatformPro)
 (`gp`) — needed to install applets on the card:
@@ -718,29 +720,29 @@ npm test            # MuSig2 simulator tests vs @scure/btc-signer
 npm run musig2:demo # prints verified=true
 npm run cosign:demo # prints NURI_CARD_COSIGN_FLOW_OK, final_signature_verified=true
 npm run e2e         # full host-side end-to-end (clones FIDO2Applet, builds jCardSim, PRF test)
+npm run card:release:verify # rebuild and byte/component-verify all Card V1 CAPs
 ```
 
 ### 3. Flash the card (one-time, per card)
 
-Insert the **blank card** into the PC/SC reader. Get the transport key from the
-seller. Then install the four applets:
+Insert the **blank card** into the PC/SC reader and use the seller-supplied
+transport key. The guarded provisioner verifies the complete release checksum
+set, refuses a target that already contains a Nuri applet, and installs all four
+applets:
 
 ```bash
-# FIDO2 / passkey / WebAuthn PRF applet (required for SSH + passkey + wallet PRF)
-GP_READER_INDEX=2 GP_KEY="your-card-transport-key" npm run card:install
-npm run card:test                                   # expect REAL_CARD_WEBAUTHN_PRF_OK
+CARD_PROVISION_CONFIRM=YES \
+GP_READER_INDEX=2 \
+GP_KEY="your-card-transport-key" \
+scripts/provision-card-v1.sh
 
-# MuSig2 cosigner applet (required for Bitcoin signing — needs 2025-05-14 OS)
-npm run card:musig2:install
-npm run cosign:real-card:keygen                     # expect REAL_CARD_COSIGN_FLOW_OK
+# One-time key/PIN initialization on a new card
+npm run cosign:real-card:keygen
+scripts/run-card-python.sh scripts/card-eth-test.py --regenerate
+npm run card:pin:set
 
-# OATH-TOTP applet (required for on-card 2FA codes)
-npm run card:totp:build && npm run card:totp:install
-
-# ETH / EVM ECDSA signer applet (required for Ethereum + plain-Bitcoin signing)
-cd card/eth && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build && cd ../..
-java -jar ~/bin/gp.jar --install card/dist/nuri-eth-signer.cap
-python3 scripts/card-eth-test.py                    # expect "ECDSA SIGNATURE VERIFIED"
+# Non-destructive acceptance after initialization
+CARD_REAL_TESTS=YES scripts/accept-card-v1.sh
 ```
 
 > **secp256k1 check:** MuSig2 only works on cards with OS `2025-05-14`
@@ -1206,13 +1208,14 @@ primitive, (c) third-party security review, and (d) an EAL-certified chip.
 
 The chip name is not enough. The card must be **unfused/unlocked** and the seller
 must provide the **GlobalPlatform/SCP transport keys** so you can install
-`dist/FIDO2.cap`. Buy a few, run the same commands against each.
+`dist/FIDO2-up.cap`. Buy samples and qualify every batch before relying on it.
 
 | Priority | Target | Why | Watch out |
 |---|---|---|---|
-| 1 | **J3R180 / JCOP4 / 180K** | Newer JCOP4, JC 3.0.5, memory headroom | seller must give keys; bulk/MOQ |
-| 2 | **J3H145 / JCOP3 / 145K** | Listed as working by upstream FIDO2Applet | often pricier |
-| 3 | **J3R150 / JCOP4 / 150K** | Cheap test card; "not fused / TK provided" is a good sign | not in upstream tested list |
+| 1 | **J3R200 / JCOP4 / 200K user NVM** | Best blank-card headroom for all four applets | seller must prove PLAIN_XY, dual interface, unlocked state, and keys |
+| 2 | **J3R180 / JCOP4 / 180K** | Newer JCOP4, JC 3.0.5 | model name does not guarantee PLAIN_XY or usable free memory |
+| 3 | **J3H145 / JCOP3 / 145K** | Listed as working by upstream FIDO2Applet | not accepted for the full four-applet stack without a MuSig2 keygen pass |
+| 4 | **J3R150 / JCOP4 / 150K** | Cheap experiment | memory and MuSig2 capability must be proven on the exact batch |
 | — | **Feitian FT-JCOS BioCARD** | The fingerprint target: JC 3.0.5, match-on-SE biometrics, preloaded FIDO2, room for a Bitcoin applet | fingerprint applet SDK is NDA-gated |
 
 Required card capabilities (FIDO2/PRF): Java Card Classic 3.0.4+, GlobalPlatform
@@ -1230,19 +1233,16 @@ CLI; optionally an **ACR122U** NFC reader for APDU/NFC experiments.
 
 ## Flashing a real card
 
-Prebuilt CAPs ship in `dist/` (`FIDO2.cap`, `nuri-musig2-v20-keygen.cap`,
+Prebuilt CAPs ship in `dist/` (`FIDO2-up.cap`, `nuri-musig2-v20-keygen.cap`,
 `nuri-oath-totp.cap`, `nuri-eth-signer.cap`) with checksums in `dist/SHA256SUMS`
-and provenance in [`dist/README.md`](dist/README.md). Rebuild with
-`npm run card:build` (ETH applet: `cd card/eth && JAVA_HOME=$(/usr/libexec/java_home -v 1.8) ant build`).
+and provenance in [`dist/README.md`](dist/README.md). Rebuild and verify every
+artifact with `npm run card:release:verify`. The full release and hardware
+runbooks are [`docs/card-v1-release.md`](docs/card-v1-release.md) and
+[`docs/card-v1-acceptance.md`](docs/card-v1-acceptance.md).
 
 ```bash
-# install the FIDO2 applet with the key your seller supplied
-GP_READER_INDEX=2 GP_KEY="your card key" npm run card:install
-npm run card:test                                   # expect REAL_CARD_WEBAUTHN_PRF_OK
-
-# install the MuSig2 applet next to it
-npm run card:musig2:install
-npm run cosign:real-card:keygen                     # expect REAL_CARD_COSIGN_FLOW_OK
+CARD_PROVISION_CONFIRM=YES GP_READER_INDEX=2 \
+GP_KEY="your card key" scripts/provision-card-v1.sh
 ```
 
 Reset / reinstall on a **test** card only (destructive — wipes FIDO2 state):
@@ -1303,16 +1303,17 @@ fingerprint UV replaces it once the Feitian biometric applet path is integrated.
 - Physical tamper resistance from a blank dev card — production needs an
   EAL-certified chip with documented keys.
 
-Upstream license note: Satochip's `musig2-support` applet (the reference for real
-Java Card MuSig2 nonce-reuse protection) is **AGPL-3.0**; this repo is **MIT**. Do not
-copy Satochip Java into this repo without a deliberate license decision — keep it as
-an upstream reference, or write a clean-room minimal signer.
+License note: the repository contains mixed licensing. FIDO2 and the general
+host/app code are MIT; the MuSig2 and ETH applet trees contain preserved
+Satochip/OV-chip `Biginteger` code under GPL-2.0-or-later. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) before redistribution.
 
 ---
 
 ## Repo layout & references
 
-- `card/` — `NuriOathTotp.java` and the Java Card build (`ant`).
+- `card/musig2/`, `card/totp/`, `card/eth/` — complete custom Java Card applet sources and portable Ant builds.
+- `third_party/fido2-applet/` — exact vendored Nuri FIDO2 source base; repository-root patches remain separate and reviewable.
 - `src/musig2/` — method-level and APDU-level MuSig2 simulators (`@scure`-compatible).
 - `scripts/` — every real-card and host flow (wallet, cosign, PRF, Arkade, MCP, TOTP,
   SSH). `scripts/ssh-pcsc-sk-provider.c` + `ssh-pcsc-sk-helper.py` are the OpenSSH
@@ -1332,9 +1333,10 @@ an upstream reference, or write a clean-room minimal signer.
   (`tap-to-pay-concept.md`), gp/macOS troubleshooting, real-card proofs, hardware
   spec, card research.
 
-This repo does **not** vendor the FIDO2Applet source; `npm run fido2:prepare` clones
-[Bryan Jacobs' FIDO2Applet](https://github.com/BryanJacobs/FIDO2Applet) at a pinned
-ref into `vendor/FIDO2Applet-clean` (git-ignored) and builds the simulator.
+This repo vendors the exact Nuri FIDO2 source base used for Card V1 under
+`third_party/fido2-applet/`. `npm run fido2:prepare` copies that snapshot into
+`.build/`, applies the two reviewable patches, and never depends on an mutable
+upstream branch.
 
 Specs & libraries:
 [WebAuthn L3 PRF](https://www.w3.org/TR/webauthn-3/) ·

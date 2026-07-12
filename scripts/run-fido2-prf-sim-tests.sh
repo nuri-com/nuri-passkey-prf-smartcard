@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASELINE="${FIDO2_DEST:-$ROOT/vendor/FIDO2Applet-clean}"
-PYTHON_BIN="${PYTHON_BIN:-/opt/homebrew/bin/python3.10}"
+BASELINE="${FIDO2_DEST:-$ROOT/.build/fido2-applet}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 VENV="${FIDO2_TEST_VENV:-/tmp/nuri-fido2-prf-venv}"
 
 if [[ ! -d "$BASELINE" ]]; then

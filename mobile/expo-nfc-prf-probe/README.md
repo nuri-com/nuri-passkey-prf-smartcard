@@ -10,6 +10,13 @@ The shared numeric keypad is the exact `View`/`Button` composition from the
 official Nuri RN `AmountSheet` example; it introduces no custom visual
 primitive, size, or spacing value.
 
+The design-system checkout is pinned to commit
+`73c64a07e85cf086d750629a82af2b8a7527b43a`. From the repository root,
+`npm run mobile:prepare:v1` creates the ignored local checkout expected by this
+app. Because the design-system repository is private, a fresh external builder
+needs GitHub access to `nuri-com/nuri-design-system` unless the packages are
+separately published/licensed.
+
 ## Current user flow
 
 ### Terminal
@@ -86,8 +93,10 @@ replace an existing credential during normal app startup.
 The NFC module requires a native development build; Expo Go is not supported.
 
 ```bash
+# from the repository root
+npm run mobile:prepare:v1
 cd mobile/expo-nfc-prf-probe
-npm install
+npm ci
 npm run android:profile
 ```
 
@@ -134,16 +143,26 @@ Build the native Android app with JDK 17:
 ```bash
 cd android
 JAVA_HOME=$(/usr/libexec/java_home -v 17) \
-ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
-ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools \
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
 NODE_ENV=development \
 ./gradlew app:assembleDebug
 ```
 
-The full TypeScript check currently traverses the linked design-system source
-package and reports its external peer-resolution errors. Android Metro export
-and the native Gradle build are the authoritative app compile checks until that
-package-level TypeScript setup is corrected.
+The Card V1 verification entrypoint runs the pinned design-system checkout,
+clean dependency installation, design-system guard, TypeScript, and Android
+Metro export together:
+
+```bash
+# from the repository root
+npm run mobile:verify:v1
+
+# additionally compile the native arm64 Android APK
+EXPO_NATIVE_ANDROID=YES npm run mobile:verify:v1
+```
+
+The same lockfile currently passes `npm audit --audit-level=low` with zero
+reported vulnerabilities.
 
 The receive-claim routing change has been compiled and exercised through app
 startup, but a fresh claimable payment was not available for a new physical-card

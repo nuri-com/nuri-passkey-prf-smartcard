@@ -3,6 +3,49 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-12 — Reproducible Card V1 release foundation
+
+### Added
+
+- Imported the exact MuSig2 v1.10/KGEN Java source that produced the proven
+  real-card CAP; it no longer depends on an uncommitted sibling workbench.
+- Vendored the exact Nuri FIDO2 source base and preserved the PRF/user-presence
+  changes as separate patches.
+- Added portable builds for FIDO2, MuSig2, TOTP, and ETH using pinned Java Card
+  SDK and build-tool inputs.
+- Added deterministic CAP normalization, internal component comparison, complete
+  SHA-256 coverage, guarded blank-card provisioning, and host/real-card
+  acceptance entrypoints.
+- Added full Card V1 rebuild, licensing, provisioning, acceptance, and handoff
+  documentation.
+- Added a pinned, self-creating Python card environment and removed active
+  developer-machine virtual-environment paths from the real-card tools.
+- Added a pinned private design-system checkout plus Expo source and optional
+  native Android verification entrypoints.
+
+### Fixed
+
+- Corrected stale FIDO2 provenance and the incomplete checksum manifest.
+- Promoted the locally proven ETH v1.3 CAP into the reproducible `dist/` set;
+  the previous tracked CAP was an older build despite the documentation saying
+  v1.3.
+- Removed absolute developer-machine paths from every custom applet build.
+- Made ETH testing non-destructive by default; key replacement now requires
+  explicit `--regenerate`.
+- Documented the actual mixed MIT/GPL-2.0-or-later licensing boundary.
+
+### Verified
+
+- A clean build reproduces every executable CAP component from the proven
+  artifacts. After timestamp normalization, repeated builds have stable hashes.
+- All five release CAP files pass the Java Card converter/verifier and are
+  covered by `dist/SHA256SUMS`.
+- The Expo design-system guard, TypeScript check, Android Metro export, arm64
+  native build, and USB-device installation passed. The same lockfile reports
+  zero npm audit findings.
+- The current physical-card acceptance rerun remained unclaimed because macOS
+  exposed no PC/SC reader; only the Samsung phone was attached by USB.
+
 ## 2026-07-11 — Design-system terminal, profile, and receive claim flow
 
 ### Changed

@@ -22,7 +22,7 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
 import { bech32m } from '@scure/base';
 
-export const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+export const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 export const TWEAKED = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 export const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 export const CSV_BLOCKS = 52500;

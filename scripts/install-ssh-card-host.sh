@@ -28,7 +28,7 @@ cd "$ROOT"
 
 PROVIDER="$ROOT/dist/nuri-pcsc-sk-provider.so"
 HELPER="$ROOT/scripts/ssh-pcsc-sk-helper.py"
-VENV="${NURI_PCSC_VENV:-/tmp/nuri-fido2-real-card-venv}"
+VENV="${NURI_PCSC_VENV:-$ROOT/.build/card-v1-python}"
 SSH_DIR="$HOME/.ssh"
 KEY_FILE="$SSH_DIR/id_nuri_pcsc_sk"
 
@@ -43,27 +43,19 @@ echo "[1/4] Building nuri-pcsc-sk-provider.so ..."
 if [[ ! -f "$PROVIDER" ]] || [[ "${FORCE_BUILD:-}" == "yes" ]]; then
   CC=cc
   if command -v clang >/dev/null 2>&1; then CC=clang; fi
-  $CC -dynamiclib -fvisibility=hidden -Wall -O2 -o "$PROVIDER" scripts/ssh-pcsc-sk-provider.c
+  NURI_CARD_VENV="$VENV" "$ROOT/scripts/run-card-python.sh" -c 'import fido2, smartcard'
+  "$CC" -dynamiclib -fvisibility=hidden -Wall -O2 \
+    "-DNURI_PCSC_SK_HELPER=\"$HELPER\"" \
+    "-DNURI_PCSC_SK_PYTHON=\"$VENV/bin/python\"" \
+    -o "$PROVIDER" scripts/ssh-pcsc-sk-provider.c
   echo "  built: $PROVIDER"
 else
   echo "  exists: $PROVIDER (set FORCE_BUILD=yes to rebuild)"
 fi
 
-# --- 2. Python venv with fido2 ------------------------------------------------
-echo "[2/4] Setting up Python venv with fido2 ..."
-if [[ ! -d "$VENV" ]]; then
-  python3 -m venv "$VENV"
-fi
-# fido2 may already be installed (existing venv). Only install if missing.
-if ! "$VENV/bin/python" -c 'import fido2' 2>/dev/null; then
-  "$VENV/bin/python" -m pip install --quiet 'fido2>=1.1' pyscard 2>/dev/null || \
-    "$VENV/bin/python" -m pip install --quiet --break-system-packages 'fido2>=1.1' pyscard 2>/dev/null || true
-fi
-if ! "$VENV/bin/python" -c 'import fido2, smartcard' 2>/dev/null; then
-  echo "  installing fido2 + pyscard ..." >&2
-  "$VENV/bin/python" -m pip install --quiet 'fido2>=1.1' pyscard 2>/dev/null || \
-    "$VENV/bin/python" -m pip install --quiet --break-system-packages 'fido2>=1.1' pyscard 2>/dev/null || true
-fi
+# --- 2. Python venv with pinned card dependencies -----------------------------
+echo "[2/4] Verifying pinned Python card environment ..."
+NURI_CARD_VENV="$VENV" "$ROOT/scripts/run-card-python.sh" -c 'import fido2, smartcard'
 echo "  venv ready: $VENV/bin/python"
 
 # --- 3. SSH config snippet ----------------------------------------------------

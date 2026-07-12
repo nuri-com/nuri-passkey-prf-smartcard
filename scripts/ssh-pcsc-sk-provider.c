@@ -19,7 +19,7 @@
 #define NURI_PCSC_SK_HELPER "scripts/ssh-pcsc-sk-helper.py"
 #endif
 #ifndef NURI_PCSC_SK_PYTHON
-#define NURI_PCSC_SK_PYTHON "/tmp/nuri-fido2-real-card-venv/bin/python"
+#define NURI_PCSC_SK_PYTHON "python3"
 #endif
 
 struct sk_enroll_response {

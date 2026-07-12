@@ -18,7 +18,7 @@
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 
-const PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+const PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 const CARD_KEY_SCRIPT = process.env.NURI_MUSIG2_CARD_KEY_SCRIPT || 'scripts/read-musig2-card-key.py';
 

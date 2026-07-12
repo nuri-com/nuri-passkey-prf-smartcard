@@ -2,34 +2,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="${FIDO2_SOURCE:-https://github.com/BryanJacobs/FIDO2Applet.git}"
-DEST="${FIDO2_DEST:-$ROOT/vendor/FIDO2Applet-clean}"
-REF="${FIDO2_REF:-fb827954cd091a1810163ce51d2f86d42d0b8e20}"
+SOURCE="${FIDO2_SOURCE:-$ROOT/third_party/fido2-applet}"
+DEST="${FIDO2_DEST:-$ROOT/.build/fido2-applet}"
 
-mkdir -p "$ROOT/vendor"
+mkdir -p "$(dirname "$DEST")"
 
-if [[ -e "$DEST" ]]; then
-  echo "Baseline already exists: $DEST"
-else
-  if [[ -d "$SOURCE/.git" ]]; then
-    git clone --no-hardlinks "$SOURCE" "$DEST"
-  else
-    git clone "$SOURCE" "$DEST"
-  fi
-fi
+mkdir -p "$DEST"
+rsync -a --delete "$SOURCE/" "$DEST/"
 
-git -C "$DEST" fetch --all --tags --prune >/dev/null 2>&1 || true
-git -C "$DEST" checkout --detach "$REF"
-git -C "$DEST" submodule update --init --recursive
-git -C "$DEST" clean -fdx
-git -C "$DEST" reset --hard
-
-# Apply Nuri patches (kept here because vendor/ is gitignored and re-cloned).
+# Apply the versioned Nuri patches to the vendored clean snapshot.
 for patch in "$ROOT"/patches/*.patch; do
   [[ -e "$patch" ]] || continue
   echo "Applying $(basename "$patch")"
-  git -C "$DEST" apply "$patch"
+  patch --directory="$DEST" --strip=1 --input="$patch"
 done
 
 echo "Prepared clean FIDO2 baseline at $DEST"
-git -C "$DEST" log --oneline -1
+echo "Nuri FIDO2 base: 4f318197cc08f316ce784a89bdf29dc73cca7fcf"

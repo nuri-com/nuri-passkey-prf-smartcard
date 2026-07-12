@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
@@ -13,7 +14,7 @@ config.resolver.sourceExts = [...config.resolver.sourceExts, 'ts', 'tsx'];
 // Watch the DS repo directory so Metro can follow symlinks
 config.watchFolders = [
   __dirname,
-  '/Users/eminmahrt/Developer/nuri-design-system-official',
+  path.resolve(__dirname, '../../.build/nuri-design-system'),
 ];
 
 // Resolve all node_modules from this project first

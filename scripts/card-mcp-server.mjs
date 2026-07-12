@@ -21,7 +21,7 @@ import {
   buildAndSignSpend,
 } from './nuri-card-wallet.mjs';
 
-const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const CSV_BLOCKS = 52500; // matches card-cosign-tweaked.py and nuriBitcoin.ts

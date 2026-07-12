@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CAP="${CAP:-$ROOT/dist/FIDO2.cap}"
+CAP="${CAP:-$ROOT/dist/FIDO2-up.cap}"
 GP_BIN="${GP_BIN:-gp}"
 
 if [[ ! -f "$CAP" ]]; then

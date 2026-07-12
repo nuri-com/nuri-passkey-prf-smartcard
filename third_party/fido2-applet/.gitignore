@@ -1,0 +1,6 @@
+/.gradle
+/.idea
+/build
+/venv
+__pycache__
+/bin

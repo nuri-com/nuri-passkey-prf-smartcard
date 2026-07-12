@@ -2,9 +2,13 @@
 
 ## Viable Source
 
-The viable source is Bryan Jacobs' FIDO2Applet lineage. It already implements CTAP2.1, Java Card builds, jCardSim support, and CTAP2 `hmac-secret`.
+The viable source is the Bryan Jacobs FIDO2Applet lineage. It already implements CTAP2.1, Java Card builds, jCardSim support, and CTAP2 `hmac-secret`.
 
-This workspace does not fork that source by default. It prepares a clean local baseline under `vendor/FIDO2Applet-clean` from `https://github.com/BryanJacobs/FIDO2Applet.git` at ref `fb827954cd091a1810163ce51d2f86d42d0b8e20`.
+Card V1 vendors the exact clean Nuri-fork base at commit
+`4f318197cc08f316ce784a89bdf29dc73cca7fcf` under
+`third_party/fido2-applet/`. Its parent is upstream FIDO2Applet v2.0.5 commit
+`0194107d9648577379058b59843504924b546514`. The Nuri PRF and user-presence
+changes remain separate under `patches/`.
 
 ## Why Not A CTAP `prf` Extension
 
@@ -21,7 +25,7 @@ So the applet should pass `hmac-secret` tests and should not add a separate GetI
 
 ## Local Simulator Workflow
 
-Prepare a clean baseline:
+Prepare the isolated patched build tree:
 
 ```bash
 scripts/prepare-fido2-baseline.sh
@@ -37,7 +41,7 @@ The test script:
 
 - uses Java 17 when available,
 - creates a temporary Python venv,
-- installs the cloned baseline's `requirements.txt`,
+- installs the vendored baseline's `requirements.txt`,
 - builds `jar` and `testJar`,
 - runs `python_tests.ctap.test_hmac_secret.HMACSecretTestCase`,
 - runs this repo's `test/fido2_prf_e2e.py` browser-PRF mapping test.

@@ -8,6 +8,7 @@ Flow:
 4. INS_SIGN with a known hash → get (r, s, v)
 5. Verify: ecrecover(r, s, v) == pubkey
 """
+import argparse
 import hashlib
 from smartcard.System import readers
 from smartcard.CardConnection import CardConnection
@@ -41,28 +42,56 @@ def sign(conn, hash32):
     return transmit(conn, apdu)
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--regenerate",
+        action="store_true",
+        help="destructively replace the existing on-card ETH key before testing",
+    )
+    args = parser.parse_args()
+
     rs = readers()
-    # Find the reader with the card
+    conn = None
+    # Find the reader whose inserted card actually exposes the ETH applet.
     for i, r in enumerate(rs):
+        candidate = None
         try:
-            conn = r.createConnection()
+            candidate = r.createConnection()
             # ponytail: OMNIKEY 5422 contact slot fails T=1 transmits; card speaks T=0
-            conn.connect(CardConnection.T0_protocol)
+            candidate.connect(CardConnection.T0_protocol)
+            select(candidate)
+            conn = candidate
             print(f"Reader {i}: {r}")
             break
-        except:
+        except Exception:
+            try:
+                if candidate is not None:
+                    candidate.disconnect()
+            except Exception:
+                pass
             continue
 
+    if conn is None:
+        raise SystemExit("Nuri ETH applet not found on any reader")
+
     print("\n=== SELECT NURIETH1 ===")
-    select(conn)
     print("OK")
 
     print("\n=== GET_VERSION ===")
     ver = get_version(conn)
     print(f"Version: {ver[0]}.{ver[1]}, build: {ver[3:7].decode()}")
 
-    print("\n=== KEYGEN ===")
-    pubkey33 = keygen(conn)
+    if args.regenerate:
+        print("\n=== KEYGEN (DESTRUCTIVE) ===")
+        pubkey33 = keygen(conn)
+    else:
+        print("\n=== EXISTING KEY ===")
+        try:
+            pubkey33 = get_pubkey(conn)
+        except RuntimeError as error:
+            raise SystemExit(
+                f"No existing ETH key. Run once with --regenerate on a new/test card: {error}"
+            ) from error
     print(f"Compressed pubkey: {pubkey33.hex()}")
 
     # Derive Ethereum address (host-side keccak256)
@@ -175,6 +204,7 @@ def main():
         print(f"  compressed: {recovered_pub.hex()}")
         if recovered_pub == pubkey33:
             print("\n✅ ECDSA SIGNATURE VERIFIED — recovered pubkey matches card pubkey!")
+            print("REAL_CARD_ETH_SIGN_FLOW_OK")
         else:
             print("\n❌ MISMATCH — recovered pubkey does not match card pubkey")
             print(f"  card:     {pubkey33.hex()}")

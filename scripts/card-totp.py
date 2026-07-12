@@ -67,7 +67,7 @@ def transmit(conn, apdu):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", nargs="?", choices=["put", "code"])
+    ap.add_argument("cmd", nargs="?", choices=["put", "code", "status"])
     ap.add_argument("secret", nargs="?")
     ap.add_argument("--step", type=int, default=30)
     ap.add_argument("--digits", type=int, default=6)
@@ -78,9 +78,13 @@ def main() -> None:
         selfcheck()
         return
     if not args.cmd:
-        ap.error("cmd required (put|code) or --selfcheck")
+        ap.error("cmd required (put|code|status) or --selfcheck")
 
     conn = connect()
+
+    if args.cmd == "status":
+        print("REAL_CARD_TOTP_SELECT_OK")
+        return
 
     if args.cmd == "put":
         if not args.secret:

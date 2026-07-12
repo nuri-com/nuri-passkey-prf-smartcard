@@ -2,15 +2,16 @@
 <project name="NuriOathTotp" default="build" basedir=".">
     <description>Build NuriOathTotp applet CAP</description>
 
-    <property name="ajc.jar" location="../../nuri-smartcard-musig2/java-applet/ant-javacard-working.jar"/>
+    <property name="ajc.jar" location="../../tools/ant-javacard-proven.jar"/>
     <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ajc.jar}"/>
 
-    <property name="jckit.path" value="/Users/eminmahrt/Developer/FIDO2Applet-working-idex-backup/sdks/jc304_kit"/>
+    <fail unless="jckit.path" message="Pass -Djckit.path=/absolute/path/to/jc304_kit"/>
+    <property name="cap.output" location="../../dist/nuri-oath-totp.cap"/>
 
     <target name="build">
         <mkdir dir="../dist"/>
         <javacard jckit="${jckit.path}">
-            <cap aid="4E555249544F50" version="1.0" output="../dist/nuri-oath-totp.cap" sources="." jca="3.0.4">
+            <cap aid="4E555249544F50" version="1.0" output="${cap.output}" sources="." jca="3.0.4">
                 <applet class="com.nuri.oath.NuriOathTotp" aid="4E555249544F5450"/>
             </cap>
         </javacard>

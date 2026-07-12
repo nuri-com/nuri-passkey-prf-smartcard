@@ -15,7 +15,7 @@ import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosi
 import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
 
 const card = createOnCardGeneratedCard();
-const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || '/private/tmp/nuri-fido2-real-card-venv/bin/python';
+const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const REAL_CARD_ARKADE_SCRIPT = process.env.REAL_CARD_ARKADE_SCRIPT || 'scripts/real-card-arkade-signer-proof.py';

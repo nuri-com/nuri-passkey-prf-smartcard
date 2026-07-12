@@ -19,7 +19,7 @@ import { bytesToHex } from '@noble/curves/abstract/utils';
 
 const utf8 = (s) => new TextEncoder().encode(s);
 
-const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/tmp/nuri-fido2-real-card-venv/bin/python';
+const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 const PRF_PROFILE = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
 // MUST match nuri-expo PRF_SALT (config/constants.ts) and the arkade signing vault.

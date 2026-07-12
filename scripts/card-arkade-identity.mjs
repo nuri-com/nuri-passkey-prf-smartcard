@@ -22,7 +22,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/curves/abstract/utils';
 
-const PY = process.env.REAL_CARD_COSIGN_PYTHON || '/tmp/nuri-fido2-real-card-venv/bin/python';
+const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 export const prfProfile = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
 // MUST match nuri-expo config/constants.ts PRF_SALT.

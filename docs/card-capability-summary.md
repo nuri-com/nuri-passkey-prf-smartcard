@@ -6,7 +6,7 @@ A plain-English summary for hardware suppliers and manufacturers.
 
 ## What the card is
 
-A Java Card secure element (e.g. Feitian FT-JCOS BioCARD) running **three
+A Java Card secure element (e.g. Feitian FT-JCOS BioCARD) running **four
 independent applets** side by side, each behind its own AID:
 
 | Applet | AID | What it does |
@@ -14,10 +14,12 @@ independent applets** side by side, each behind its own AID:
 | FIDO2 / Passkey | `A0000006472F0001` | WebAuthn authenticator + CTAP2 `hmac-secret` (PRF). Also acts as a hardware SSH key via OpenSSH. |
 | MuSig2 cosigner | `4E5552494D554701` | On-card secp256k1 key generation, returns only the public key, signs MuSig2 partials. The private key never leaves the card. |
 | OATH-TOTP | `4E555249544F5450` | Stores a 2FA secret, computes HMAC-SHA1 on-card. The secret is written in and never read back. |
+| ETH / EVM signer | `4E55524945544801` | Generates a secp256k1 key on-card and produces recoverable ECDSA signatures. |
 
-All three applets are open-source (MIT) and prebuilt as `.cap` files in
-`dist/`. The card must be **unfused/unlocked** with **GlobalPlatform/SCP
-transport keys** provided by the seller so the buyer can install these.
+All four applets have complete corresponding source and prebuilt `.cap` files
+in `dist/`. FIDO2/TOTP are MIT; MuSig2/ETH include GPL-2.0-or-later portions.
+See `THIRD_PARTY_NOTICES.md`. The card must be **unfused/unlocked** with
+**GlobalPlatform/SCP transport keys** provided by the seller.
 
 ---
 
@@ -66,11 +68,18 @@ The card acts as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key:
   the 6-digit code. The secret never leaves the card after being written.
 - Verified against the RFC 6238 test vector.
 
-### 5. Same wallet as the Nuri phone app
+### 5. Ethereum/EVM signing (proven)
 
-- The card's FIDO2 PRF output, run through the same HKDF derivation as the
-  Nuri app, produces the **byte-identical** wallet/identity key. The card is
-  a drop-in for the phone passkey.
+- The ETH applet's version 1.3 key is generated on-card and non-exportable.
+- Recoverable ECDSA signatures were independently verified against the card's
+  public key across multiple hashes.
+
+### 6. Native Nuri terminal and profile
+
+- The Expo app reads the card over Android NFC, authenticates the registered
+  card identity, sends card/server MuSig2 rounds, and monitors incoming claims.
+- The FIDO credential and MuSig2 signer are separate keys. The live server
+  explicitly binds them; the application does not infer that they are the same.
 
 ---
 
@@ -82,7 +91,7 @@ The card acts as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key:
 | **Browser PRF on macOS** | The card enables `hmac-secret`, but Safari returns `prf:null` for external security keys and Chrome can't see a PC/SC contact reader. This is a **platform limitation** (macOS browser), not a card limitation. Browser PRF works via native NFC app or Windows. | Platform issue. Card works; browser doesn't pass it through. |
 | **Fingerprint unlock in our own applet** | Feitian confirms a Java applet can call the match-on-card fingerprint API to gate a private-key operation, but the BioCARD SDK is **NDA-gated**. Today: PIN/UV, or Feitian's own preloaded biometric FIDO2 stack. | Needs NDA SDK. Hardware path identified. |
 | **MuSig2 on older OS cards** | secp256k1 EC point-multiply (`ALG_EC_SVDP_DH_PLAIN_XY`) is only available on cards with OS **`2025-05-14`** (ATR `3b:81:80:01:80:80`). The `2023-03-30` OS lacks it → keygen returns `6A81`. The OS is mask-ROM, **not user-updatable**. | Silicon-gated. Must screen each batch with `gp -i`. |
-| **NFC tap-to-pay / POS** | The contactless interface works for CTAP2, but a Bitcoin tap-to-pay / POS terminal flow is not built yet. This is the north-star vision, not current capability. | Vision, not built. |
+| **Transaction display / on-card approval** | MuSig2 and ETH sign protocol inputs/hashes but do not independently display or parse the human-readable transaction. | Research-grade; the host and PIN/tap flow provide the current approval boundary. |
 | **Production tamper resistance** | Dev cards are not EAL-certified. Production needs an EAL-certified chip with documented keys. | Hardware decision, not software. |
 | **MuSig2 applet audit** | The applet is a proven device primitive, not a reviewed production signer. Nonce policy, PIN/fingerprint policy, and final host-flow hardening are still needed before production use. | Research-grade, not production. |
 
@@ -100,7 +109,7 @@ The card acts as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key:
 | SHA-256 | yes | yes |
 | AES-256-CBC no-pad | yes | yes |
 | TRNG | yes | yes |
-| NVM | ~100KB+ | 180K+ |
+| User NVM | ~100KB+ for FIDO-only | 200K for the complete four-applet stack |
 | secp256k1 (`ALG_EC_SVDP_DH_PLAIN_XY`) | needed for MuSig2/Bitcoin | needed for full capability |
 | Match-on-card fingerprint API | optional (NDA SDK) | needed for biometric unlock |
 
@@ -108,7 +117,8 @@ The card acts as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key:
 **GlobalPlatform/SCP transport keys** must be provided to the buyer. Without
 these, the buyer cannot install the applets. Same model number is not enough
 — the OS date matters for secp256k1 support. Screen each batch with
-`gp -i` to confirm the OS date is `2025-05-14` or newer.
+`gp -i`, then require a successful MuSig2 `INS_KEYGEN`; the date applies to the
+tested FEITIAN family and is not a universal cross-vendor version rule.
 
 ---
 
@@ -177,12 +187,14 @@ card B (home safe) → public key B → authorized_keys line 2
 | Private key never left either card | ✅ by design (no export APDU) |
 | Every login required a tap | ✅ user presence enforced |
 | Card co-signed live Bitcoin Signet tx | ✅ confirmed in block `308802` |
-| Card derives same wallet key as Nuri phone app | ✅ byte-identical |
+| Native Android card terminal completes both MuSig2 rounds and Ark broadcast | ✅ proven; merchant settlement remains a separate fresh-run proof boundary |
 | Card computes TOTP (RFC 6238) | ✅ verified |
+| Card creates recoverable ETH/EVM ECDSA signatures | ✅ version 1.3 verified |
 
 ---
 
 ## Open source
 
-MIT-licensed. Full source, prebuilt applets, host toolkit, and documentation:
+Full source, prebuilt applets, host toolkit, and documentation are public.
+Licensing is MIT plus the documented GPL-2.0-or-later applet portions:
 `https://github.com/nuri-com/nuri-passkey-prf-smartcard`

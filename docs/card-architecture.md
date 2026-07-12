@@ -1,9 +1,9 @@
 # Nuri Smartcard — Architecture & Security Pitch
 
-One card. Three applets. Keys that **cannot leave**. A Bitcoin Taproot wallet
+One card. Four applets. Keys that **cannot leave**. A Bitcoin Taproot wallet
 that is 2-of-2 by construction but looks like a single key on-chain.
 
-This doc explains what the card does (FIDO2/PRF, MuSig2, OATH-TOTP), how a
+This doc explains what the card does (FIDO2/PRF, MuSig2, OATH-TOTP, ETH/EVM), how a
 spend works end-to-end, and why a dedicated smartcard SE is a stronger trust
 root than a software key or a phone TEE.
 

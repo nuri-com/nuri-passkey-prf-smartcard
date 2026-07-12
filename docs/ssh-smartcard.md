@@ -113,7 +113,7 @@ It is in the card's secure element, period.
 
 **On the card:**
 - The FIDO2 applet must be installed (AID `A0000006472F0001`). The repo's
-  `dist/FIDO2.cap` is the prebuilt applet; install with `npm run card:install`.
+  `dist/FIDO2-up.cap` is the Card V1 applet; install with `npm run card:install`.
 
 ---
 

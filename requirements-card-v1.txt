@@ -1,0 +1,5 @@
+cffi==2.1.0
+cryptography==48.0.1
+fido2[pcsc]==2.1.1
+pycparser==3.0
+pyscard==2.3.1

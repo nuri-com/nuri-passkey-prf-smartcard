@@ -1,86 +1,65 @@
-# Flash Artifacts
+# Card V1 flash artifacts
 
-## FIDO2.cap
+This directory contains the normalized, reproducible CAP set for Nuri Card V1.
+Run `npm run card:release:verify` to rebuild every applet from source, verify the
+Java Card converters, compare every internal CAP component with these artifacts,
+and check `SHA256SUMS`.
 
-`FIDO2.cap` is a compiled Java Card CAP file built from:
+ZIP timestamps and the generated CAP creation-time manifest field are normalized.
+This makes the outer CAP hashes deterministic without changing any loadable Java
+Card component.
 
-- Source: `https://github.com/BryanJacobs/FIDO2Applet.git`
-- Ref: `fb827954cd091a1810163ce51d2f86d42d0b8e20`
-- Java Card SDK: `jc305u3_kit`
-- Java used for CAP build: JDK 8
+| Artifact | Source | Applet AID | Runtime version | License | SHA-256 |
+| --- | --- | --- | --- | --- | --- |
+| `FIDO2.cap` | `third_party/fido2-applet/` + patch 0001 | `A0000006472F0001` | package 0.4, `up:false` | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
+| `FIDO2-up.cap` | same + patches 0001 and 0002 | `A0000006472F0001` | package 0.4, `up:true` | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.10 / `KGEN` | GPL-2.0-or-later portions | `21a729e20feb506bdcaccd36aa0890bc46c359a2db69d241688f0c600ed29a2b` |
+| `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | package 1.0 | MIT | `6f33f7c4aedea49238d3ac33867999b787972d8cc0c4f4948ad302c5e9ab1af2` |
+| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.3 / `SIGN` | GPL-2.0-or-later portions | `a47e4618dc15f7487d17a8527d8203e0dc3322ea43a018c56dc8c3c472f4ba41` |
 
-Package/app IDs:
+## Exact build inputs
 
-- Package AID: `A000000647`
-- Applet AID: `A0000006472F0001`
+- FIDO2 Nuri fork base: `4f318197cc08f316ce784a89bdf29dc73cca7fcf`
+  (parent: upstream FIDO2Applet v2.0.5 `0194107d9648577379058b59843504924b546514`)
+- Java Card SDK checkout: `e2df471e04d86f33de69a947f44766fbef1d9d69`
+- FIDO2 converter: Java Card 3.0.5 (`jc305u3_kit`)
+- Nuri applet converter: Java Card 3.0.4 (`jc304_kit`)
+- Java: Azul Zulu OpenJDK `1.8.0_452`
+- Custom-applet build tool: `tools/ant-javacard-proven.jar`, SHA-256
+  `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`
 
-SHA-256:
+The FIDO2 source snapshot and Gradle wrapper are vendored. The Oracle Java Card
+SDK checkout is fetched at its exact public commit because its licensing is
+separate from this repository. No confidential FEITIAN or IDEX material is used
+or distributed.
 
-```text
-ac473421bbbe0a2f71d51fab61606634bb50d74db15994cb4122cbbc74bdf149  FIDO2.cap
-```
+## Which FIDO2 artifact to install
 
-Install on an unlocked Java Card with GlobalPlatformPro:
+`FIDO2-up.cap` is the Card V1 production candidate. It enables `hmac-secret`
+for created credentials and advertises physical card presence as `up:true`.
+`FIDO2.cap` is retained only to reproduce the earlier `up:false` card state.
 
-```bash
-GP_READER="your reader name" GP_KEY="404142434445464748494A4B4C4D4E4F" npm run card:install
-```
-
-The default `GP_KEY` shown above is the common test/development key, not a production key. Use the key supplied with your card.
-
-This `FIDO2.cap` is the preserved **v1** applet (advertises `up:false`; works
-over PC/SC + native NFC, but not browser WebAuthn). Kept unchanged for
-reproducibility.
-
-## FIDO2-up.cap (v2 — user-presence update)
-
-Same applet as `FIDO2.cap` plus
-[`patches/0002-advertise-user-presence.patch`](../patches/0002-advertise-user-presence.patch):
-the CTAP2 getInfo `up` option is advertised as **true**, so Safari/Chrome and
-phone-web NFC accept the card as a passkey (the applet already set UP=1 in every
-assertion). See [`docs/fido2-user-presence.md`](../docs/fido2-user-presence.md).
-
-```text
-SHA-256: 2d80aeeb577b17365d0b58d32a9de879c0217444f89373be84c2bd8b02e750f8  FIDO2-up.cap
-```
-
-Install on a card that is OK to wipe (the version to flash going forward):
+## Build and verify
 
 ```bash
-CAP=dist/FIDO2-up.cap GP_READER_INDEX=2 npm run card:install
-npm run card:prf:info     # expect options.up == true
+npm ci
+npm run card:release:verify
 ```
 
-## nuri-musig2-v20-keygen.cap
+Successful verification ends with `CARD_V1_RELEASE_VERIFIED`.
 
-`nuri-musig2-v20-keygen.cap` is the real-card MuSig2 cosigner applet with
-on-card long-term key generation.
-
-- Source workbench: `../nuri-smartcard-musig2/java-applet`
-- Base class: `NuriMuSig2v019`
-- Applet-reported version: `1.10`
-- Applet-reported build tag: `KGEN`
-- Java Card SDK: `jc304_kit`
-- Java used for CAP build: Zulu JDK 8
-
-Package/app IDs:
-
-- Package AID: `4E5552494D5547`
-- Applet AID: `4E5552494D554701`
-
-SHA-256:
-
-```text
-21f742c0b1eeef25b03c404a23d0c643e978f5a89af7a6e34f63c39c3589a2de  nuri-musig2-v20-keygen.cap
-```
-
-Install on the current developer card:
+## Install all four applets on a blank development card
 
 ```bash
-npm run card:musig2:install
-npm run cosign:real-card
+CARD_PROVISION_CONFIRM=YES \
+GP_READER_INDEX=2 \
+GP_KEY="seller-supplied-transport-key" \
+scripts/provision-card-v1.sh
 ```
 
-The expected real-card proof marker is `REAL_CARD_COSIGN_FLOW_OK` with
-`key_origin: on_card_keygen_non_exportable`, `card_partial_verified: true`, and
-`final_signature_verified: true`.
+Never publish the transport key, PIN, credential profile, TOTP secret, or any
+card-generated private key. Provisioning a second card creates a new identity;
+it does not clone the original card.
+
+See `docs/card-v1-release.md` and `docs/card-v1-acceptance.md` for the complete
+rebuild, provisioning, testing, and handoff procedures.

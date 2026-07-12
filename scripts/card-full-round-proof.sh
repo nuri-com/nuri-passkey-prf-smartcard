@@ -11,7 +11,7 @@
 #   5. schnorr.verify(sig, msg, outputKey) -> true
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PY="/tmp/nuri-fido2-real-card-venv/bin/python"
+PY="${REAL_CARD_COSIGN_PYTHON:-scripts/run-card-python.sh}"
 PROFILE="${NURI_WALLET_PRF_PROFILE:-wallet-client}"
 SALT="${NURI_WALLET_PRF_SALT:-nuri-wallet-client-key-v1}"
 

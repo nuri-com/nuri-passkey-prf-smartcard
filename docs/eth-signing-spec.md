@@ -1,5 +1,11 @@
 # Nuri Card Ethereum Signing — Specification & Integration Plan
 
+> Current status: implemented and real-card proven as applet v1.3. The complete
+> source is `card/eth/`, the reproducible CAP is `dist/nuri-eth-signer.cap`, and
+> the safe existing-key acceptance command is `python3 scripts/card-eth-test.py`.
+> The implementation-plan sections below are retained as design history; use
+> `docs/card-v1-release.md` and `docs/card-v1-acceptance.md` operationally.
+
 Add standard secp256k1 ECDSA signing to the Nuri smartcard so it becomes a
 **hardware Ethereum/EVM wallet** alongside its existing Bitcoin, SSH, and TOTP
 capabilities. The private key is generated on-card and never leaves the secure
@@ -16,7 +22,7 @@ element — same security model as Bitcoin MuSig2 and FIDO2 SSH.
 - [Host-side ethers.js signer](#host-side-ethersjs-signer)
 - [APDU reference](#apdu-reference)
 - [Security model](#security-model)
-- [Implementation plan](#implementation-plan)
+- [Historical implementation plan](#historical-implementation-plan-completed)
 - [Testing](#testing)
 - [Future: on-card keccak256](#future-on-card-keccak256)
 
@@ -363,11 +369,11 @@ consumes and clears the nonce).
 
 ---
 
-## Implementation plan
+## Historical implementation plan (completed)
 
 ### Phase 1: Applet (Java Card)
 
-1. **Write `NuriEcdsaSigner.java`** (~200 lines) following the `NuriOathTotp.java`
+1. **Write `NuriEcdsaSigner.java`** following the `card/totp/NuriOathTotp.java`
    pattern:
    - `install()` → register with AID `4E55524945544801`
    - `process()` → dispatch on `OFFSET_INS`
@@ -378,7 +384,7 @@ consumes and clears the nonce).
    - Modular inverse: extended GCD on byte arrays, or `javacardx.crypto.BigInteger`
    - secp256k1 domain parameters: same constants as the MuSig2 applet uses
 
-2. **Build** with `ant` (same `card/build.xml` pattern, new target):
+2. **Build** with the portable `card/eth/build.xml` target:
    ```xml
    <javacard jckit="${jckit.path}">
      <cap aid="4E555249455448" version="1.0" output="../dist/nuri-eth-signer.cap"
@@ -485,7 +491,7 @@ transaction.
 | `@noble/hashes` (keccak256) | ✅ (transitive dep of `@noble/curves`) | Host-side transaction hashing |
 | `ethers` | ❌ — add as dev dep | Ethereum transaction encoding, signing interface |
 | `pyscard` / `fido2` | ✅ (in venv) | PC/SC transport |
-| Java Card SDK (JC 3.0.4) | ✅ (in `card/build.xml`) | Applet compilation |
+| Java Card SDK (JC 3.0.4) | ✅ pinned by the Card V1 builder | Applet compilation |
 
 ---
 
@@ -495,7 +501,7 @@ This specification is based on:
 
 - The MuSig2 applet's proven secp256k1 keygen + sign (confirmed on this card,
   block `308802` Bitcoin signet transaction).
-- The OATH-TOTP applet's pattern (`card/NuriOathTotp.java`, 78 lines — shows
+- The OATH-TOTP applet's pattern (`card/totp/NuriOathTotp.java` — shows
   the minimal Java Card applet structure).
 - The FIDO2 applet's user-presence mechanism (card tap = `UP=1`).
 - The existing `@noble/curves` secp256k1 and `@noble/hashes` keccak256

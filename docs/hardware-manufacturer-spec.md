@@ -4,7 +4,7 @@
 
 We need a low-cost Java Card or equivalent secure element that can run a FIDO2 CTAP2 applet with passkey authentication and browser PRF support. Browser PRF is implemented by WebAuthn clients on top of the CTAP2 `hmac-secret` authenticator extension, so `hmac-secret` is the required card-side primitive.
 
-Secondary, optional work is a separate Taproot/MuSig2 partial-signing applet. This is not required for the first card qualification.
+Full Card V1 qualification includes the separate MuSig2 and ETH secp256k1 applets. A FIDO-only pass does not qualify a card for the complete product.
 
 ## Priority
 
@@ -12,14 +12,14 @@ Secondary, optional work is a separate Taproot/MuSig2 partial-signing applet. Th
 2. CTAP2 `hmac-secret`, exposed to browsers as WebAuthn `prf`.
 3. Resident/discoverable credentials.
 4. PIN or user-verification support compatible with CTAP2 client PIN / PIN-UV auth.
-5. Optional second AID for secp256k1 MuSig2 partial signing.
+5. MuSig2 and ETH secp256k1 key generation/signing through separate AIDs.
 
 ## Applet Baseline
 
 The FIDO2 baseline is the Bryan Jacobs FIDO2Applet lineage:
 
-- Source: `https://github.com/BryanJacobs/FIDO2Applet`
-- Tested ref in this package: `fb827954cd091a1810163ce51d2f86d42d0b8e20`
+- Vendored source: `third_party/fido2-applet/`
+- Nuri base: `4f318197cc08f316ce784a89bdf29dc73cca7fcf`
 - Package AID: `A000000647`
 - Applet AID: `A0000006472F0001`
 
@@ -31,7 +31,7 @@ Minimum for FIDO2/PRF:
 
 - Java Card Classic 3.0.4 or newer, or a compatible vendor profile.
 - GlobalPlatform install and delete support, preferably SCP03.
-- Contact ISO/IEC 7816 T=1 and/or contactless ISO/IEC 14443 Type A.
+- Contact ISO/IEC 7816 T=0/T=1 plus contactless ISO/IEC 14443 Type A.
 - P-256 key generation.
 - ECDSA with SHA-256.
 - ECDH plain shared-secret output.
@@ -44,7 +44,7 @@ Minimum for FIDO2/PRF:
 
 Recommended memory target:
 
-- At least 100 KB user EEPROM/NVM for the FIDO2 applet and credentials.
+- At least 200 KB user EEPROM/NVM for the preferred complete four-applet card.
 - At least 2.5 KB RAM.
 - More NVM is better if resident credentials are expected.
 
@@ -62,17 +62,13 @@ Cheapest cards found during current supplier checks:
 
 For a serious manufacturer quote, prefer a vendor who can provide JCAlgTest output, GlobalPlatform key information, and sample cards with documented SCP settings.
 
-## Optional MuSig2 Extension
+## Required MuSig2 and ETH extensions
 
 Use a separate applet/AID:
 
-- Proposed AID: `4E5552494D555349473201`
-- CLA: `0x80`
-- `GET_VERSION` (`0x01`)
-- `GET_INDIVIDUAL_PUBKEY` (`0x10`)
-- `NONCE_GEN` (`0x20`)
-- `PARTIAL_SIGN` (`0x30`)
-- `RESET_SESSION` (`0x40`)
+- MuSig2 AID: `4E5552494D554701`
+- ETH AID: `4E55524945544801`
+- `ALG_EC_SVDP_DH_PLAIN_XY` with custom secp256k1 domain parameters
 
 Requirements:
 
@@ -82,16 +78,18 @@ Requirements:
 - Secret nonce never exported.
 - Partial signing consumes and clears the nonce.
 
-If the card Java Card API does not expose secp256k1 or generic EC arithmetic, MuSig2 should remain a host-side simulation or require a vendor native library. Do not block FIDO2/PRF card selection on MuSig2.
+If the exact batch cannot complete on-card MuSig2 key generation, it is rejected
+for Card V1 even when FIDO2 works.
 
 ## Acceptance Tests
 
 Simulator acceptance:
 
 ```bash
-npm install
+npm ci
 npm test
 npm run fido2:test-prf
+npm run card:release:verify
 ```
 
 Browser smoke test:

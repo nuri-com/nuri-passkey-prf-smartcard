@@ -6,7 +6,8 @@ APP="$ROOT/mobile/expo-nfc-prf-probe"
 PROFILE="${NURI_PRF_PROFILE:?Set NURI_PRF_PROFILE to the exact credential profile for this account}"
 COMMAND="${1:-android}"
 SALT="${NURI_PRF_SALT:-nuri-offline-backup-v1}"
-DEFAULT_ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
+MACOS_ANDROID_HOME="$HOME/Library/Android/sdk"
+HOMEBREW_ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
 
 if [[ $# -gt 0 ]]; then
   shift
@@ -40,8 +41,10 @@ NODE
 : "${EXPO_PUBLIC_ASP_BASE:?Set EXPO_PUBLIC_ASP_BASE to the live Arkade v4 base URL}"
 : "${EXPO_PUBLIC_NODE_URL:?Set EXPO_PUBLIC_NODE_URL to the live Ark node URL}"
 
-if [[ -z "${ANDROID_HOME:-}" && -d "$DEFAULT_ANDROID_HOME" ]]; then
-  export ANDROID_HOME="$DEFAULT_ANDROID_HOME"
+if [[ -z "${ANDROID_HOME:-}" && -d "$HOMEBREW_ANDROID_HOME/ndk/27.1.12297006" ]]; then
+  export ANDROID_HOME="$HOMEBREW_ANDROID_HOME"
+elif [[ -z "${ANDROID_HOME:-}" && -d "$MACOS_ANDROID_HOME" ]]; then
+  export ANDROID_HOME="$MACOS_ANDROID_HOME"
 fi
 
 if [[ -z "${ANDROID_SDK_ROOT:-}" && -n "${ANDROID_HOME:-}" ]]; then

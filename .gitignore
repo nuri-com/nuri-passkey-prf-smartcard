@@ -1,5 +1,6 @@
 node_modules/
 vendor/
+.build/
 __pycache__/
 *.py[cod]
 .venv/
@@ -21,5 +22,6 @@ local-secrets/
 SCP03_KEYS.md
 CARD_KEYS.md
 card/3.0.4
+card/**/3.0.4
 .nuri-card-wallet/
 card/dist/

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="NuriMuSig2" default="build" basedir=".">
+    <description>Build the Nuri MuSig2 v1.10/KGEN applet CAP</description>
+
+    <property name="ajc.jar" location="../../tools/ant-javacard-proven.jar"/>
+    <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ajc.jar}"/>
+
+    <fail unless="jckit.path" message="Pass -Djckit.path=/absolute/path/to/jc304_kit"/>
+    <property name="cap.output" location="../../dist/nuri-musig2-v20-keygen.cap"/>
+
+    <target name="build">
+        <javacard jckit="${jckit.path}">
+            <cap aid="4E5552494D5547" version="1.9" output="${cap.output}" sources="." jca="3.0.4">
+                <applet class="nuri.musig2.NuriMuSig2v019" aid="4E5552494D554701"/>
+            </cap>
+        </javacard>
+    </target>
+</project>
