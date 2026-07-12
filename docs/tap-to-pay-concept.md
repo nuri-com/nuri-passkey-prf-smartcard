@@ -365,7 +365,7 @@ Long term, the NDA path is the real fingerprint-on-card story.
 | CTAP2 `clientPin` PIN token over NFC | ✅ proven with protocol v1 | same file |
 | MuSig2 applet (on-card keygen + partial sign) | ✅ proven on-chain | `dist/nuri-musig2-v20-keygen.cap` |
 | MuSig2 APDU exchange over NFC | ✅ two complete live signing rounds verified | `mobile/expo-nfc-prf-probe/src/musig2Card.ts` |
-| MuSig2 applet PIN gate (`INS_PARTIAL_SIGN` refuses without `pinAuth`) | ❌ not built | `card/eth/NuriEcdsaSigner.java` (pattern), MuSig2 source not in repo |
+| MuSig2 applet PIN gate (`INS_PARTIAL_SIGN` refuses without `pinAuth`) | ❌ not built | MuSig2 source is vendored at `card/musig2/NuriMuSig2v019.java`; `card/eth/NuriEcdsaSigner.java` is the PIN-gate pattern |
 | PRF → BIP86 client key | ✅ proven | `scripts/card-arkade-identity.mjs` |
 | Boltz submarine swap tx building | ✅ proven over PC/SC | `scripts/card-cosign-tweaked.py`, `scripts/nuri-card-wallet.mjs` |
 | Boltz swap in the mobile app | ⚙️ create + pre-broadcast monitor wired; fresh completion proof pending | `mobile/expo-nfc-prf-probe/src/sendFlow.ts` |
