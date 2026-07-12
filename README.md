@@ -23,8 +23,10 @@ verifies their server mapping; see the [2026-07-10 incident report](docs/expo-we
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
 - [Roadmap to the vision](#roadmap-to-the-vision)
 - [Quick start](#quick-start)
+- [Virtual card test environment](#virtual-card-test-environment)
 - [From scratch: clone, install, run your own card](#from-scratch-clone-install-run-your-own-card)
 - [Card V1 reproducible release](docs/card-v1-release.md)
+- [Clone-to-proof: reproduce everything](docs/reproducing-everything.md)
 - [Physical-card acceptance runbook](docs/card-v1-acceptance.md)
 - [Capability reference](#capability-reference)
 - [SSH with the smartcard](#fido2-ssh-security-key)
@@ -629,8 +631,8 @@ implementation order:
 ## Quick start
 
 Requirements: **Node 20+**, **Java 17** (FIDO2 simulator), **Python 3.10+**, **git**.
-A physical card is only needed for the `card:*` / `cosign:real-card` / `nuri:wallet:*`
-commands; everything else runs against simulators.
+The virtual test commands below need no card. Commands explicitly named
+`real-card`, provisioning, PC/SC, NFC, or hardware acceptance do require one.
 
 ### Card dashboard (physical card + reader, fastest way to see it work)
 
@@ -664,12 +666,68 @@ npm run musig2:demo # prints verified=true
 npm run cosign:demo # prints NURI_CARD_COSIGN_FLOW_OK, final_signature_verified=true
 ```
 
-Full host-side end-to-end (clones the FIDO2Applet baseline, builds the jCardSim,
-runs the PRF mapping test):
+Full host-side end-to-end (copies the vendored FIDO2Applet baseline, builds it
+with jCardSim, and runs the PRF mapping test):
 
 ```bash
 npm run e2e
 ```
+
+## Virtual card test environment
+
+The repository includes a no-card test environment, but its coverage is not
+identical to a physical Java Card:
+
+| Area | Virtual coverage | Hardware still required for |
+| --- | --- | --- |
+| FIDO2/PRF | Complete applet runs in jCardSim; CTAP credential, assertion, and browser-PRF mapping are tested | NFC/PCSC transport, PIN UX, timing, and chip persistence |
+| MuSig2/Bitcoin/Arkade | Method-level and APDU-level card simulators; nonce burn, partial signatures, final BIP340 signatures, and simulated ASP flows | The chip's secp256k1 implementation and non-exportable key storage |
+| TOTP | RFC 6238/HMAC/truncation self-check | On-card secret storage and Java Card HMAC execution |
+| ETH/EVM | CAP compilation and Java Card converter verification only | Key generation, secp256k1 arithmetic, signing, and recovery against the actual chip |
+| Expo app | Design-system guard, TypeScript, Metro export, and optional native Android build | Real NFC presentation, card PIN, live endpoints, and payment settlement |
+
+Run all available behavioral simulations without a card:
+
+```bash
+npm ci
+npm run test:virtual
+```
+
+Compile and verify every Java Card applet as well:
+
+```bash
+npm run card:release:verify
+```
+
+`CARD_V1_VIRTUAL_TESTS_OK` means the virtual suite passed. It is not a hardware
+qualification marker; only `CARD_REAL_TESTS=YES scripts/accept-card-v1.sh` can
+produce `REAL_CARD_V1_ACCEPTANCE_OK`.
+
+### Source completeness
+
+The checked-in CAP files are release conveniences, not the only copy. Every
+flashable Card V1 artifact has corresponding source in this repository:
+
+| Release artifact | Corresponding source |
+| --- | --- |
+| `dist/FIDO2.cap`, `dist/FIDO2-up.cap` | `third_party/fido2-applet/src/main/` plus `patches/0001-*` and `patches/0002-*` |
+| `dist/nuri-musig2-v20-keygen.cap` | `card/musig2/` |
+| `dist/nuri-oath-totp.cap` | `card/totp/` |
+| `dist/nuri-eth-signer.cap` | `card/eth/` |
+| Expo Android/iOS application | `mobile/expo-nfc-prf-probe/` |
+| Host, wallet, Arkade, PC/SC, SSH, and provisioning tools | `src/`, `scripts/`, `web/`, and `bin/` |
+
+Generated converter output under ignored `card/**/3.0.4` directories is not
+tracked. The tracked binaries are the reproducible release CAPs, the OpenSSH
+PC/SC provider, the Gradle wrapper, and the pinned `ant-javacard` build tool.
+The exact `ant-javacard` tool source is included under
+`third_party/ant-javacard/`. External Java Card SDK and Nuri design-system
+dependencies remain separately licensed and are fetched/checked out at the
+exact documented revisions.
+
+For the complete clone-to-proof command, requirements, source inventory,
+external-input boundaries, and success markers, use
+[`docs/reproducing-everything.md`](docs/reproducing-everything.md).
 
 One console app fronts every function — install it once:
 
@@ -719,7 +777,8 @@ brew install gp
 npm test            # MuSig2 simulator tests vs @scure/btc-signer
 npm run musig2:demo # prints verified=true
 npm run cosign:demo # prints NURI_CARD_COSIGN_FLOW_OK, final_signature_verified=true
-npm run e2e         # full host-side end-to-end (clones FIDO2Applet, builds jCardSim, PRF test)
+npm run e2e         # vendored FIDO2 applet in jCardSim plus browser-PRF mapping
+npm run test:virtual # all available no-card behavioral simulations
 npm run card:release:verify # rebuild and byte/component-verify all Card V1 CAPs
 ```
 
@@ -1335,7 +1394,7 @@ Satochip/OV-chip `Biginteger` code under GPL-2.0-or-later. See
 
 This repo vendors the exact Nuri FIDO2 source base used for Card V1 under
 `third_party/fido2-applet/`. `npm run fido2:prepare` copies that snapshot into
-`.build/`, applies the two reviewable patches, and never depends on an mutable
+`.build/`, applies the two reviewable patches, and never depends on a mutable
 upstream branch.
 
 Specs & libraries:

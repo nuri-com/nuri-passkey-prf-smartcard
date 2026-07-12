@@ -6,7 +6,7 @@ The repository is not uniformly MIT-licensed.
 | --- | --- | --- |
 | Repository code except the paths below | MIT | Nuri contributors; see `LICENSE` |
 | `third_party/fido2-applet/` | MIT | Bryan Jacobs, pinned upstream snapshot; license included in that directory |
-| `tools/ant-javacard-proven.jar` | MIT | Martin Paljak `ant-javacard` build tool |
+| `tools/ant-javacard-proven.jar`, `third_party/ant-javacard/` | MIT | Martin Paljak `ant-javacard` tag `18.05.01`; full corresponding source included |
 | `card/musig2/Biginteger.java` and applet work derived from it | GPL-2.0-or-later | SatoChip/Toporin and OV-chip authors; original header preserved |
 | `card/eth/Biginteger.java` and applet work derived from it | GPL-2.0-or-later | SatoChip/Toporin and OV-chip authors; original header preserved |
 

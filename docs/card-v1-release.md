@@ -5,6 +5,9 @@ host tooling, and native Expo terminal from a fresh checkout. It distinguishes
 source reproducibility, card provisioning, card-specific secrets, and live
 service configuration.
 
+The shortest complete path is documented in
+[`reproducing-everything.md`](reproducing-everything.md): `npm run reproduce:v1`.
+
 ## Release contents
 
 Card V1 consists of four independent Java Card applets:

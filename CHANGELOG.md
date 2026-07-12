@@ -3,6 +3,20 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-07-12 — Card V1.0.2 clone-to-proof release
+
+- Added `npm run reproduce:v1`, a single clean-checkout path across source
+  auditing, virtual card behavior, deterministic CAP rebuilding, and Expo
+  source verification.
+- Added a source-to-artifact inventory and explicit virtual-versus-hardware
+  coverage matrix to the main README and dedicated reproduction guide.
+- Added a CI virtual-card job covering MuSig2/APDU/Arkade simulations and the
+  complete FIDO2 PRF applet in jCardSim.
+- Updated simulator-only JPype to 1.7.1 after a clean Python 3.14 run exposed a
+  native crash in the historical 1.5.0 bridge.
+- Included the complete MIT source corresponding to the proven
+  `ant-javacard` 18.05.01 build-tool JAR.
+
 ## 2026-07-12 — Card V1.0.1 portability fix
 
 - Removed the last machine-specific Java home from the vendored FIDO2 Gradle

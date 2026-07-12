@@ -11,20 +11,21 @@ if [[ ! -d "$BASELINE" ]]; then
 fi
 
 if [[ -z "${JC_HOME:-}" ]]; then
-  if [[ -d "$BASELINE/sdks/jc305u3_kit/lib" ]]; then
-    export JC_HOME="$BASELINE/sdks/jc305u3_kit"
-  elif [[ -d "$ROOT/../FIDO2Applet/sdks/jc305u3_kit/lib" ]]; then
-    export JC_HOME="$ROOT/../FIDO2Applet/sdks/jc305u3_kit"
-  else
-    export JC_HOME="$BASELINE/sdks/jc305u3_kit"
+  SDK_DIR="${JAVACARD_SDK_DIR:-$ROOT/.build/card-v1/toolchain/oracle-javacard-sdks}"
+  if [[ ! -d "$SDK_DIR/jc305u3_kit/lib" ]]; then
+    SDK_DIR="$("$ROOT/scripts/prepare-card-build-toolchain.sh")"
   fi
+  export JC_HOME="$SDK_DIR/jc305u3_kit"
 fi
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="$(command -v python3)"
 fi
 
-if [[ -d /Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home ]]; then
+if [[ -n "${JAVA17_HOME:-}" ]]; then
+  export JAVA_HOME="$JAVA17_HOME"
+  export PATH="$JAVA_HOME/bin:$PATH"
+elif [[ -d /Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home ]]; then
   export JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home}"
   export PATH="$JAVA_HOME/bin:$PATH"
 fi
@@ -63,3 +64,4 @@ cd "$BASELINE"
 "$VENV/bin/python" -m unittest python_tests.ctap.test_hmac_secret.HMACSecretTestCase
 cd "$ROOT"
 FIDO2_BASELINE="$BASELINE" "$VENV/bin/python" test/fido2_prf_e2e.py
+echo "FIDO2_JCARDSIM_PRF_OK"

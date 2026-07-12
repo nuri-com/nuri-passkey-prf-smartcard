@@ -19,6 +19,10 @@ the exact submodule commit
 
 License: MIT. The original `LICENSE` is preserved in this directory.
 
+The simulator-only `JPype1` pin is updated from the historical 1.5.0 to 1.7.1
+so the Python-to-JVM bridge supports current Python 3.14. This does not enter or
+change the Java Card CAP build.
+
 The historical worktree also contained confidential IDEX integration documents,
 an IDEX service JAR, and an unrelated GlobalPlatformPro binary. They are not
 required by this FIDO2 build and are intentionally excluded from the public

@@ -1,6 +1,6 @@
 {
   "name": "nuri-passkey-prf-smartcard",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -28,6 +28,9 @@
     "fido2:prepare": "scripts/prepare-fido2-baseline.sh",
     "fido2:test-prf": "scripts/run-fido2-prf-sim-tests.sh",
     "e2e": "scripts/run-all-e2e.sh",
+    "test:virtual": "scripts/test-card-v1-virtual.sh",
+    "source:audit": "scripts/audit-source-completeness.sh",
+    "reproduce:v1": "scripts/reproduce-v1.sh",
     "web:prf": "scripts/serve-prf-test.sh",
     "web:tunnel": "scripts/serve-prf-ngrok.sh",
     "mobile:android": "scripts/run-expo-nfc-prf-probe.sh android",
