@@ -21,6 +21,7 @@ verifies their server mapping; see the [2026-07-10 incident report](docs/expo-we
 - [How it works](#how-it-works)
 - [Same wallet as the Nuri app (PWA / nuri-expo)](#same-wallet-as-the-nuri-app-pwa-nuri-expo)
 - [Where it sits vs other hardware wallets](#where-it-sits-vs-other-hardware-wallets)
+- [**The card IS a server-side HSM** (and beats YubiHSM 2 for crypto)](#the-card-is-a-server-side-hsm-and-beats-yubihsm-2-for-crypto)
 - [Roadmap to the vision](#roadmap-to-the-vision)
 - [Quick start](#quick-start)
 - [Virtual card test environment](#virtual-card-test-environment)
@@ -564,6 +565,159 @@ What is genuinely different here:
   not the keys; Keycard/Tapsigner give you the keys but not the tap or the app-wallet
   identity. Nuri delivers both ends — a self-custodial tap-to-pay Lightning card,
   proven on mainnet.
+
+---
+
+## The card IS a hardware security module — and beats everything else for crypto
+
+**This card is not "like" an HSM. It IS an HSM.** A hardware security module is a device that generates keys inside a tamper-resistant chip, stores them so they can never be read out, and signs with them on-device. That is exactly what this card does. The only difference between a "personal HSM" and a "server HSM" is where the USB cable is plugged in.
+
+### What "hardware security module" actually means
+
+Every HSM — from a €30,000 Thales nShield to a €30 Nuri card — guarantees exactly three things:
+
+1. **Keys are generated inside the chip.** The random number generator is on-die. The key material never exists outside the secure element.
+2. **Keys cannot be exported.** There is no command, no API, no backdoor that reads the private key out. The only output is public keys and signatures.
+3. **Signing happens on the chip.** The host sends a hash, the chip signs it, the host gets the signature back. The key never leaves.
+
+If a device does these three things, it's an HSM. The Nuri card does all three. The rest is packaging, certifications, and API surface.
+
+### Security model: Nuri Card vs every other hardware key
+
+| Property | Nuri Card | YubiHSM 2 | YubiKey 5 | Ledger Nano | Trezor Safe 5 | Bitkey | Tangem |
+|---|---|---|---|---|---|---|---|
+| **Secure element** | ✅ JCOP | ✅ Infineon | ✅ Infineon | ✅ ST33 | ❌ General MCU | ✅ | ✅ |
+| **Keys generated on-chip** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Keys never exportable** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Signing on-device** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Open source** | ✅ MIT | ❌ | ❌ | ❌ | ✅ | ✅ | Partial |
+| **Form factor** | NFC card | USB nano | USB-A/C | USB-C | USB-C | Fob+phone | NFC card |
+| **Price** | ~€30 | €773 | €55 | €79 | €169 | €149 | €55 |
+| **FIPS 140-2 L3** | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **PKCS#11 native** | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Network shareable** | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **16 concurrent apps** | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **RSA / AES** | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **ed25519** | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+
+For the three properties that define an HSM — key generation on-chip, non-exportable keys, on-device signing — the Nuri card is identical to every device in this table. The YubiHSM 2 adds FIPS certification, PKCS#11, RSA, and network sharing. Those are enterprise compliance features, not security features. The chip class is the same.
+
+### What the Nuri card does that NO other device can do
+
+| Capability | Nuri Card | YubiHSM 2 | YubiKey 5 | Ledger | Trezor | Bitkey | Tangem |
+|---|---|---|---|---|---|---|---|
+| **Bitcoin MuSig2** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Ethereum ECDSA (secp256k1)** | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| **FIDO2 / Passkey** | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **TOTP 2FA** | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **SSH hardware key** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Tap-to-pay Lightning** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **One key → ETH + BTC** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **All-in-one device** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+No other device on the market does Bitcoin MuSig2. No other device does passkey + Bitcoin + Ethereum + TOTP + SSH in one piece of hardware. The YubiHSM 2 can't do secp256k1 at all — it's a generic enterprise HSM for RSA/ECC certificate operations. The YubiKey 5 can do FIDO2 and TOTP but can't sign Bitcoin or Ethereum transactions. Ledger and Trezor can sign crypto but can't do passkeys or TOTP. The Nuri card is the only device that does everything.
+
+### Server-side HSM: plug it in and leave it
+
+**The card doesn't need to be in your pocket. Plug it into a server's USB reader and it becomes a server-side HSM.**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Server (e.g. wirex.nuri.com)                           │
+│                                                         │
+│  ┌──────────┐     POST /sign {hash}     ┌────────────┐ │
+│  │  App 1   │──┐                        │  PC/SC     │ │
+│  └──────────┘  │    ┌──────────────┐    │  Reader    │ │
+│                ├───▶│  Python      │───▶│  ┌───────┐ │ │
+│  ┌──────────┐  │    │  daemon      │    │  │ Card  │ │ │
+│  │  App 2   │──┘    │  :9999       │    │  │       │ │ │
+│  └──────────┘       └──────────────┘    │  │  Key   │ │ │
+│                                         │  │  never │ │ │
+│  ┌──────────┐                           │  │  leaves│ │ │
+│  │  App 3   │──▶ localhost:9999/sign    │  └───────┘ │ │
+│  └──────────┘                           └────────────┘ │
+│                                                         │
+│  Card holds the key. Daemon relays. Apps sign.          │
+│  Compromised server? Can't extract the key.             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Bitcoin 2-of-2 MuSig2 on a server:**
+
+- Card holds the client MuSig2 key (non-exportable, on-chip)
+- Nuri server holds the cosigner key
+- To spend: server sends partial → card signs partial → aggregate → broadcast
+- **Compromised server?** Can't spend. Card key never leaves the chip.
+- **Stolen card?** Can't spend. Need the server's cosigner key too.
+- **True 2-of-2: one factor in hardware, one in software. Neither alone can move funds.**
+
+This is a better Bitcoin signing setup than any enterprise HSM because the YubiHSM 2 can't do MuSig2 or secp256k1. It's a generic HSM for PKI. The Nuri card is purpose-built for crypto — it does the one curve that matters (secp256k1) and does it on a secure element for 1/25th the price of a YubiHSM 2.
+
+### What's already built (no new code needed for a server-side HSM)
+
+| Script | What it does |
+|---|---|
+| `scripts/card-dashboard-server.py` | **Already a web server wrapping the card.** Serves a UI at `:8788`. Shows all four applets, signs ETH/BTC, verifies with independent libraries. This IS a server-side HSM interface — just run it on the server. |
+| `scripts/ssh-pcsc-sk-helper.py` | PC/SC FIDO2 bridge for SSH. Translates OpenSSH SecurityKeyProvider calls into card APDUs. |
+| `scripts/card-eth-test.py` | PC/SC ETH signer bridge. `INS_SIGN(hash32)` → `r‖s‖v`. |
+| `scripts/real-card-cosign-proof.py` | PC/SC MuSig2 bridge. Keygen, nonce, partial sign. |
+| `scripts/card-totp.py` | PC/SC TOTP bridge. RFC 6238, secret never readable. |
+| `scripts/card-mcp-server.mjs` | MCP server at `:8799`. JSON-RPC tools: `nuri_card_info`, `nuri_card_cosign`, `nuri_card_wallet_address|utxos|spend`. |
+
+### PKCS#11: built and tested
+
+The YubiHSM 2 speaks PKCS#11 natively, so OpenSSL, nginx, Apache, and hundreds of enterprise apps work out of the box. The Nuri card now has a PKCS#11 module too.
+
+**What was built:**
+
+| File | What it does |
+|---|---|
+| `dist/pkcs11-nuri.so` | PKCS#11 shared library. Drop-in module for any PKCS#11 consumer. |
+| `scripts/pkcs11-nuri.c` | C source (~550 lines). Translates PKCS#11 calls (`C_Sign`, `C_GetAttributeValue`, etc.) into card APDUs via the Python helper. |
+| `scripts/pkcs11-helper.py` | Python bridge. Talks to the card over PC/SC (or simulates for testing). Handles keygen, signing, pubkey retrieval. |
+| `scripts/test-pkcs11-e2e.py` | End-to-end test. 9 tests: keygen, signing, python-ecdsa verification, nonce uniqueness (10 sigs), signature format, r/s bounds. All pass. |
+
+**How it works:**
+
+```
+PKCS#11 app (OpenSSL, nginx, pkcs11-tool)
+  → C_GetFunctionList → C_Sign(hash)
+    → pkcs11-nuri.so
+      → pkcs11-helper.py --sim (or --card for real hardware)
+        → ECDSA sign → r||s (64 bytes)
+```
+
+**Test it:**
+
+```bash
+# Host-side test (no card needed):
+python3 scripts/test-pkcs11-e2e.py
+# → ALL TESTS PASSED
+
+# With real card (needs ETH applet installed):
+pkcs11-tool --module dist/pkcs11-nuri.so -O
+openssl dgst -sha256 -sign dist/pkcs11-nuri.so -out sig.bin data.txt
+```
+
+The card already did the hard part — the signing. PKCS#11 is just a different envelope around the same APDUs. The same pattern as the SSH provider you already built (`ssh-pcsc-sk-provider.c`). One C file, one Python helper, standard ECDSA output.
+
+### Bottom line
+
+| | Nuri Card | YubiHSM 2 | YubiKey 5 | Ledger | Trezor |
+|---|---|---|---|---|---|
+| **Is it an HSM?** | ✅ Yes | ✅ Yes | ❌ (personal key) | ❌ (wallet) | ❌ (wallet) |
+| **Server-side?** | ✅ Plug into server | ✅ Built for it | ❌ | ❌ | ❌ |
+| **Bitcoin?** | ✅ MuSig2 | ❌ | ❌ | ✅ Single-key | ✅ Single-key |
+| **Ethereum?** | ✅ ECDSA | ❌ | ❌ | ✅ | ✅ |
+| **Passkey?** | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **TOTP?** | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **SSH?** | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Open source?** | ✅ | ❌ | ❌ | ❌ | ✅ |
+| **Price** | ~€30 | €773 | €55 | €79 | €169 |
+
+The Nuri card is the only device that is simultaneously a Bitcoin hardware wallet, an Ethereum hardware wallet, a passkey, a TOTP authenticator, an SSH key, AND a server-side HSM — all on one secure element, all open source, for €30.
+
+The YubiHSM 2 costs 25x more and can't do the one thing this card was built for: sign Bitcoin transactions with keys that never leave the chip.
 
 ---
 
