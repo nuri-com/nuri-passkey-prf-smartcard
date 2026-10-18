@@ -96,6 +96,27 @@ class LegacyTests(Base):
 
 
 class Pin114Tests(Base):
+    def test_keygen_already_set_error_reverifies_before_nonce(self):
+        card = musig2_fake_card.install(version=(1, 14), pin=PIN)
+        os.environ[host.PIN_ENV] = PIN
+        c = host.MuSig2Card().connect()
+        with self.assertRaisesRegex(RuntimeError, "6989"):
+            c.keygen()
+        self.assertFalse(c.pin_verified)
+        c.nonces()
+        self.assertEqual(ins_seq(card)[0].count(0x20), 2)
+        c.close()
+
+    def test_arkade_114_plain_and_tweaked_pass_actual_points(self):
+        card = musig2_fake_card.install(version=(1, 14), pin=PIN)
+        os.environ[host.PIN_ENV] = PIN
+        result = arkade.run(types.SimpleNamespace(
+            msg32="", message="ark pin", case="all", script_root32="11" * 32,
+            asp_secret_hex="", include_demo_asp_secret=False))
+        self.assertEqual(result["status"], "REAL_CARD_ARKADE_CLIENT_SIGNER_PROOF_OK")
+        self.assertTrue(card.finalize_payloads)
+        self.assertTrue(all(len(p) == 231 for p in card.finalize_payloads))
+
     def test_plain_cosign_verifies_pin_and_sends_actual_ragg_pagg(self):
         card = musig2_fake_card.install(version=(1, 14), pin=PIN)
         os.environ[host.PIN_ENV] = PIN

@@ -56,14 +56,14 @@ public final class NonceLifetimeTest {
     private static void testHappyPathStillSigns() {
         Simulator sim = freshCard();
         byte[] version = ok(sim, apdu(0x01, null));
-        check("version byte is 1.13", version[0] == 0x01 && version[1] == 0x0D,
+        check("version byte is 1.14", version[0] == 0x01 && version[1] == 0x0E,
               "got " + hex(version));
 
         byte[] pubkey = ok(sim, apdu(0x04, null));
         check("KEYGEN returns 33-byte compressed pubkey", pubkey.length == 33, hex(pubkey));
 
         byte[] nonces = ok(sim, apdu(0x40, null));
-        check("GET_NONCES returns 66 bytes", nonces.length == 66, hex(nonces));
+        check("GET_NONCES returns 70 bytes", nonces.length == 70, hex(nonces));
 
         byte[] a = randomScalar();
         byte[] b = randomScalar();
@@ -92,6 +92,7 @@ public final class NonceLifetimeTest {
         // and deselects. Re-select the applet as a reader would after ATR.
         sim.reset();
         check("applet re-selectable after reset", sim.selectApplet(aid()), "");
+        ok(sim, apdu(0x20, new byte[] {49,50,51,52}));
         boolean[] flags = (boolean[])appletField("sessionFlags");
         check("reset clears both nonce session flags independently", !flags[0] && !flags[1], "");
 
@@ -125,8 +126,9 @@ public final class NonceLifetimeTest {
         ok(sim, apdu(0x40, null));
         sim.reset();
         sim.selectApplet(aid());
+        ok(sim, apdu(0x20, new byte[] {49,50,51,52}));
         byte[] nonces = ok(sim, apdu(0x40, null));
-        check("fresh GET_NONCES after reset works", nonces.length == 66, hex(nonces));
+        check("fresh GET_NONCES after reset works", nonces.length == 70, hex(nonces));
         byte[] s = ok(sim, apdu(0x41, concat(randomScalar(), randomScalar(), new byte[] {0x01}, randomScalar())));
         check("FINALIZE with fresh nonces after reset works", s.length == 32, hex(s));
     }
@@ -185,6 +187,7 @@ public final class NonceLifetimeTest {
             check("zero " + fieldName + " with ready flags rejected without output",
                 r.sw == SW_INVALID_NONCE && r.data.length == 0,
                 "sw=" + Integer.toHexString(r.sw) + " data=" + hex(r.data));
+            ok(sim, apdu(0x20, new byte[] {49,50,51,52}));
             r = tx(sim, apdu(0x41,
                 concat(randomScalar(), randomScalar(), new byte[] {0}, randomScalar())));
             check("zero nonce refusal invalidates session", r.sw == SW_NONCES_NOT_READY,
@@ -232,6 +235,8 @@ public final class NonceLifetimeTest {
         if (!sim.selectApplet(aid())) {
             throw new IllegalStateException("applet select failed");
         }
+        ok(sim, apdu(0x21, new byte[] {49,50,51,52}));
+        ok(sim, apdu(0x20, new byte[] {49,50,51,52}));
         return sim;
     }
 
@@ -250,6 +255,14 @@ public final class NonceLifetimeTest {
     }
 
     private static Response tx(Simulator sim, byte[] apdu) {
+        // Existing scalar/nonce fixtures exercise the 1.14 frame using valid
+        // public points; transcript verification remains the host's boundary.
+        if ((apdu[1] & 255) == 0x41 && (apdu[4] & 255) == 97) {
+            byte[] old = Arrays.copyOfRange(apdu, 5, 102);
+            ECPoint r = old[64] == 1 ? CURVE.getG().negate() : CURVE.getG();
+            apdu = apdu(0x41, concat(old, ((byte[])appletField("nonceSession")).clone(),
+                r.getEncoded(), CURVE.getG().getEncoded()));
+        }
         return new Response(sim.transmitCommand(apdu));
     }
 

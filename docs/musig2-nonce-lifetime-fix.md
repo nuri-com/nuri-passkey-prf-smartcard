@@ -1,74 +1,68 @@
-# MuSig2 nonce lifetime
+# MuSig2 nonce lifetime (current APDU 1.14)
 
 ```mermaid
 flowchart TD
-  N["GET_NONCES: fresh nonces and ready flag<br/>card/musig2/NuriMuSig2v019.java:308-366"] --> F["FINALIZE guards<br/>card/musig2/NuriMuSig2v019.java:369-384"]
-  R["Reset clears nonces and session flags<br/>card/musig2/NuriMuSig2v019.java:158-163"] --> F
-  F -->|"not ready"| E["6984<br/>card/musig2/NuriMuSig2v019.java:370-372"]
-  F -->|"either nonce zero"| Z["6988; ready cleared<br/>card/musig2/NuriMuSig2v019.java:381-384"]
-  F -->|"valid session and payload"| S["Compute partial signature<br/>card/musig2/NuriMuSig2v019.java:386-477"]
-  S --> C["Clear nonces and ready flag; return partial<br/>card/musig2/NuriMuSig2v019.java:479-494"]
+  V[VERIFY this selection] --> N[GET_NONCES: erase old pair, increment transient counter]
+  N --> P[Publish K1, K2 and token only after success]
+  P --> F[FINALIZE: consume readiness before parsing]
+  F --> T{Token and counter match?}
+  T -->|no| E[Erase and return error, require fresh VERIFY and nonces]
+  T -->|yes| C[Validate points, compute twice with independent blinding]
+  C -->|mismatch or exception| E
+  C -->|equal| W[Erase nonces and scratch before response]
+  W --> S[Return one partial]
+  R[Reset, deselect, reselect or any error] --> E
 ```
 
-## Current invariant
+The v1.12 fix aligned the two readiness flags with reset-transient secret nonces
+and rejected either zero nonce. W20 retains both defenses and strengthens them:
+PIN validation is selection-scoped; deselection erases nonces explicitly; every
+error burns the session; GET_NONCES invalidates the previous pair before RNG/EC
+work; FINALIZE consumes readiness before parsing and requires the last pair's
+four-byte token. No replay, reset, replacement or malformed frame permits a
+second partial. Sources: `card/musig2/NuriMuSig2v019.java:234-299,426-458,528-580`.
 
-The applet reports version **1.12**. Both secret nonce arrays, both public nonce
-arrays and the two session flags are allocated with `CLEAR_ON_RESET`. Sources:
-[card/musig2/NuriMuSig2v019.java:33,158-163](../card/musig2/NuriMuSig2v019.java#L158-L163),
-[card/musig2/NuriMuSig2v019.java:205-214](../card/musig2/NuriMuSig2v019.java#L205-L214).
+The four-byte token is a transient counter snapshot, seeded at selection. It
+identifies the latest pair, not a MAC or a secure-channel peer identity. Host
+serialization and trusted PIN entry remain required. The card does not derive
+host-provided a/b/e from an entire transaction transcript.
 
-`GET_NONCES` generates nonzero secret scalars and sets ready=true,
-finalized=false before returning the public nonces. `FINALIZE` checks ready,
-then finalized, then both nonce arrays before accepting its 97-byte payload.
-Sources: [card/musig2/NuriMuSig2v019.java:308-366](../card/musig2/NuriMuSig2v019.java#L308-L366),
-[card/musig2/NuriMuSig2v019.java:369-415](../card/musig2/NuriMuSig2v019.java#L369-L415).
+| Condition | Current result |
+|---|---|
+| PIN mandatory but unset/not verified | `6982` |
+| No ready nonces, replay, stale token or counter mismatch | `6984` |
+| Either secret nonce zero while ready | `6988` |
+| Malformed FINALIZE length (must be 231 bytes) | `6700`, session and validation burned |
+| Invalid curve point or parity | `6A80`, session and validation burned |
+| Two independently blinded results differ | `6988`, no partial, session burned |
+| Successful FINALIZE | Nonces/scratch/temp EC key erased before one 32-byte partial |
 
-| Condition | Result | Source |
-|---|---|---|
-| Not ready, including after reset | `6984` | [card/musig2/NuriMuSig2v019.java:43,370-372](../card/musig2/NuriMuSig2v019.java#L370-L372) |
-| Finalized flag set while ready | `6985` | [card/musig2/NuriMuSig2v019.java:44,374-376](../card/musig2/NuriMuSig2v019.java#L374-L376) |
-| Either secret nonce all-zero while ready | Clear ready, return `6988` | [card/musig2/NuriMuSig2v019.java:46,381-384](../card/musig2/NuriMuSig2v019.java#L381-L384) |
-| Successful finalization | Clear secret nonces and scratch buffers, set finalized=true and ready=false, return 32-byte partial | [card/musig2/NuriMuSig2v019.java:479-494](../card/musig2/NuriMuSig2v019.java#L479-L494) |
-
-The zero test visits every byte and both checks are evaluated with non-short-circuit
-`|`. This is a source-level property, not a constant-time hardware claim. Sources:
-[card/musig2/NuriMuSig2v019.java:381,501-506](../card/musig2/NuriMuSig2v019.java#L501-L506).
-
-## Why lifetime alignment matters
-
-The regression test resets the simulator between nonce generation and finalization,
-then requires an error status and zero response bytes. If a 32-byte partial were
-returned, the test attempts to derive a candidate private key from the supplied
-coefficients and compares its public key. This documents the zero-nonce failure
-condition without treating an old prose report as proof of a previous build.
-Source: [test/musig2-jcardsim/NonceLifetimeTest.java:84-114](../test/musig2-jcardsim/NonceLifetimeTest.java#L84-L114).
-
-## Run the simulator regression
+GET_NONCES now returns **70 bytes** (compressed K1/K2 plus token). FINALIZE takes
+**231 bytes**, adding token and two uncompressed aggregate points to the previous
+97 scalar/parity bytes. See [PIN and hardening](musig2-pin-and-hardening.md) for the
+full current protocol, install policy, clean-room math and host integration.
 
 ```sh
 scripts/test-musig2-jcardsim.sh
 ```
 
-The runner checks a pinned jCardSim dependency, compiles the current applet and
-executes the harness. `JAVA17_HOME`, `JCARDSIM_JAR` and `CARD_BUILD_ROOT` override
-its Java, dependency and build locations. Source:
-[scripts/test-musig2-jcardsim.sh:10-62](../scripts/test-musig2-jcardsim.sh#L10-L62).
+The simulator runner compiles the current applet and scalar implementation,
+checks the pinned jCardSim jar, and runs Scalar256Test, NonceLifetimeTest and
+PinHardeningTest. Current success markers:
 
-The harness checks a normal partial signature, rejection after reset, a fresh round
-after reset, and rejection of replayed finalization. Success prints
-`MUSIG2_JCARDSIM_NONCE_LIFETIME_OK`. It replaces the simulator's RSA multiplier
-key as a harness adjustment. Sources:
-[test/musig2-jcardsim/NonceLifetimeTest.java:39-48,54-143](../test/musig2-jcardsim/NonceLifetimeTest.java#L39-L143),
-[test/musig2-jcardsim/NonceLifetimeTest.java:160-191](../test/musig2-jcardsim/NonceLifetimeTest.java#L160-L191).
+```text
+SCALAR256_OK
+MUSIG2_JCARDSIM_NONCE_LIFETIME_OK
+MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1098
+```
 
-## Upgrade boundary
+The old reset-extraction negative fixture still rejects output after reset;
+it re-verifies first to reach the nonce guard independently of the PIN guard.
+Each zero-nonce fixture leaves readiness true to reach that defense independently.
+The new tests add PIN retry/logout, replay/replacement/error cleanup, point
+validation, blinding/fault mismatch and transaction-boundary coverage.
 
-The reinstall script's `MUSIG2_REINSTALL=YES` path deletes the existing applet and
-package before creating a new applet instance. The master key belongs to that
-instance and key generation is one-shot. Treat reinstall as destructive key
-replacement, not an in-place nonce-state update. Sources:
-[scripts/install-musig2-card.sh:17-36](../scripts/install-musig2-card.sh#L17-L36),
-[card/musig2/NuriMuSig2v019.java:121-128,217-261](../card/musig2/NuriMuSig2v019.java#L217-L261).
-
-**UNVERIFIED:** physical-card reset/tear behavior, installed firmware and any
-hardware deployment are outside this simulator regression's evidence.
+Reinstallation destroys the old instance/key. Never reinstall on the sole SSH
+key card or treat this as an in-place key-preserving upgrade. Physical reset,
+transaction tear behavior, leakage and target-chip support remain **UNVERIFIED**;
+all new evidence here is simulator/fake-only, with no reader access.

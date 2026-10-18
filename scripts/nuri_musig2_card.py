@@ -179,6 +179,9 @@ class MuSig2Card:
     def _tx(self, apdu) -> bytes:
         resp, sw = self.applet.transmit(bytes(apdu))
         if sw != 0x9000:
+            # Applet 1.14 burns both validation and nonce state on every error.
+            self.pin_verified = False
+            self._token = None
             hint = _sw_text(sw)
             # INS byte only: never echo the APDU (VERIFY/SET_PIN carry the PIN).
             raise RuntimeError(f"APDU INS={apdu[1]:02X} failed: SW={sw:04X}" + (f" ({hint})" if hint else ""))
