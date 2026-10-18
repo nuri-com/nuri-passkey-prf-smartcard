@@ -3,6 +3,10 @@
 
 Framing: 4-byte little-endian length + UTF-8 JSON, one request -> one response,
 looped until stdin closes (works for both sendNativeMessage and connectNative).
+A malformed frame (partial header/body, length 0 or > 1 MiB, bad UTF-8/JSON,
+too-deep nesting, or a frame not completed within NURI_CARD_HOST_FRAME_TIMEOUT
+seconds of its first byte, default 5) gets one error reply and ends the
+session with exit code 1; nothing after it is parsed.
 
 Methods
   {"id": n, "method": "info"}
@@ -30,8 +34,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import select
 import struct
 import sys
+import time
 from typing import Any
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -52,6 +59,13 @@ class HostError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class FramingError(HostError):
+    """The byte stream can no longer be trusted; serve() must stop reading."""
+
+    def __init__(self, message: str):
+        super().__init__("BAD_REQUEST", message)
 
 
 # --------------------------------------------------------------------------- #
@@ -310,16 +324,21 @@ def get_signer():
 # Request handling                                                            #
 # --------------------------------------------------------------------------- #
 
+_HASH_RE = re.compile(r"(?:0[xX])?[0-9a-fA-F]{64}")
+
+
 def parse_hash(value: Any) -> bytes:
-    if not isinstance(value, str):
-        raise HostError("BAD_REQUEST", "params.hash must be a 0x-prefixed hex string")
-    h = value[2:] if value.lower().startswith("0x") else value
-    if len(h) != 64:
-        raise HostError("BAD_REQUEST", "params.hash must be exactly 32 bytes (64 hex chars)")
-    try:
-        return bytes.fromhex(h)
-    except ValueError:
-        raise HostError("BAD_REQUEST", "params.hash is not valid hex")
+    """Strict: optional 0x prefix + exactly 64 ASCII hex digits -> exactly 32 bytes.
+
+    bytes.fromhex alone skips whitespace, so a 64-char string such as
+    "00 " * 21 + " " would decode to 21 bytes (W13 R11). fullmatch rejects it.
+    """
+    if not isinstance(value, str) or _HASH_RE.fullmatch(value) is None:
+        raise HostError("BAD_REQUEST", "params.hash must be 0x + exactly 64 hex chars (32 bytes)")
+    digest = bytes.fromhex(value[2:] if value[:2] in ("0x", "0X") else value)
+    if len(digest) != 32:  # unreachable given the regex; kept as a hard invariant
+        raise HostError("BAD_REQUEST", "params.hash must decode to exactly 32 bytes")
+    return digest
 
 
 def handle(request: Any) -> dict[str, Any]:
@@ -365,20 +384,88 @@ def error_response(req_id: Any, code: str, message: str) -> dict[str, Any]:
 # Framing                                                                     #
 # --------------------------------------------------------------------------- #
 
-def read_message(stream) -> Any | None:
-    raw_len = stream.read(4)
-    if not raw_len or len(raw_len) < 4:
-        return None
-    (length,) = struct.unpack("<I", raw_len)
-    if length > 1024 * 1024:
-        raise HostError("BAD_REQUEST", f"message too large: {length} bytes")
-    body = stream.read(length)
-    if len(body) < length:
+MAX_MESSAGE_BYTES = 1024 * 1024  # Chrome caps host-bound messages at 4 GiB; we accept 1 MiB.
+DEFAULT_FRAME_TIMEOUT = 5.0  # seconds from a frame's first byte to its last
+
+
+def frame_timeout_from_env() -> float:
+    try:
+        value = float(os.environ.get("NURI_CARD_HOST_FRAME_TIMEOUT", DEFAULT_FRAME_TIMEOUT))
+    except ValueError:
+        return DEFAULT_FRAME_TIMEOUT
+    return value if value > 0 else DEFAULT_FRAME_TIMEOUT
+
+
+def _stream_fd(stream) -> int | None:
+    """Real fd for pipes/files (deadline-capable), None for in-memory streams."""
+    if os.name == "nt":  # select() does not work on Windows pipes; no deadline there
         return None
     try:
+        return stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _read_exact(stream, fd: int | None, n: int, deadline: float | None) -> bytes:
+    """Read exactly n bytes, or fewer only at EOF. Raises FramingError past the deadline.
+
+    With a real fd we bypass Python's buffer (os.read) so select() sees all
+    pending data; the caller never mixes buffered reads on the same stream.
+    """
+    buf = bytearray()
+    while len(buf) < n:
+        if fd is not None:
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise FramingError(f"frame stalled: {len(buf)}/{n} bytes before deadline")
+                ready, _, _ = select.select([fd], [], [], remaining)
+                if not ready:
+                    raise FramingError(f"frame stalled: {len(buf)}/{n} bytes before deadline")
+            chunk = os.read(fd, n - len(buf))
+        else:
+            chunk = stream.read(n - len(buf))
+        if not chunk:
+            break
+        buf += chunk
+    return bytes(buf)
+
+
+EOF = object()  # distinct from a JSON `null` body, which is a (bad) request, not end of stream
+
+
+def read_message(stream, frame_timeout: float | None = None) -> Any:
+    """Return the decoded JSON value, or EOF on clean end of stream between frames.
+
+    Any malformed frame raises FramingError: the caller must stop, because
+    after a bad length or a partial frame the next byte is not a frame start.
+    The deadline starts at the first header byte, so an idle host waiting
+    for the next request is never timed out.
+    """
+    fd = _stream_fd(stream)
+    first = _read_exact(stream, fd, 1, None)
+    if not first:
+        return EOF
+    deadline = time.monotonic() + frame_timeout if (frame_timeout and fd is not None) else None
+    rest = _read_exact(stream, fd, 3, deadline)
+    if len(rest) < 3:
+        raise FramingError(f"truncated header: {1 + len(rest)}/4 bytes")
+    (length,) = struct.unpack("<I", first + rest)
+    if length == 0:
+        raise FramingError("empty message (length 0)")
+    if length > MAX_MESSAGE_BYTES:
+        raise FramingError(f"message too large: {length} bytes (max {MAX_MESSAGE_BYTES})")
+    body = _read_exact(stream, fd, length, deadline)
+    if len(body) < length:
+        raise FramingError(f"truncated body: {len(body)}/{length} bytes")
+    try:
         return json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HostError("BAD_REQUEST", f"invalid JSON: {exc}")
+    except UnicodeDecodeError:
+        raise FramingError("message is not valid UTF-8")
+    except RecursionError:
+        raise FramingError("JSON nested too deeply")
+    except ValueError as exc:  # JSONDecodeError, int-digit limit
+        raise FramingError(f"invalid JSON: {exc}")
 
 
 def write_message(stream, obj: Any) -> None:
@@ -387,26 +474,49 @@ def write_message(stream, obj: Any) -> None:
     stream.flush()
 
 
-def serve(stdin=None, stdout=None) -> int:
+def _log_entry(request: Any, response: dict[str, Any]) -> dict[str, Any]:
+    """Only typed, bounded fields reach the log; never params or arbitrary keys."""
+    if not isinstance(request, dict):
+        return {"request": None, "invalid": type(request).__name__, "response_ok": response.get("ok")}
+    req_id = request.get("id")
+    method = request.get("method")
+    return {
+        "request": {
+            "id": req_id if isinstance(req_id, (int, str)) and not isinstance(req_id, bool) and len(str(req_id)) <= 64 else None,
+            "method": method if isinstance(method, str) and len(method) <= 64 else None,
+        },
+        "response_ok": response.get("ok"),
+    }
+
+
+def serve(stdin=None, stdout=None, frame_timeout: float | None = None) -> int:
+    """Request loop. Returns 0 on clean EOF, 1 after a framing error (session closed)."""
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
+    if frame_timeout is None:
+        frame_timeout = frame_timeout_from_env()
     log_path = os.environ.get("NURI_CARD_HOST_LOG")
     log = open(log_path, "a") if log_path else None
-    while True:
-        try:
-            request = read_message(stdin)
-        except HostError as exc:
-            write_message(stdout, error_response(None, exc.code, exc.message))
-            continue
-        if request is None:
-            break
-        response = handle(request)
+    try:
+        while True:
+            try:
+                request = read_message(stdin, frame_timeout)
+            except FramingError as exc:
+                if log:
+                    log.write(json.dumps({"framing_error": exc.message}) + "\n")
+                    log.flush()
+                write_message(stdout, error_response(None, exc.code, exc.message))
+                return 1  # never parse bytes after a broken frame
+            if request is EOF:
+                return 0
+            response = handle(request)
+            if log:
+                log.write(json.dumps(_log_entry(request, response)) + "\n")
+                log.flush()
+            write_message(stdout, response)
+    finally:
         if log:
-            log.write(json.dumps({"request": {k: v for k, v in request.items() if k != "params"},
-                                  "response_ok": response.get("ok")}) + "\n")
-            log.flush()
-        write_message(stdout, response)
-    return 0
+            log.close()
 
 
 def main(argv: list[str]) -> int:
