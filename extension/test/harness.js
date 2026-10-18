@@ -64,6 +64,7 @@ function createHarness(options = {}) {
         const id = nextWindow++, tabId = id + 1000, documentId = 'document-' + id;
         windows.set(id, { id, tabs: [{ id: tabId, url }] });
         contexts.set(documentId, { documentId, documentUrl: url, tabId, windowId: id });
+        if (options.windowCreated) await options.windowCreated(id);
         setImmediate(async () => {
           if (options.autoApprove === false || closed) return;
           const approved = typeof options.autoApprove === 'function' ? options.autoApprove() : true;

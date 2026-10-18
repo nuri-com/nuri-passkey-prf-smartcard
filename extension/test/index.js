@@ -2,3 +2,4 @@
 require('./hashing.test.js');
 require('./background.test.js');
 require('./popup.test.js');
+require('./lifecycle.test.js');

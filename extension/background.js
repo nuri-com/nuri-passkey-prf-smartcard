@@ -120,13 +120,16 @@ async function requestApproval(origin, kind, summary, action = null) {
   const result = new Promise((yes, no) => { resolve = yes; reject = no; });
   const a = { payload, binding, url, action, resolve, reject, windowId: null, documentId: null, displayed: false, busy: false };
   approvals.set(approvalId, a);
+  let opened;
+  a.ready = new Promise((resolve) => { opened = resolve; });
   a.timer = setTimeout(() => cancelApproval(approvalId, "Approval timed out"), APPROVAL_TIMEOUT_MS);
-  try {
-    const win = await chrome.windows.create({ url, type: "popup", width: 460, height: 680, focused: true });
+  // Popup scripts may message before windows.create resolves: wait for its
+  // Chrome-assigned id, never treat the caller's claimed id as authority.
+  chrome.windows.create({ url, type: "popup", width: 460, height: 680, focused: true }).then(async (win) => {
     a.windowId = win.id;
-  } catch {
-    cancelApproval(approvalId, "Could not open approval");
-  }
+    if (approvals.get(approvalId) !== a) { await chrome.windows.remove(win.id).catch(() => {}); return; }
+    await chrome.windows.get(win.id); // catches a close before onRemoved could bind it
+  }).catch(() => cancelApproval(approvalId, "Could not open approval")).finally(opened);
   return result;
 }
 function cancelApproval(id, message = "User rejected the request") {
@@ -142,6 +145,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 async function boundApproval(msg, sender) {
   const a = approvals.get(msg.approvalId);
+  if (a) await a.ready;
   if (!a || a.windowId === null || sender.id !== chrome.runtime.id || sender.url !== a.url || !sender.documentId) {
     throw rpcError(4001, "Unknown or orphaned approval popup");
   }
