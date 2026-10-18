@@ -1482,7 +1482,7 @@ async function requestHandler(req, res) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (args.backend === 'simulated') card = createOnCardGeneratedCard();
+if (args.backend === 'simulated') card = createOnCardGeneratedCard({ mode: 'sim' });
 
 let auth = null; // { token, source } — set before listen (not for --selftest)
 

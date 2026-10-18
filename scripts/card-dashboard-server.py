@@ -161,13 +161,9 @@ def get_connection():
     card went away. Callers SELECT the applet they need (ETH via select_eth())."""
     global _applet
     if _applet is not None:
-        try:
-            # Liveness only: any status word is fine, a transport exception is not.
-            _applet.transmit(bytes([0x00, 0xA4, 0x04, 0x00, len(AID_ETH2)]) + AID_ETH2)
-            return _applet
-        except Exception:
-            _applet.close()
-            _applet = None
+        # Never SELECT as a liveness probe: it deselects the caller's applet
+        # between SELECT and SIGN (and clears any on-card PIN session).
+        return _applet
     last = None
     for aid in _connection_aids():
         try:
@@ -180,9 +176,20 @@ def get_connection():
     raise RuntimeError(f"no card found in any reader ({last})") from last
 
 def transmit(apdu):
-    return get_connection().transmit(bytes(apdu))
+    global _applet
+    applet = get_connection()
+    try:
+        return applet.transmit(bytes(apdu))
+    except Exception:
+        # A failed operation is never retried, especially SIGN. Reconnect only
+        # on a later request, which must run selection/policy again.
+        applet.close()
+        _applet = None
+        raise
 
 def select_aid(aid):
+    if aid == AID_ETH:
+        nuri_eth_policy.require_eth1_demo()
     return transmit(bytes([0x00, 0xA4, 0x04, 0x00, len(aid)]) + aid)
 
 

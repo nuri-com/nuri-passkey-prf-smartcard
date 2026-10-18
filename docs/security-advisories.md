@@ -10,7 +10,7 @@ flowchart TD
   H --> V
   E --> V
   K --> V
-  V --> O[PKCS11 default simulator selection remains open]
+  V --> O[W28 PKCS11 defaults to card; simulation explicitly labelled]
 ```
 
 ## Reading this register
@@ -20,14 +20,15 @@ findings and source remediation, not assigned CVEs or published GHSAs. Severity 
 a qualitative project assessment, not a calculated CVSS score. Dates below are the
 advisory/source-fix dates, not claims about first discovery or exploitation.
 
-The evidence snapshot is `launch/v1` at
-`00fe2e508d4126e1b15ab2a30e1b37a6ef58b806`. Every remediation SHA below was checked
-with `git cat-file -t` and `git merge-base --is-ancestor` against that branch; each
-exists as a commit and is an ancestor of the snapshot. Source anchors refer to
-that snapshot. No new physical-card testing was performed to prepare this register.
-Simulator tests named below are regression evidence in the tree, not a claim that
-they were executed for this documentation change. Deployed or installed versions
-must be checked separately. Report new findings using [SECURITY.md](../SECURITY.md).
+The original evidence snapshot is `launch/v1` at
+`00fe2e508d4126e1b15ab2a30e1b37a6ef58b806`. Historical remediation SHAs were checked
+with `git cat-file -t` and `git merge-base --is-ancestor` against that snapshot.
+Historical line anchors remain pinned to it. The separately identified W28 fix
+is verified against its full commit SHA on the W28 task branch (merge and
+publication are separate), with newly executed fake/simulator regressions in
+[the signer policy report](fail-closed-signers.md). No physical-card testing was
+performed for W28. Deployed or installed versions must be checked separately.
+Report new findings using [SECURITY.md](../SECURITY.md).
 
 | Advisory | Date | Severity | Component | Source remediation |
 | --- | --- | --- | --- | --- |
@@ -36,7 +37,7 @@ must be checked separately. Report new findings using [SECURITY.md](../SECURITY.
 | [NURI-2026-003](#nuri-2026-003--eth-keygen-probe-rotates-an-existing-key) | 2026-10-18 | High | ETH diagnostic helper | Probe skipped for applets older than 1.4. |
 | [NURI-2026-004](#nuri-2026-004--bearer-token-served-in-html) | 2026-10-18 | High | Browser-facing HTTP helpers; R1/W22 | Credential bootstrap replaced with pairing. |
 | [NURI-2026-005](#nuri-2026-005--popup-request-binding) | 2026-10-18 | High | Chrome extension; R7/W21 | Approval bound to live popup and displayed request. |
-| [NURI-2026-006](#nuri-2026-006--silent-simulator-key-selection) | 2026-10-18 | High | Native messaging host and extension; R8/W21 | Native-host path fixed; PKCS#11 default-sim path remains open. |
+| [NURI-2026-006](#nuri-2026-006--silent-simulator-key-selection) | 2026-10-18 | High | Native messaging host and extension; R8/W21 | Native-host path fixed; W28 fixes PKCS#11 default-sim selection. |
 | [NURI-2026-007](#nuri-2026-007--musig2-finalize-without-a-pin-gate) | 2026-10-18 | High | MuSig2 applet; gate 2/W20 | PIN checks added to signing commands in v1.14. |
 
 ## NURI-2026-001 — MuSig2 nonce lifetime after power loss
@@ -208,18 +209,26 @@ must be checked separately. Report new findings using [SECURITY.md](../SECURITY.
   and explicit simulator launchers;
   [`extension/background.js:69–88`](../extension/background.js#L69-L88) checks mode
   and marks simulation.
-- **Open residual scope — PKCS#11 is not fixed by W21:**
-  [`scripts/pkcs11-nuri.c:356–358`](../scripts/pkcs11-nuri.c#L356-L358) still chooses
-  `--sim` unless `NURI_PKCS11_MODE` is exactly `card`.
-  [`scripts/pkcs11-helper.py:24–30`](../scripts/pkcs11-helper.py#L24-L30) derives the
-  deterministic simulation key, and
-  [`:92–99`](../scripts/pkcs11-helper.py#L92-L99) defaults to simulation without
-  an explicit mode. **Status: remediated for the native messaging/extension path;
-  open for default simulator selection in PKCS#11. Do not mark R8 globally closed.**
-- **Action and limits:** Do not fund any simulator address. For PKCS#11, explicitly
-  select card mode and independently verify the key and installed artifact;
-  merely updating the native host does not harden the PKCS#11 launcher. Never
-  treat an unknown mode value as permission to fall back to simulation.
+- **W28 PKCS#11 default-simulator fix:**
+  **Verified fix SHA:** `3e56c445dc63ae11ec51d35119af7daadda9ced3`. The native
+  module and Python helper now default to the physical card; only exact
+  `NURI_PKCS11_MODE=sim` enables the deterministic software key. Unknown modes
+  reject before invoking a signer. The simulator token and every object label
+  contain `SIMULATOR`, and helper responses identify `mode: sim`.
+  ETH2 is preferred; ambiguous transport/SELECT failures never select ETH1.
+  Legacy ETH1 requires exact `NURI_ALLOW_ETH1_DEMO=1` and prints a warning.
+  ETH2 signing remains fail-closed in this PKCS#11 bridge because it has no
+  persistent authenticated PIN session; this is not a claim of ETH2 OpenSSL support.
+- **Regression evidence:** `scripts/test-pkcs11-failclosed.py` exercises native
+  dispatch, labels, helper errors, unknown-mode rejection, ETH2 preference and
+  no downgrade using fakes. The rebuilt artifact is pinned in `dist/SHA256SUMS`.
+  No physical reader was used for W28.
+- **Status:** The PKCS#11 default-simulator item is **fixed in source and rebuilt
+  artifact**. This closes that specific R8 item, not every OpenSSL/TLS/PIN
+  integration concern described by R8.
+- **Action and limits:** Replace the native module and helper together, verify
+  the pinned artifact and independently check the card public key. Do not fund
+  any simulator address. Parent-only card acceptance commands are in `docs/hsm.md`.
 
 ## NURI-2026-007 — MuSig2 FINALIZE without a PIN gate
 

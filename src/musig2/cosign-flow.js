@@ -51,7 +51,8 @@ export function parseMsg32({ msg32, message } = {}) {
   };
 }
 
-export function createOnCardGeneratedCard() {
+export function createOnCardGeneratedCard({ mode } = {}) {
+  if (mode !== 'sim') throw new Error('software card creation requires explicit mode: sim');
   return new SimulatedMuSig2Card();
 }
 

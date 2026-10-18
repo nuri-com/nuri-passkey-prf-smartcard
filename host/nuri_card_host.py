@@ -324,6 +324,8 @@ class CardSigner:
     # -- transport ---------------------------------------------------------
     def _open(self) -> None:
         CardError = self._pcsc.CardError
+        if AID_ETH_V2.upper() == AID_ETH_V1:
+            raise HostError("CONFIG_ERROR", "NURI_ETH2_AID cannot alias the PIN-less ETH1 applet")
 
         def code_of(exc) -> str:
             code = getattr(exc, "code", "")

@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import net from 'node:net';
 import { runInNewContext } from 'node:vm';
 import { once } from 'node:events';
-import { runCardCosignFlow } from '../src/musig2/cosign-flow.js';
+import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosign-flow.js';
 import { SimulatedCardArkadeSigner, runArkadeClientSignerProof, runArkadeClientSignerProofSuite } from '../src/musig2/arkade-client-signer.js';
 import { requireCardResult, requireCardSubprocess } from '../src/signer-policy.js';
 
@@ -218,6 +218,9 @@ for (const [script, args, override] of [
 }
 
 test('generic signing flows require explicit signers and counterparty keys', async () => {
+  assert.throws(() => createOnCardGeneratedCard(), /requires explicit mode: sim/);
+  assert.throws(() => createOnCardGeneratedCard({ mode: 'card' }), /requires explicit mode: sim/);
+  assert.ok(createOnCardGeneratedCard({ mode: 'sim' }));
   assert.throws(() => runCardCosignFlow(), /card signer is required/);
   await assert.rejects(runArkadeClientSignerProof(), /signer is required/);
   await assert.rejects(runArkadeClientSignerProofSuite(), /signer or signerFactory is required/);
