@@ -57,6 +57,8 @@ mkdir -p "$CLASSES"
 # jCardSim ships its own javacard.* API classes, so no JC SDK is needed here.
 javac -nowarn -source 8 -target 8 -cp "$JAR" -d "$CLASSES" \
   "$APPLET_SRC"/*.java \
-  "$ROOT/test/musig2-jcardsim/NonceLifetimeTest.java"
+  "$ROOT/test/musig2-jcardsim/NonceLifetimeTest.java" \
+  "$ROOT/test/musig2-jcardsim/Scalar256Test.java"
 
+java -cp "$CLASSES:$JAR" Scalar256Test
 java -cp "$CLASSES:$JAR" NonceLifetimeTest

@@ -41,6 +41,8 @@ public final class NonceLifetimeTest {
         testFinalizeAfterPowerCycleIsRefused();
         testFinalizeAfterPowerCycleWithFreshNoncesIsFine();
         testReplayAfterFinalizeIsRefused();
+        testHostScalarNormalizationAndParity();
+        testZeroNonceDefenseInDepth();
         if (failures != 0) {
             System.err.println("MUSIG2_JCARDSIM_NONCE_LIFETIME_FAILED failures=" + failures);
             System.exit(1);
@@ -50,11 +52,11 @@ public final class NonceLifetimeTest {
 
     // ---- scenarios ---------------------------------------------------------
 
-    /** Sanity: version is 1.12 and a normal GET_NONCES -> FINALIZE round verifies. */
+    /** Sanity: version is 1.13 and a normal GET_NONCES -> FINALIZE round verifies. */
     private static void testHappyPathStillSigns() {
         Simulator sim = freshCard();
         byte[] version = ok(sim, apdu(0x01, null));
-        check("version byte is 1.12", version[0] == 0x01 && version[1] == 0x0C,
+        check("version byte is 1.13", version[0] == 0x01 && version[1] == 0x0D,
               "got " + hex(version));
 
         byte[] pubkey = ok(sim, apdu(0x04, null));
@@ -90,6 +92,8 @@ public final class NonceLifetimeTest {
         // and deselects. Re-select the applet as a reader would after ATR.
         sim.reset();
         check("applet re-selectable after reset", sim.selectApplet(aid()), "");
+        boolean[] flags = (boolean[])appletField("sessionFlags");
+        check("reset clears both nonce session flags independently", !flags[0] && !flags[1], "");
 
         byte[] a = randomScalar();
         byte[] b = randomScalar();
@@ -142,6 +146,70 @@ public final class NonceLifetimeTest {
               "sw=" + Integer.toHexString(r.sw));
     }
 
+    /** Noncanonical host a,b,e retain modulo semantics through the APDU path. */
+    private static void testHostScalarNormalizationAndParity() {
+        Simulator sim = freshCard();
+        byte[] pubkey = ok(sim, apdu(0x04, null));
+        BigInteger[] values = {BigInteger.ZERO, BigInteger.ONE, N.subtract(BigInteger.ONE),
+            N, N.add(BigInteger.ONE), BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE)};
+        for (int parity = 0; parity < 2; parity++) {
+            for (int i = 0; i < values.length; i++) {
+                byte[] a = scalarBytes(values[i]);
+                byte[] b = scalarBytes(values[(i + 2) % values.length]);
+                byte[] e = scalarBytes(values[(i + 4) % values.length]);
+                byte[] nonces = ok(sim, apdu(0x40, null));
+                byte[] s = ok(sim, apdu(0x41, concat(a, b, new byte[] {(byte)parity}, e)));
+                ECPoint k1 = CURVE.getCurve().decodePoint(Arrays.copyOfRange(nonces, 0, 33));
+                ECPoint k2 = CURVE.getCurve().decodePoint(Arrays.copyOfRange(nonces, 33, 66));
+                ECPoint r = k1.add(k2.multiply(new BigInteger(1, b).mod(N)));
+                if (parity == 1) r = r.negate();
+                ECPoint p = CURVE.getCurve().decodePoint(pubkey);
+                BigInteger ea = new BigInteger(1, e).multiply(new BigInteger(1, a)).mod(N);
+                check("noncanonical APDU partial verifies parity=" + parity + " vector=" + i,
+                    s.length == 32 && new BigInteger(1, s).compareTo(N) < 0
+                        && CURVE.getG().multiply(new BigInteger(1, s)).equals(r.add(p.multiply(ea))),
+                    "partial=" + hex(s));
+            }
+        }
+    }
+
+    /** Harness-only fault: leave flags ready but zero either secret nonce. */
+    private static void testZeroNonceDefenseInDepth() throws Exception {
+        for (String fieldName : new String[] {"nonceK1", "nonceK2"}) {
+            Simulator sim = freshCard();
+            ok(sim, apdu(0x04, null));
+            ok(sim, apdu(0x40, null));
+            Arrays.fill((byte[])appletField(fieldName), (byte)0);
+            Response r = tx(sim, apdu(0x41,
+                concat(randomScalar(), randomScalar(), new byte[] {0}, randomScalar())));
+            check("zero " + fieldName + " with ready flags rejected without output",
+                r.sw == SW_INVALID_NONCE && r.data.length == 0,
+                "sw=" + Integer.toHexString(r.sw) + " data=" + hex(r.data));
+            r = tx(sim, apdu(0x41,
+                concat(randomScalar(), randomScalar(), new byte[] {0}, randomScalar())));
+            check("zero nonce refusal invalidates session", r.sw == SW_NONCES_NOT_READY,
+                "sw=" + Integer.toHexString(r.sw));
+        }
+    }
+
+    private static Object appletField(String name) {
+        try {
+            Object applet = com.licel.jcardsim.base.SimulatorSystem.instance().lookupApplet(aid()).getApplet();
+            java.lang.reflect.Field field = NuriMuSig2v019.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field.get(applet);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("simulator field access: " + name, e);
+        }
+    }
+
+    private static byte[] scalarBytes(BigInteger value) {
+        byte[] raw = value.toByteArray(), out = new byte[32];
+        int copy = Math.min(32, raw.length);
+        System.arraycopy(raw, raw.length - copy, out, 32 - copy, copy);
+        return out;
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private static final class Response {
@@ -160,36 +228,13 @@ public final class NonceLifetimeTest {
     private static Simulator freshCard() {
         Simulator sim = new Simulator();
         sim.installApplet(aid(), NuriMuSig2v019.class);
-        fixJcardsimRsaMultiplier();
+
         if (!sim.selectApplet(aid())) {
             throw new IllegalStateException("applet select failed");
         }
         return sim;
     }
 
-    /**
-     * jCardSim 3.0.5.11 quirk (test harness only, applet untouched): an
-     * RSAPublicKey produced by KeyPair.genKeyPair() keeps the BouncyCastle
-     * parameters it was generated with, so Biginteger.init()'s
-     * setExponent(2) is reported by getExponent() but ignored by the cipher
-     * (it still computes x^65537 mod M). Satochip's mult_rsa_trick then
-     * yields wrong products in the simulator. Real cards honour setExponent;
-     * the shipped applet has produced valid mainnet MuSig2 partials. Re-key
-     * the multiplier with an explicit (modulus, e=2) key so the simulator
-     * arithmetic matches hardware and the happy-path verification is real.
-     */
-    private static void fixJcardsimRsaMultiplier() {
-        byte[] modulus = new byte[96];
-        short len = nuri.musig2.Biginteger.rsa_pubkey_pow2.getModulus(modulus, (short) 0);
-        javacard.security.RSAPublicKey key = (javacard.security.RSAPublicKey)
-            javacard.security.KeyBuilder.buildKey(
-                javacard.security.KeyBuilder.TYPE_RSA_PUBLIC, (short) 768, false);
-        key.setModulus(modulus, (short) 0, len);
-        key.setExponent(new byte[] {0x02}, (short) 0, (short) 1);
-        nuri.musig2.Biginteger.rsa_pubkey_pow2 = key;
-        nuri.musig2.Biginteger.rsa_cipher.init(key, javacardx.crypto.Cipher.MODE_ENCRYPT);
-        nuri.musig2.Biginteger.FLAG_FAST_MULT_VIA_RSA = true;
-    }
 
     private static byte[] apdu(int ins, byte[] data) {
         if (data == null || data.length == 0) {
