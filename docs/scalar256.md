@@ -157,6 +157,13 @@ inspection found exactly the applet and Scalar256 class entries; its manifest
 reports `Java-Card-Integer-Support-Required: FALSE` and imports only
 `A0000000620101` (framework), `A0000000620102` (security), and
 `A0000000620001` (language). Source compilation input was exactly two Java files.
+The first Linux GitHub CI run independently rebuilt the same MuSig2 hash and
+reported `CAP_COMPONENTS_IDENTICAL` for all six CAPs. Its final release gate
+failed solely on manifest **row ordering**, not content: the pre-existing
+`dist/SHA256SUMS` ordering differed from the builder's order, and the verifier
+compares the CAP rows without sorting (`scripts/verify-card-v1-release.sh:22-24`).
+The manifest is now ordered exactly as the builder emits; all unrelated hashes
+are unchanged. That run's node and virtual-card jobs passed.
 
 ## Review and remaining boundaries
 
