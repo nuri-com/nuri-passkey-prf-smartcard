@@ -92,6 +92,8 @@ public final class NonceLifetimeTest {
         // and deselects. Re-select the applet as a reader would after ATR.
         sim.reset();
         check("applet re-selectable after reset", sim.selectApplet(aid()), "");
+        boolean[] flags = (boolean[])appletField("sessionFlags");
+        check("reset clears both nonce session flags independently", !flags[0] && !flags[1], "");
 
         byte[] a = randomScalar();
         byte[] b = randomScalar();
@@ -177,10 +179,7 @@ public final class NonceLifetimeTest {
             Simulator sim = freshCard();
             ok(sim, apdu(0x04, null));
             ok(sim, apdu(0x40, null));
-            Object applet = com.licel.jcardsim.base.SimulatorSystem.instance().lookupApplet(aid()).getApplet();
-            java.lang.reflect.Field field = NuriMuSig2v019.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            Arrays.fill((byte[])field.get(applet), (byte)0);
+            Arrays.fill((byte[])appletField(fieldName), (byte)0);
             Response r = tx(sim, apdu(0x41,
                 concat(randomScalar(), randomScalar(), new byte[] {0}, randomScalar())));
             check("zero " + fieldName + " with ready flags rejected without output",
@@ -190,6 +189,17 @@ public final class NonceLifetimeTest {
                 concat(randomScalar(), randomScalar(), new byte[] {0}, randomScalar())));
             check("zero nonce refusal invalidates session", r.sw == SW_NONCES_NOT_READY,
                 "sw=" + Integer.toHexString(r.sw));
+        }
+    }
+
+    private static Object appletField(String name) {
+        try {
+            Object applet = com.licel.jcardsim.base.SimulatorSystem.instance().lookupApplet(aid()).getApplet();
+            java.lang.reflect.Field field = NuriMuSig2v019.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field.get(applet);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("simulator field access: " + name, e);
         }
     }
 

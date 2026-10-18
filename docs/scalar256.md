@@ -105,6 +105,29 @@ SCALAR256_OK assertions=15376024 compare=4830 isZero=710 reduce=3479 negate=3721
 MUSIG2_JCARDSIM_NONCE_LIFETIME_OK
 ```
 
+Three consecutive complete simulator runs passed after integration. Three
+consecutive `npm test` runs each returned **21 tests, 21 pass, 0 fail, 0 skipped**
+(Node 22.21.1). The first host run failed because the new worktree had no
+`node_modules`; `npm ci --ignore-scripts --no-audit --no-fund` installed the
+47 lockfile packages without changing source/lockfiles, then all runs passed.
+
+Six isolated fault-injection copies of the two current MuSig2 sources each
+returned exit 1, without mutating the candidate or reading retired source:
+
+| Injected fault | Observed failing assertion |
+|---|---|
+| Suppress low-sum/equality subtraction | `binary layout=0 shift=0 canonical output` |
+| Ignore the 257th-bit carry | `binary layout=6 shift=-31` expected/actual mismatch |
+| Invert multiply bit selection | `binary layout=6 shift=-31` expected/actual mismatch |
+| Write output before staging multiply operands | `binary layout=6 shift=0` expected/actual mismatch |
+| Disable zero-nonce guard only | Both ready-session zero-nonce tests returned `9000`; suite failed |
+| Make session flags persistent only | `reset clears both nonce session flags independently` failed |
+
+The last two controls prove that each A1 defense is tested independently rather
+than allowing the other guard to mask it. Candidate runs after the fault copies
+again passed three times. Full local execution logs are retained in the ignored
+`.build/card-v1/w16-evidence/` directory, not represented as shipped artifacts.
+
 Build the two-source CAP with an externally installed Java Card 3.0.4 SDK and
 Zulu JDK 8, then normalize its ZIP metadata:
 
@@ -128,6 +151,12 @@ package version is **2.0**, while the APDU version is **1.13** (`010D`), both
 separate from the retained compatibility filename (`build.xml:3,9,13` and
 `NuriMuSig2v019.java:29-30`). CAP SHA256 is
 `0fb0b08bfd728b38c57e137fd54c4a3f5f9bfd80fda1fa1d7acc818e17e1a89a`.
+A second independent build plus normalization compared byte-identically using
+`cmp`. All eight existing `dist/SHA256SUMS` entries matched their files. CAP
+inspection found exactly the applet and Scalar256 class entries; its manifest
+reports `Java-Card-Integer-Support-Required: FALSE` and imports only
+`A0000000620101` (framework), `A0000000620102` (security), and
+`A0000000620001` (language). Source compilation input was exactly two Java files.
 
 ## Review and remaining boundaries
 
