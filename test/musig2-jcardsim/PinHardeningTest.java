@@ -20,7 +20,7 @@ public final class PinHardeningTest {
 
     public static void main(String[] args) throws Exception {
         pinPolicy(); retries(); installPolicy(); sessionBinding(); errorsBurn();
-        points(); fieldMath(); blindedAndFault(); exceptionCleanup(); keygenTransaction();
+        points(); fieldMath(); publicCacheAndShortKey(); blindedAndFault(); exceptionCleanup(); keygenTransaction();
         System.out.println("MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=" + checks);
     }
     private static Simulator fresh(byte[] app) {
@@ -150,6 +150,25 @@ public final class PinHardeningTest {
         clean(true);
     }
     private static byte[] fixed(BigInteger n) {byte[] raw=n.toByteArray(),out=new byte[32];int len=Math.min(raw.length,32);System.arraycopy(raw,raw.length-len,out,32-len,len);return out;}
+    private static void publicCacheAndShortKey() throws Exception {
+        Simulator s = keyed();
+        byte[] publicKey = ok(s,3,null);
+        KeyAgreement engine = (KeyAgreement)field("keyAgreement");
+        set("keyAgreement",new BadEngine(engine));
+        require(Arrays.equals(publicKey,ok(s,3,null)),"public cache avoids all master-secret EC operations");
+        set("keyAgreement",engine);
+        byte[] payload = payload(ok(s,0x40,null));
+        ECPrivateKey original = (ECPrivateKey)field("masterKey");
+        ECPrivateKey shortRead = (ECPrivateKey)Proxy.newProxyInstance(PinHardeningTest.class.getClassLoader(),
+            new Class<?>[]{ECPrivateKey.class}, (obj,method,args) -> {
+                try {
+                    Object value = method.invoke(original,args);
+                    return method.getName().equals("getS") ? Short.valueOf((short)31) : value;
+                } catch (InvocationTargetException e) { throw e.getCause(); }
+            });
+        set("masterKey",shortRead);
+        sw(s,0x41,payload,0x6988); clean(true);
+    }
     private static void blindedAndFault() throws Exception {
         Simulator s = keyed();
         byte[] p = payload(ok(s,0x40,null));
@@ -205,6 +224,7 @@ public final class PinHardeningTest {
         require(depth[0] == 1,"persistent key set runs inside transaction");
         require(JCSystem.getTransactionDepth() == 0,"failure aborts transaction");
         require(!(Boolean)field("keyGenerated"),"one-shot flag not committed on failure");
+        require(zero((byte[])field("masterPublicKey")),"public cache not published on failed key set");
         sw(s,3,null,0x6986); clean(true);
         set("masterKey",original); auth(s); byte[] pub = ok(s,4,null);
         sw(s,4,null,0x6989); auth(s);

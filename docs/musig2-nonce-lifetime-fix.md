@@ -53,7 +53,7 @@ PinHardeningTest. Current success markers:
 ```text
 SCALAR256_OK
 MUSIG2_JCARDSIM_NONCE_LIFETIME_OK
-MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1098
+MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1127
 ```
 
 The old reset-extraction negative fixture still rejects output after reset;

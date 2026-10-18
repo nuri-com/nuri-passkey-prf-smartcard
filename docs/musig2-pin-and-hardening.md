@@ -58,7 +58,7 @@ bytes choose mandatory/unset PIN, not demo mode. Supported application bytes:
 | Bytes | Policy |
 |---|---|
 | empty | Mandatory PIN; provision once using SET_PIN before KEYGEN |
-| `00 | pinLength | PIN` | Mandatory, install-time personalized PIN (4–12 digits) |
+| `00, pinLength, PIN` | Mandatory, install-time personalized PIN (4–12 digits) |
 | `01 00` | Explicit optional-PIN public demo card; no PIN initially set |
 
 Any other mode/length is rejected. Optional policy is immutable and only chosen
@@ -158,10 +158,23 @@ Sources: `NuriMuSig2v019.java:469-498`; `Scalar256.java:133-151,172-201`.
 
 All candidate generation, public-key computation, supported-output checks and
 even-Y normalization happen with the temporary key first. Only then does one
-`JCSystem.beginTransaction()` cover `masterKey.setS` and `keyGenerated=true`,
-followed by commit. GET_PUBKEY requires the committed flag, so an interrupted
-candidate is not advertised. Any exception aborts an open transaction; once
-committed, delivery failure does not unlock KEYGEN.
+`JCSystem.beginTransaction()` surround `masterKey.setS`, the persistent 33-byte
+public-key cache copy, and `keyGenerated=true`, followed by commit. Java Card
+key-provider writes are not assumed to roll back: setS happens **before** the
+transactional cache/flag publication, and every signing/read path checks the
+committed flag. An interrupted uncommitted scalar is therefore unusable and not
+advertised. Any exception aborts an open transaction; once committed, delivery
+failure does not unlock KEYGEN. The simulator test proves order, transaction
+depth and the public-read guard, not key-provider rollback.
+
+GET_PUBKEY returns only the committed cache and never repeats a native EC product
+with the master scalar. An independent bounded source review identified the old
+unlimited public-read master-secret multiplication path; this follow-up removes
+it. A simulator test substitutes an unsupported EC engine and still obtains the
+same cached public key. Scalar readback for signing must return exactly 32 bytes
+or FINALIZE fails closed, preventing stale point bytes from entering arithmetic.
+One successful VERIFY authorizes repeated fresh nonce/signing rounds until an
+error, deselect or reset; it is not fresh owner consent per signature.
 Source: `NuriMuSig2v019.java:396-424`.
 
 jCardSim verifies that a forced exception in the key setter happens at transaction
@@ -206,7 +219,7 @@ Three consecutive complete runs on macOS, Zulu JDK 17, pinned jCardSim 3.0.5.11:
 ```text
 SCALAR256_OK assertions=15376024 ... bip327=6 ...
 MUSIG2_JCARDSIM_NONCE_LIFETIME_OK
-MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1098
+MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1127
 Ran 15 tests ... OK
 Node: tests 39, pass 39, fail 0, skipped 0
 MUSIG2_HARDENING_NEGATIVE_CONTROLS_OK red=5 candidate=green
@@ -231,7 +244,7 @@ verifier: **0 warnings, 0 errors**. Two independent builds normalized byte-ident
 Only the applet and Scalar256 classes are present, and integer support is FALSE.
 
 ```text
-CAP SHA256 f07d60a1e3e78da9b952560282223b1c22e0c026904218c361c0edad5de3cf1e
+CAP SHA256 98d8d8e2d19532d5779ce041f7302f46be45d3538f692066340e2e458f27e811
 ```
 
 SDK ref: `e2df471e04d86f33de69a947f44766fbef1d9d69`, JC 3.0.4, Zulu 8

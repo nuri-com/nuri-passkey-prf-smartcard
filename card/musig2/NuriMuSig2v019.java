@@ -91,12 +91,13 @@ public class NuriMuSig2v019 extends Applet {
 
     // State
     private ECPrivateKey masterKey;
+    private byte[] masterPublicKey; // persistent committed public cache; no sk oracle on reads
     private ECPrivateKey tempPrivKey;
     private KeyAgreement keyAgreement;
     private MessageDigest sha256;
     private RandomData rng;
 
-    // Nonce storage (CLEAR_ON_RESET to survive deselect)
+    // Nonce storage: reset-transient, explicitly burned on deselect
     private byte[] nonceK1;      // 32 bytes secret k1
     private byte[] nonceK2;      // 32 bytes secret k2
     private byte[] pubK1;        // 33 bytes compressed K1 = k1·G
@@ -135,6 +136,7 @@ public class NuriMuSig2v019 extends Applet {
 
     protected NuriMuSig2v019() {
         // Initialize keys
+        masterPublicKey = new byte[33];
         masterKey = (ECPrivateKey)KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE, LENGTH_EC_FP_256, false);
         // Prefer transient EC key storage; explicit clearKey on every APDU exit
         // also covers cards which expose only persistent EC private key objects.
@@ -173,7 +175,7 @@ public class NuriMuSig2v019 extends Applet {
             }
         }
 
-        // Allocate nonce storage (CLEAR_ON_RESET to survive deselect)
+        // Allocate reset-transient nonces/flags; deselect explicitly burns them
         nonceK1 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_RESET);
         nonceK2 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_RESET);
         pubK1 = JCSystem.makeTransientByteArray((short)33, JCSystem.CLEAR_ON_RESET);
@@ -403,23 +405,23 @@ public class NuriMuSig2v019 extends Applet {
             publicFromScalar(scratch32_1, tempBuffer);
         }
         if ((tempBuffer[64] & 1) != 0) ISOException.throwIt(SW_INVALID_NONCE);
-        // Candidate math completes using the temporary key first. Commit the
-        // persistent scalar and one-shot flag together, never expose a half-key.
+        // Candidate math completes using the temporary key first. Some key
+        // providers do not roll back key-object writes, so write the scalar
+        // BEFORE atomically publishing the cached public key and keyed flag.
+        // An interrupted uncommitted scalar is never advertised or usable.
+        compress(tempBuffer, apdu.getBuffer(), (short)0);
         JCSystem.beginTransaction();
         masterKey.setS(scratch32_1, (short)0, (short)32);
+        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);
         keyGenerated = true;
         JCSystem.commitTransaction();
-        compress(tempBuffer, apdu.getBuffer(), (short)0);
         apdu.setOutgoingAndSend((short)0, (short)33);
     }
 
     private void getPublicKey(APDU apdu) {
-        if (!keyGenerated || !masterKey.isInitialized()) ISOException.throwIt(SW_NOT_INITIALIZED);
-        keyAgreement.init(masterKey);
-        short length = keyAgreement.generateSecret(SECP256K1, OFFSET_SECP256K1_G,
-            (short)65, tempBuffer, (short)0);
-        if (length != 65 || tempBuffer[0] != 4) ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
-        compress(tempBuffer, apdu.getBuffer(), (short)0);
+        if (!keyGenerated) ISOException.throwIt(SW_NOT_INITIALIZED);
+        // Public reads must never repeat an unblinded master-secret EC product.
+        Util.arrayCopyNonAtomic(masterPublicKey, (short)0, apdu.getBuffer(), (short)0, (short)33);
         apdu.setOutgoingAndSend((short)0, (short)33);
     }
 
@@ -517,7 +519,7 @@ public class NuriMuSig2v019 extends Applet {
     private void computePartial(byte parity, byte[] out) {
         // Independent recomputation includes the coefficient and nonce products.
         scalar.mulMod(scratch32_1, (short)0, scratch32_3, (short)0, scratch32_4, (short)0);
-        masterKey.getS(tempBuffer, (short)0);
+        if (masterKey.getS(tempBuffer, (short)0) != 32) ISOException.throwIt(SW_INVALID_NONCE);
         blindedMultiply(scratch32_4, tempBuffer, out);
         blindedMultiply(scratch32_2, nonceK2, scratch32_5);
         scalar.addMod(nonceK1, (short)0, scratch32_5, (short)0, scratch32_5, (short)0);

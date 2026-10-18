@@ -19,7 +19,7 @@ MUTATIONS = [
     ("session token", "if (!equalCT(buffer, (short)(off + 97), nonceSession, (short)0, (short)4)\n            || !equalCT(nonceSession, (short)0, sessionCounter, (short)0, (short)4))", "if (false)", "expected 6984 got"),
     ("double-computation compare", "if (!equalCT(result, (short)0, checkResult, (short)0, (short)32))", "if (false)", "expected 6988 got"),
     ("curve equation", "if (!equalCT(scratch32_4, (short)0, scratch32_5, (short)0, (short)32))", "if (false)", "expected 6a80 got"),
-    ("keygen atomicity", "JCSystem.beginTransaction();\n        masterKey.setS(scratch32_1, (short)0, (short)32);\n        keyGenerated = true;\n        JCSystem.commitTransaction();", "masterKey.setS(scratch32_1, (short)0, (short)32);\n        keyGenerated = true;", "persistent key set runs inside transaction"),
+    ("keygen atomicity", "JCSystem.beginTransaction();\n        masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        keyGenerated = true;\n        JCSystem.commitTransaction();", "masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        keyGenerated = true;", "persistent key set runs inside transaction"),
 ]
 
 
