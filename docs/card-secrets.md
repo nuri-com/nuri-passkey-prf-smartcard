@@ -31,8 +31,8 @@ creation time, tags, ciphertexts and nonces. Names/times/tags are **public
 metadata**, authenticated as GCM associated data when unwrapping. No PRF output,
 wrapping key, data key, or plaintext secret is written to the vault. Writes use
 an advisory lock and atomic replacement; transient output files are also 0600.
-Implementation: `scripts/card-secrets.py:274` (PRF), `:302` (AES-GCM), `:312`
-(HKDF), `:320` (authenticated unwrap), `:328` (permissions), `:354` (atomic save).
+Implementation: `scripts/card-secrets.py:284` (PRF), `:312` (AES-GCM), `:322`
+(HKDF), `:330` (authenticated unwrap), `:338` (permissions), `:364` (atomic save).
 Deleting an entry is not secure erasure of filesystem snapshots or backups.
 
 The broker calls the existing `card-prf-backup.py` `read_profile` / `derive_once`
@@ -172,14 +172,20 @@ Rules the CLI enforces:
   APDU, at most `254 - len(NAME)` bytes) and prints the 32-byte MAC as hex.
 - **run/proxy** use REVEAL, which the applet answers only for bearer entries;
   an HMAC entry fails before any child or listener starts. The card connection
-  is closed before the child/proxy starts. On top of the disk backend's
+  is logged out by re-SELECTing the exact vault AID, then closed, before the
+  child/proxy starts (`scripts/card-secrets.py:98-109`). Failed logout prevents
+  startup. Reader clients must be trusted/isolated: this is not a PC/SC-exclusive
+  transaction, so other clients could share authorization while it is active.
+  On top of the disk backend's
   scrubbing (`NURI_SECRET_*`, `FIDO2_*`, fake PRF), every environment variable
   with a `PIN` word component (`NURI_CARD_PIN`, `CARD_PIN`, `NURI_TOTP_PIN`, ...)
   is removed from the child.
 - There is **no reveal/get/show command**. The card backend never reads or
   writes the disk vault file and needs no FIDO2 profile.
-- `nuri_pcsc` (reader/protocol ladder, `NURI_READER`, `NURI_PCSC_PROTOCOL`) is
-  imported lazily only for `--backend card`; the disk backend never loads it.
+- The card backend lazily uses `nuri_pcsc`'s reader/protocol ladder,
+  `NURI_READER` and `NURI_PCSC_PROTOCOL`. The disk backend never selects the
+  vault applet, but its existing FIDO2 PRF implementation also imports this
+  shared transport (`scripts/card-prf-backup.py:31-35`).
 
 ### Card vs disk: what each protects
 
@@ -281,7 +287,7 @@ $S init                                   # once; PIN typed twice
 printf %s card-vault-smoke | $S put SMOKE
 printf %s synthetic-hmac-key | $S put MAC --kind hmac
 $S list                                   # [{"kind":"bearer","name":"SMOKE"},{"kind":"hmac","name":"MAC"}]
-printf abc > /tmp/m.bin && $S hmac MAC --data-file /tmp/m.bin
+printf abc > "$HOME/w19-public-m.bin" && $S hmac MAC --data-file "$HOME/w19-public-m.bin"
 python3 -c 'import hmac,hashlib; print(hmac.new(b"synthetic-hmac-key", b"abc", hashlib.sha256).hexdigest())'  # must match
 $S run SMOKE -- python3 -c 'import os; assert os.environ["NURI_SECRET_SMOKE"] == "card-vault-smoke"; print("CARD_VAULT_RUN_OK")'
 $S run MAC -- true                        # expect failure: HMAC-kind secrets never leave the card

@@ -90,7 +90,7 @@ def card_session():
     here = str(Path(__file__).resolve().parent)
     if here not in sys.path:
         sys.path.insert(0, here)
-    import nuri_pcsc  # lazy: the disk backend never touches PC/SC
+    import nuri_pcsc  # lazy: the disk backend never selects the vault applet
     try:
         applet = nuri_pcsc.open_applet(VAULT_AID)
     except nuri_pcsc.CardError as error:

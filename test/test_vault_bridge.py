@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import nuri_pcsc
 spec = importlib.util.spec_from_file_location('vault_bridge_cli', ROOT / 'scripts/card-secrets.py')
+assert spec is not None and spec.loader is not None
 cs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cs)
 

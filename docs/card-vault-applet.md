@@ -155,6 +155,26 @@ only a MAC, loopback endpoint or sanitized application response. Keep
 server, PIN service, sandbox, or vendor signing adapter**. Interactive owner PIN
 entry is still required; unattended PIN provisioning is not added.
 
+## Source anchors
+
+| Enforced property | Current source |
+|---|---|
+| Fixed slot arrays, sizes, OwnerPIN and SHA256-only engine | `card/vault/NuriVault.java:40-59` |
+| Session logout on select/deselect | `card/vault/NuriVault.java:65-74` |
+| Strict CLA/P1/P2 and command dispatch, no debug/reset branch | `card/vault/NuriVault.java:76-149` |
+| First-use PIN, VERIFY retry statuses | `card/vault/NuriVault.java:102-117` |
+| Mandatory authentication / blocked-state checks | `card/vault/NuriVault.java:188-195` |
+| HMAC kind cannot REVEAL; bearer kind cannot HMAC | `card/vault/NuriVault.java:128-145` |
+| Complete short-APDU reception | `card/vault/NuriVault.java:170-185` |
+| Duplicate/type immutability, transactional PUT, full store | `card/vault/NuriVault.java:221-238` |
+| Paged metadata-only LIST and transactional DELETE | `card/vault/NuriVault.java:241-261` |
+| Clean-room HMAC and transient scratch clearing | `card/vault/NuriVault.java:267-287` |
+| Final response buffer left intact for the JCRE | `card/vault/NuriVault.java:151-165` |
+| Host explicit logout before disconnect, including attempted VERIFY | `scripts/card-secrets.py:88-109`, `:133-149` |
+| Terminal-only PIN, no automatic wrong-PIN retry | `scripts/card-secrets.py:119-149` |
+| Owner-only import / MAC output / internal bearer reveal | `scripts/card-secrets.py:200-253` |
+| Install-only loader, checksum, FIDO2 and old-AID readback | `scripts/install-vault-card.sh:11-61` |
+
 ## Build and reader-free checks
 
 ```sh
