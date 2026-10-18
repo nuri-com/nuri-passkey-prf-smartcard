@@ -26,15 +26,15 @@ You might be interested in [reading about the security model](docs/security_mode
 
 ```mermaid
 flowchart LR
-  S[MIT applet source] --> G[Separately installed Gradle 8.2 or newer]
+  S[MIT applet source] --> G[Separately installed Gradle 8.2 through 8.x]
   G --> C[CAP or simulator test build]
 ```
 
 ## Environment Setup and Building the application
 
 Nuri packaging omits the upstream Gradle wrapper and `mds.json`; see
-`UPSTREAM.md`. Install Gradle 8.2 or newer separately and check `gradle --version`.
-The repository-root build/test scripts enforce that minimum and accept an
+`UPSTREAM.md`. Install Gradle 8.2 separately and check `gradle --version`.
+The repository-root build/test scripts enforce the supported 8.2 through 8.x range and accept an
 absolute executable path in `GRADLE_BIN`. Gradle and the Java Card SDK retain
 their own licences; they are not included under the applet MIT grant.
 

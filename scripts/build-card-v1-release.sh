@@ -7,6 +7,15 @@ WORK="$BUILD_ROOT/work"
 OUT="${CARD_RELEASE_OUT:-$BUILD_ROOT/artifacts}"
 JAVA8_HOME="${JAVA8_HOME:-}"
 
+# Keep the Gradle launcher separate from the pinned CAP compiler/converter JVM.
+GRADLE_JAVA_HOME="${JAVA17_HOME:-${JAVA_HOME:-}}"
+if [[ -z "$GRADLE_JAVA_HOME" ]] && [[ -x /usr/libexec/java_home ]]; then
+  GRADLE_JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+fi
+if [[ -n "$GRADLE_JAVA_HOME" ]]; then
+  export JAVA_HOME="$GRADLE_JAVA_HOME"
+fi
+
 source "$ROOT/scripts/require-system-gradle.sh"
 require_system_gradle
 
@@ -56,7 +65,10 @@ build_fido() {
   done
   (
     cd "$build_dir"
-    JC_HOME="$JC305" "$GRADLE_BIN" clean buildJavaCard --no-daemon
+    # The upstream plugin runs ant-javacard in-process: it needs JDK 8 for
+    # Java Card 3.0.5's -source/-target 1.5 and byte-identical CAP output.
+    JAVA_HOME="${GRADLE_JAVA_HOME:-$JAVA8_HOME}" JC_HOME="$JC305" \
+      "$GRADLE_BIN" -Dorg.gradle.java.home="$JAVA8_HOME" clean buildJavaCard --no-daemon
   )
   cp "$build_dir/build/javacard/FIDO2.cap" "$OUT/raw/$name.cap"
 }
@@ -99,6 +111,7 @@ done
   printf '%s\n' "ant_javacard_sha256=def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2"
   printf 'java=%s\n' "$($JAVA_HOME/bin/java -version 2>&1 | head -1)"
   printf 'gradle=%s\n' "$GRADLE_VERSION"
+  printf 'gradle_launcher_java_home=%s\n' "${GRADLE_JAVA_HOME:-$JAVA8_HOME}"
 } >"$OUT/BUILD-PROVENANCE.txt"
 
 cat "$OUT/SHA256SUMS"

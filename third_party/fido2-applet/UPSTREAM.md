@@ -28,12 +28,17 @@ repository-root applet patches are applied only inside `.build/`:
   The SDK retains its own licence; it is not covered by the applet MIT grant.
 - The Apache-2.0 Gradle wrapper launchers `gradlew` and `gradlew.bat`,
   `gradle/wrapper/gradle-wrapper.jar` and the unused
-  `gradle/wrapper/gradle-wrapper.properties` are removed. Install Gradle **8.2 or
-  newer** separately and verify `gradle --version`. The old wrapper selected
+  `gradle/wrapper/gradle-wrapper.properties` are removed. Install Gradle **8.2**
+  separately (supported range: 8.2 through 8.x) and verify `gradle --version`. The old wrapper selected
   8.2; use that version for the closest historical toolchain match. Root build
-  and simulator scripts check the minimum version and use `gradle` from PATH,
+  and simulator scripts check the supported range and use `gradle` from PATH,
   or the executable selected by `GRADLE_BIN`. The release provenance records
   the actual version; newer toolchain reproducibility must be verified.
+- Comparison with upstream main confirms `settings.gradle` and `gradle.properties`
+  are identical; `build.gradle` differs only in two SDK warning messages. The
+  plugin remains upstream's `com.klinec.gradle.javacard` 1.8.0. Its
+  `ClosureBackedAction` dependency is removed in Gradle 9, not Gradle 8.2;
+  changing applet/build configuration is not needed to fix that failure.
 - `mds.json` is excluded pending separate rights/provenance confirmation for its
   metadata, embedded icon and certificate. It is not needed by the Java/CAP
   compilation. This exclusion does not change the applet's licence.

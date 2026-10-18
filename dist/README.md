@@ -31,12 +31,29 @@ Card component.
 
 The FIDO2 source snapshot is vendored with the packaging exclusions recorded in
 `third_party/fido2-applet/UPSTREAM.md`. The Gradle wrapper is not redistributed;
-install Gradle 8.2 or newer separately (`gradle --version`), or set `GRADLE_BIN`
+install Gradle 8.2 (supported range: 8.2 through 8.x) separately (`gradle --version`), or set `GRADLE_BIN`
 to its absolute executable path. The original wrapper used Gradle 8.2; the build
 records the installed version in `BUILD-PROVENANCE.txt`. Reproducibility with a
 different Gradle version must be checked, not assumed. The Oracle Java Card SDK
 checkout is fetched at its exact public commit and retains its separate licence.
 See `../THIRD_PARTY_NOTICES.md` for the source and combined-CAP licence map.
+
+CI installs external Gradle 8.2 and both JDKs. JDK 17 launches Gradle;
+`-Dorg.gradle.java.home="$JAVA8_HOME"` runs the CAP build daemon on the pinned
+JDK 8 because the upstream Java Card plugin compiles/converts in-process with
+Java 1.5 source/target settings. The standalone Ant builds also use JDK 8.
+Simulator builds use JDK 17 throughout. Gradle 9 removed `ClosureBackedAction`,
+which plugin 1.8.0 requires, and is rejected before downloads or build setup.
+
+On macOS the release builder discovers installed JDK 17 and Zulu JDK 8. To
+select explicit installations (also usable on Linux):
+
+```bash
+export JAVA17_HOME=/path/to/jdk-17
+export JAVA8_HOME=/path/to/zulu-8.0.452
+export GRADLE_BIN=/path/to/gradle-8.2/bin/gradle
+npm run card:release:verify
+```
 
 ```mermaid
 flowchart LR

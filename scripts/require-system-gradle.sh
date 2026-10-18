@@ -28,4 +28,8 @@ require_system_gradle() {
     echo "Gradle 8.2 or newer is required; found $GRADLE_VERSION at $GRADLE_BIN. Install a supported version separately or set GRADLE_BIN." >&2
     return 1
   fi
+  if (( 10#$major >= 9 )); then
+    echo "Gradle 8.2 or newer within 8.x is required; found $GRADLE_VERSION at $GRADLE_BIN. The upstream Java Card plugin 1.8.0 uses ClosureBackedAction, removed in Gradle 9. Install Gradle 8.2 separately and set GRADLE_BIN." >&2
+    return 1
+  fi
 }

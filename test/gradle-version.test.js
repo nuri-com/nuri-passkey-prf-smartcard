@@ -32,7 +32,7 @@ function check(bin) {
   });
 }
 
-for (const version of ['8.2', '8.2.1', '8.14.3', '9.0.0', '10.0']) {
+for (const version of ['8.2', '8.2.1', '8.14.3']) {
   test(`installed Gradle ${version} satisfies minimum`, () => fixture((dir) => {
     const result = check(fakeGradle(dir, `Gradle ${version}`));
     assert.equal(result.status, 0, result.stderr);
@@ -40,11 +40,11 @@ for (const version of ['8.2', '8.2.1', '8.14.3', '9.0.0', '10.0']) {
   }));
 }
 
-for (const version of ['7.6.4', '8.0', '8.1.1']) {
+for (const version of ['7.6.4', '8.0', '8.1.1', '9.0.0', '10.0']) {
   test(`installed Gradle ${version} is rejected`, () => fixture((dir) => {
     const result = check(fakeGradle(dir, `Gradle ${version}`));
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /Gradle 8\.2 or newer is required; found/);
+    assert.match(result.stderr, /Gradle 8\.2 or newer.*is required; found/);
     assert.doesNotMatch(result.stdout, /ACCEPTED/);
   }));
 }
