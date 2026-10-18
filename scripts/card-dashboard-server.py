@@ -5,7 +5,9 @@ Endpoints (all JSON):
   GET  /api/card/status       — ATR + which applets SELECT-respond
   GET  /api/eth/version       — ETH applet version
   GET  /api/eth/pubkey        — current on-card ETH pubkey (33B compressed) + ETH/BTC addresses
-  POST /api/eth/keygen        — generate fresh on-card key, return pubkey + addresses
+  POST /api/eth/keygen        — DISABLED by default. Only with NURI_ALLOW_KEYGEN=1 AND applet >= 1.4
+                                (on ETH applet < 1.4 KEYGEN silently REPLACES the key; a real card
+                                 key was rotated that way on 2026-10-18)
   POST /api/eth/sign          — body {hash: hex(32)} -> {r, s, v, pubkey, verified}
   POST /api/btc/sign          — body {message: str} -> double-SHA256, sign, verify (BTC P2PKH)
   GET  /api/musig2/version    — MuSig2 applet version
@@ -13,7 +15,13 @@ Endpoints (all JSON):
   GET  /api/fido2/select      — SELECT FIDO2 applet
   GET  /api/eth/selftest      — cross-check on-card modInverse against python pow(a,-1,n)
 
-Serves web/dashboard.html at /.
+Serves web/dashboard.html at / (with the bearer token injected for its own fetch() calls).
+
+Access control (scripts/nuri_helper_auth.py, docs/helper-servers-security.md):
+loopback bind, Host/Origin allow-list, Content-Type application/json on POST,
+Authorization: Bearer <NURI_CARD_TOKEN or ~/.nuri-card/token> on /api/*, no CORS.
+Env: NURI_CARD_TOKEN, NURI_CARD_PORT (default 8788), NURI_ALLOW_KEYGEN=1,
+NURI_ALLOW_REMOTE=1 + NURI_CARD_HOST (needs NURI_CARD_TOKEN in env).
 
 Host-side crypto uses PROVEN LIBRARIES, not hand-rolled code:
   - ecdsa (python-ecdsa): ecrecover + signature verification (independent
@@ -37,6 +45,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nuri_pcsc
+import nuri_helper_auth
 
 from ecdsa import VerifyingKey, SECP256k1
 from ecdsa.util import sigdecode_string
@@ -137,19 +146,58 @@ def select_aid(aid):
 
 # --- HTTP ---------------------------------------------------------------------
 
+# Filled in by main(); tests set them directly. Token '' = every /api call is 401.
+AUTH = {"token": "", "port": 8788, "remote": False, "bind_host": "127.0.0.1"}
+MAX_BODY = 1 << 20
+
+def _drain(handler):
+    """Read a not-yet-consumed small body so error answers are not turned into connection resets."""
+    if getattr(handler, "_body_read", False):
+        return
+    handler._body_read = True
+    try:
+        n = int(handler.headers.get("content-length", 0))
+        if 0 < n <= MAX_BODY:
+            handler.rfile.read(n)
+    except (ValueError, OSError):
+        pass
+
 def json_resp(handler, status, payload):
     body = json.dumps(payload, indent=2).encode()
+    if status >= 400:
+        _drain(handler)
+        handler.close_connection = True
     handler.send_response(status)
     handler.send_header("content-type", "application/json; charset=utf-8")
     handler.send_header("cache-control", "no-store")
-    handler.send_header("access-control-allow-origin", "*")
+    # No access-control-allow-origin on purpose: browsers must not read or send cross-site.
     handler.end_headers()
     handler.wfile.write(body)
 
 def read_body(handler):
     n = int(handler.headers.get("content-length", 0))
+    handler._body_read = True
     if n == 0: return {}
+    if n > MAX_BODY: raise ValueError("body too large")
     return json.loads(handler.rfile.read(n))
+
+def guard(handler):
+    """Run the shared request guard; on denial answer and return False."""
+    denied = nuri_helper_auth.guard_request(
+        handler.command, handler.path, handler.headers,
+        port=AUTH["port"], token=AUTH["token"], remote=AUTH["remote"], bind_host=AUTH["bind_host"])
+    if denied is None:
+        return True
+    json_resp(handler, denied[0], {"error": denied[1]})
+    return False
+
+def eth_applet_version():
+    """(major, minor) of the selected ETH applet via INS 0x01."""
+    select_aid(AID_ETH)
+    data, sw = transmit(bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
+    if sw != 0x9000 or len(data) < 2:
+        raise RuntimeError(f"ETH version failed: sw={sw:04X}")
+    return data[0], data[1]
 
 def verify_card_signature(pub, sig):
     """Run BOTH independent checks (ecdsa.verify + ecdsa.ecrecover) and return
@@ -162,7 +210,11 @@ def verify_card_signature(pub, sig):
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
+    def do_OPTIONS(self):
+        guard(self)  # always 403: no CORS preflight is ever granted
+
     def do_GET(self):
+        if not guard(self): return
         try:
             if self.path == "/":
                 self.serve_html()
@@ -216,8 +268,18 @@ class Handler(BaseHTTPRequestHandler):
             json_resp(self, 500, {"error": str(e)})
 
     def do_POST(self):
+        if not guard(self): return
         try:
             if self.path == "/api/eth/keygen":
+                # Double gate. On ETH applet < 1.4, INS 0x03 REPLACES the existing key with no
+                # confirmation (BRIEF-COMMON.md: a real card key was rotated this way on 2026-10-18).
+                if os.environ.get("NURI_ALLOW_KEYGEN") != "1":
+                    json_resp(self, 403, {"error": "keygen disabled: start the server with NURI_ALLOW_KEYGEN=1 (and only on an ETH applet >= 1.4)"})
+                    return
+                major, minor = eth_applet_version()
+                if (major, minor) < (1, 4):
+                    json_resp(self, 403, {"error": f"keygen refused: ETH applet {major}.{minor} < 1.4 replaces the existing key"})
+                    return
                 select_aid(AID_ETH)
                 data, sw = transmit(bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
                 json_resp(self, 200, {
@@ -302,8 +364,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def serve_html(self):
         try:
-            with open("web/dashboard.html", "rb") as f:
-                html = f.read()
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "dashboard.html"), "rb") as f:
+                html = f.read().decode("utf-8")
+            # Same-origin page gets the bearer token so its own fetch('/api/..') calls pass the guard.
+            html = nuri_helper_auth.inject_token(html, AUTH["token"]).encode("utf-8")
             self.send_response(200)
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("cache-control", "no-store")
@@ -313,11 +377,19 @@ class Handler(BaseHTTPRequestHandler):
             json_resp(self, 404, {"error": "web/dashboard.html not found"})
 
 def main():
-    port = 8788
-    print(f"Nuri card dashboard: http://127.0.0.1:{port}/")
+    port = int(os.environ.get("NURI_CARD_PORT") or 8788)
+    host = os.environ.get("NURI_CARD_HOST") or "127.0.0.1"
+    token, source = nuri_helper_auth.load_or_create_token(log=print)
+    nuri_helper_auth.check_bind(host, source)
+    AUTH.update(token=token, port=port, remote=not nuri_helper_auth.is_loopback_host(host), bind_host=host)
+    print(f"Nuri card dashboard: http://{host}:{port}/")
+    print(f"API auth: Authorization: Bearer <token> ({'NURI_CARD_TOKEN' if source == 'env' else source}); Host must be 127.0.0.1:{port}; no CORS.")
+    print(f"/api/eth/keygen: {'ENABLED (NURI_ALLOW_KEYGEN=1, applet >= 1.4 only)' if os.environ.get('NURI_ALLOW_KEYGEN') == '1' else 'disabled'}")
+    if AUTH["remote"]:
+        print(f"WARNING: bound to {host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.")
     print("Card signs, python-ecdsa + pycryptodome verify (no hand-rolled host crypto).")
     print("Reader must have the card inserted (protocol ladder: default, T=0, T=1; see docs/reader-compatibility.md).")
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    HTTPServer((host, port), Handler).serve_forever()
 
 if __name__ == "__main__":
     main()

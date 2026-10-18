@@ -673,7 +673,7 @@ This is a better Bitcoin signing setup than any enterprise HSM because the YubiH
 | `scripts/card-eth-test.py` | PC/SC ETH signer bridge. `INS_SIGN(hash32)` → `r‖s‖v`. |
 | `scripts/real-card-cosign-proof.py` | PC/SC MuSig2 bridge. Keygen, nonce, partial sign. |
 | `scripts/card-totp.py` | PC/SC TOTP bridge. RFC 6238, secret never readable. |
-| `scripts/card-mcp-server.mjs` | MCP server at `:8799`. JSON-RPC tools: `nuri_card_info`, `nuri_card_cosign`, `nuri_card_wallet_address|utxos|spend`. |
+| `scripts/card-mcp-server.mjs` | MCP server at `127.0.0.1:8799`, bearer token (`docs/helper-servers-security.md`). JSON-RPC tools: `nuri_card_info`, `nuri_card_cosign`, `nuri_card_wallet_address|utxos|spend`. |
 
 ### PKCS#11: built and tested
 
@@ -813,10 +813,16 @@ means an independent library agrees, not our code agreeing with itself.
 ```bash
 python3 scripts/card-dashboard-server.py
 # open http://127.0.0.1:8788/  in a browser
-# buttons: card status, ETH version, pubkey+addresses, keygen,
+# buttons: card status, ETH version, pubkey+addresses, keygen (server-gated),
 #          selftest (on-card modInverse vs python pow), sign ETH, sign BTC,
 #          MuSig2/TOTP/FIDO2 select
 ```
+
+Loopback only; `/api/*` needs the bearer token (printed at start, stored in
+`~/.nuri-card/token`), which the served page gets injected automatically.
+`POST /api/eth/keygen` is refused unless the server runs with
+`NURI_ALLOW_KEYGEN=1` **and** the ETH applet is >= 1.4 — on older applets it
+silently replaces the on-card key. Details: `docs/helper-servers-security.md`.
 
 Requires `pyscard` (PC/SC), `python-ecdsa`, `pycryptodome`, `base58`. Install
 the latter three with `pip3 install ecdsa pycryptodome base58` (coincurve
@@ -1159,11 +1165,10 @@ cleanest phone-tap PRF path while mobile-browser NFC/WebAuthn routing is unrelia
 A PC/SC card in a reader is **not** automatically a browser roaming authenticator;
 the web page works with whatever authenticator the browser can see.
 
-### Smartcard as a remote MCP cosigner
+### Smartcard as a local MCP cosigner
 
 ```bash
-npm run card:mcp           # serve http://127.0.0.1:8799/mcp  (+ /healthz)
-npm run card:mcp:tunnel    # public URL for a remote agent
+npm run card:mcp           # serve http://127.0.0.1:8799/mcp  (+ /healthz), loopback only
 npm run card:mcp:selftest  # JSON-RPC path + one real card signature
 ```
 
@@ -1171,6 +1176,14 @@ Mirrors the Nuri MCP shape (`initialize` / `tools/list` / `tools/call`) but the
 signer is the card on this machine — no browser, no `sign.nuri.com`. Tools:
 `nuri_card_info`, `nuri_card_cosign`, `nuri_card_cosign_tweaked`,
 `nuri_card_wallet_address|utxos|spend`.
+
+Every call needs `Authorization: Bearer <token>` (env `NURI_CARD_TOKEN`, or the
+token the server generates into `~/.nuri-card/token` and prints once), a
+loopback `Host`, and `Content-Type: application/json`. Mainnet broadcast through
+MCP needs `NURI_ALLOW_MAINNET=1`. **Do not tunnel this port** (ngrok etc.):
+whoever reaches it with the token makes the card sign. The same rules apply to
+the cosign demo server (`:8787`) and the Python dashboard (`:8788`); see
+[`docs/helper-servers-security.md`](docs/helper-servers-security.md).
 
 ### On-card OATH-TOTP
 

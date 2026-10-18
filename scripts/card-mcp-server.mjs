@@ -2,7 +2,8 @@
 // Smartcard-backed MCP cosigning server.
 // Mirrors the Nuri MCP shape (initialize / tools/list / tools/call) but the
 // signer is the physical card on THIS machine over PC/SC — no browser, no
-// sign.nuri.com. Tunnel with ngrok to expose /mcp to a remote agent.
+// sign.nuri.com. Loopback-only + bearer token; see docs/helper-servers-security.md.
+// Do NOT tunnel this port (ngrok etc.): whoever reaches it with the token can make the card sign.
 //
 // ponytail: uses the card's existing MuSig2 proof flow (plain MuSig2, even-y).
 // It is NOT yet byte-compatible with sign.nuri.com's tweaked BIP327 session
@@ -20,11 +21,15 @@ import {
   fetchUtxos,
   buildAndSignSpend,
 } from './nuri-card-wallet.mjs';
+import { checkBind, guardRequest, isLoopbackHost, loadOrCreateToken } from './helper-auth.mjs';
 
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const CSV_BLOCKS = 52500; // matches card-cosign-tweaked.py and nuriBitcoin.ts
+// Mainnet broadcast is opt-in per process: NURI_ALLOW_MAINNET=1. Without it the
+// spend tool still builds + signs (dry-run) but never pushes a mainnet tx.
+const ALLOW_MAINNET = process.env.NURI_ALLOW_MAINNET === '1';
 
 // Never run two PC/SC commands at once: serialize all card access.
 let cardChain = Promise.resolve();
@@ -44,11 +49,11 @@ function runCard({ msg32, message } = {}) {
   else if (message) args.push('--message', String(message));
   return runPy(args);
 }
-function runCardTweaked({ msg32, message, clientSecretHex } = {}) {
+function runCardTweaked({ msg32, message } = {}) {
   const args = [TWEAKED_SCRIPT];
   if (msg32) args.push('--msg32', String(msg32));
   else if (message) args.push('--message', String(message));
-  if (clientSecretHex) args.push('--client-secret-hex', String(clientSecretHex));
+  // No client secret over the wire: the client key never travels through an MCP tool argument.
   return runPy(args);
 }
 
@@ -72,13 +77,12 @@ const TOOLS = [
   },
   {
     name: 'nuri_card_cosign_tweaked',
-    description: 'Sign for the exact Nuri Taproot wallet: musig2(client,card) key-path with the client CSV recovery leaf (BIP327 tweak applied host-side). Returns the Nuri address, output key, and a BIP340 signature verified against it.',
+    description: 'Sign for the exact Nuri Taproot wallet: musig2(client,card) key-path with the client CSV recovery leaf (BIP327 tweak applied host-side). Uses a random demo client key (no secrets accepted over MCP; use nuri_card_wallet_* for the stable wallet). Returns the Nuri address, output key, and a BIP340 signature verified against it.',
     inputSchema: {
       type: 'object',
       properties: {
         msg32: { type: 'string', description: '32-byte Taproot sighash as 64 hex chars.' },
         message: { type: 'string', description: 'Plain text hashed to 32 bytes if msg32 is omitted.' },
-        client_secret_hex: { type: 'string', description: 'Optional 32-byte client secret (hex) for a stable wallet; random demo key if omitted.' },
       },
       additionalProperties: false,
     },
@@ -107,7 +111,7 @@ const TOOLS = [
   },
   {
     name: 'nuri_card_wallet_spend',
-    description: 'Build + sign a real key-path Taproot spend with the physical card. DRY-RUN by default (returns raw_tx_hex, no broadcast). Set broadcast:true to push to the chain. Each input is signed by the card. MAINNET = REAL MONEY.',
+    description: 'Build + sign a real key-path Taproot spend with the physical card. DRY-RUN by default (returns raw_tx_hex, no broadcast). Set broadcast:true to push to the chain. Each input is signed by the card. MAINNET = REAL MONEY; mainnet broadcast additionally requires the server to run with NURI_ALLOW_MAINNET=1.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,7 +158,7 @@ async function callTool(name, callArgs) {
     };
   }
   if (name === 'nuri_card_cosign_tweaked') {
-    const r = await runCardTweaked({ msg32: callArgs?.msg32, message: callArgs?.message, clientSecretHex: callArgs?.client_secret_hex });
+    const r = await runCardTweaked({ msg32: callArgs?.msg32, message: callArgs?.message });
     if (r.status !== 'REAL_CARD_TWEAKED_COSIGN_OK') throw new Error(`tweaked cosign failed: ${JSON.stringify(r)}`);
     // Independently confirm the card's output key == Nuri's scure derivation and the sig verifies.
     const nuri = nuriDerive(r.client_pk33, r.card_pk33, WALLET_NETS.mainnet);
@@ -189,11 +193,15 @@ async function callTool(name, callArgs) {
   if (name === 'nuri_card_wallet_spend') {
     const network = callArgs?.network || 'signet';
     if (!callArgs?.to) throw new Error('to is required');
+    const broadcast = Boolean(callArgs?.broadcast);
+    if (broadcast && network === 'mainnet' && !ALLOW_MAINNET) {
+      throw new Error('mainnet broadcast disabled: start the server with NURI_ALLOW_MAINNET=1 to allow it (dry-run without broadcast still works)');
+    }
     const result = await buildAndSignSpend(network, {
       to: String(callArgs.to),
       amountSats: callArgs?.amount_sats ?? null,
       feeSats: callArgs?.fee_sats ?? 500,
-      broadcast: Boolean(callArgs?.broadcast),
+      broadcast,
       includeUnconfirmed: Boolean(callArgs?.include_unconfirmed),
     });
     return result;
@@ -235,20 +243,33 @@ async function handleRpc(msg) {
 
 async function readJson(req) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > 1 << 20) throw new Error('body too large');
+    chunks.push(c);
+  }
   const raw = Buffer.concat(chunks).toString('utf8').trim();
   return raw ? JSON.parse(raw) : {};
 }
 
 function send(res, status, payload) {
   const body = JSON.stringify(payload);
+  // No CORS headers on purpose: browsers must not be able to read (or send) anything here.
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(body);
 }
 
+const port = Number(process.env.PORT || 8799);
+const host = process.env.HOST || '127.0.0.1';
+const remote = !isLoopbackHost(host);
+let auth = null; // { token, source } — set in main (not for --selftest)
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const denied = guardRequest(req, { port: server.address()?.port ?? port, token: auth?.token || '', remote, bindHost: host });
+    if (denied) return send(res, denied.status, { error: denied.error });
     if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
     if (req.method === 'POST' && url.pathname === '/mcp') {
       const msg = await readJson(req);
@@ -281,9 +302,12 @@ if (process.argv.includes('--selftest')) {
   process.exit(0);
 }
 
-const port = Number(process.env.PORT || 8799);
-const host = process.env.HOST || '127.0.0.1';
+auth = loadOrCreateToken();
+checkBind(host, { tokenSource: auth.source });
 server.listen(port, host, () => {
-  console.log(`Nuri smartcard MCP cosigner: http://${host}:${port}/mcp  (health: /healthz)`);
-  console.log('Expose remotely:  ngrok http ' + port);
+  const bound = server.address()?.port ?? port;
+  console.log(`Nuri smartcard MCP cosigner: http://${host}:${bound}/mcp  (health: /healthz)`);
+  console.log(`Auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_CARD_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS.`);
+  console.log(`Mainnet broadcast: ${ALLOW_MAINNET ? 'ENABLED (NURI_ALLOW_MAINNET=1)' : 'disabled (set NURI_ALLOW_MAINNET=1 to allow)'}`);
+  if (remote) console.log(`WARNING: bound to ${host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.`);
 });
