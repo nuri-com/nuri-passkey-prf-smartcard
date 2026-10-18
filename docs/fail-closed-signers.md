@@ -43,7 +43,12 @@ flowchart TD
   demo. The cached transport never inserts SELECT between policy and operation;
   failed operations are not replayed on a new connection.
 - `scripts/card-eth-test.py:96`: ETH1-only legacy diagnostic; refuses before card
-  I/O without the exact demo flag, and refuses if ETH2 is installed.
+  I/O without the exact demo flag, and refuses if ETH2 is installed. W30: a
+  mismatched, malformed or unrecoverable ECDSA signature now closes the connection
+  and exits non-zero before `REAL_CARD_ETH_SIGN_FLOW_OK`, so
+  `scripts/accept-card-v1.sh:22` cannot print `REAL_CARD_V1_ACCEPTANCE_OK`
+  after a bad signature (fake-reader regressions: `CardEthFailClosedTests` in
+  `test/test_nuri_pcsc.py`).
 - `host/nuri_card_host.py:325`: ETH2-first selection, with explicit demo gate and
   independent all-reader confirmation of ETH2 absence before any ETH1 fallback.
   ETH2 PIN/status/transport failures never downgrade. `NURI_ETH2_AID` cannot alias

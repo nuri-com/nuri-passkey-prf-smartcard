@@ -10,7 +10,10 @@ Fakes model the two readers the parent measured on the real card:
 """
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import importlib.util
+import io
 import os
 import sys
 import types
@@ -657,6 +660,162 @@ class EthPolicyTests(PcscTestCase):
         self.assertIn("ETH2_PRESENT", str(ctx.exception.code))
         self.assertEqual(self.eth1_selects(rdr), [])
         self.assertFalse(any(a[1] == 0x03 for c in rdr.connections for a in c.log), "KEYGEN never sent")
+
+
+class CardEthFailClosedTests(PcscTestCase):
+    """W30: card-eth-test.py fails closed on invalid/mismatched ETH1 ECDSA signatures.
+
+    A valid signature prints REAL_CARD_ETH_SIGN_FLOW_OK and exits 0; a mismatched,
+    malformed or unrecoverable signature closes the connection and exits non-zero
+    (SystemExit with a non-empty message), so scripts/accept-card-v1.sh:22 can no
+    longer print REAL_CARD_V1_ACCEPTANCE_OK after a bad signature.
+    """
+
+    # Same hash the script signs: scripts/card-eth-test.py:166.
+    _Z = int.from_bytes(hashlib.sha256(b"nuri-card-eth-test").digest(), "big")
+    _K = 0x16A9F5D2C39B8E71A4D0F6C5E2B8973AD1F6042C7B9E5D3A8F1C64B0E7D2A9533
+
+    def setUp(self):
+        super().setUp()
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        self.addCleanup(os.environ.pop, "NURI_ALLOW_ETH1_DEMO", None)
+        self.eth = load_script("card-eth-test")
+
+    @staticmethod
+    def _keygen_sig(z, d, k):
+        R = _point_mul(k, _G)
+        r = R[0] % _N
+        s = (pow(k, -1, _N) * (z + r * d)) % _N
+        return r.to_bytes(32, "big") + s.to_bytes(32, "big") + bytes([R[1] & 1])
+
+    def _card(self, pubkey33, sig65):
+        class Eth1SignCard(FakeCard):
+            """ETH1 image whose GET_PUBKEY/SIGN answers are set by the test."""
+
+            def answer(self, apdu, protocol):
+                if apdu[1:4] == [0x02, 0x00, 0x00]:
+                    return self._case2(apdu, list(pubkey33), protocol)
+                if apdu[1:5] == [0x04, 0x00, 0x00, 0x20]:
+                    return list(sig65), 0x90, 0x00
+                return super().answer(apdu, protocol)
+
+        return Eth1SignCard(aids=(ETH_AID,))
+
+    def _run_main(self, card):
+        (rdr,) = self.use(omnikey(card=card))
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", ["card-eth-test.py"]):
+            with contextlib.redirect_stdout(buf):
+                self.eth.main()
+        return rdr, buf.getvalue()
+
+    def _run_main_expecting_exit(self, card):
+        (rdr,) = self.use(omnikey(card=card))
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", ["card-eth-test.py"]):
+            with contextlib.redirect_stdout(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    self.eth.main()
+        return rdr, buf.getvalue(), ctx.exception
+
+    @staticmethod
+    def _assert_all_disconnected(test, rdr):
+        test.assertTrue(
+            rdr.connections and all(not c.connected for c in rdr.connections),
+            "connection must be closed before exiting",
+        )
+
+    def test_valid_signature_passes_and_exits_clean(self):
+        d = 2
+        rdr, out = self._run_main(self._card(_eth1_pubkey(d), self._keygen_sig(self._Z, d, self._K)))
+        self.assertIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+        self.assertIn("=== DONE ===", out)
+        self._assert_all_disconnected(self, rdr)
+        # No KEYGEN (INS 0x03) was ever sent: the existing key is used.
+        self.assertFalse(any(a[1] == 0x03 for c in rdr.connections for a in c.log))
+
+    def test_mismatched_signature_fails_closed(self):
+        sig = self._keygen_sig(self._Z, 2, self._K)  # signs with key d=2 ...
+        card_pubkey = _eth1_pubkey(3)  # ... but the card reports key d=3
+        rdr, out, exc = self._run_main_expecting_exit(self._card(card_pubkey, sig))
+        self.assertIn("MISMATCH", out)
+        self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+        self.assertNotIn("=== DONE ===", out)
+        self.assertNotIn(exc.code, (None, 0))
+        self.assertIn("MISMATCH", str(exc.code))
+        self._assert_all_disconnected(self, rdr)
+
+    def test_malformed_signature_wrong_length_fails_closed(self):
+        sig64 = self._keygen_sig(self._Z, 2, self._K)[:64]  # v byte missing
+        rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(2), sig64))
+        self.assertIn("Malformed ETH1 signature", str(exc.code))
+        self.assertNotIn(exc.code, (None, 0))
+        self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+        self._assert_all_disconnected(self, rdr)
+
+    def test_malformed_signature_bad_v_fails_closed(self):
+        sig = self._keygen_sig(self._Z, 2, self._K)
+        sig = sig[:64] + bytes([7])  # v must be 0 or 1
+        rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(2), sig))
+        self.assertIn("Malformed ETH1 signature", str(exc.code))
+        self.assertNotIn(exc.code, (None, 0))
+        self._assert_all_disconnected(self, rdr)
+
+    def test_malformed_signature_zero_r_fails_closed(self):
+        sig = bytes(32) + (1).to_bytes(32, "big") + bytes([0])  # r=0: recovery raises
+        rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(2), sig))
+        self.assertIn("malformed (recovery raised ValueError", str(exc.code))
+        self.assertNotIn(exc.code, (None, 0))
+        self._assert_all_disconnected(self, rdr)
+
+    def test_string_sysexit_yields_nonzero_process_status(self):
+        """The script raises SystemExit(<message>); CPython turns that into exit 1."""
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, "-c", "raise SystemExit('ETH1 failure')"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("ETH1 failure", proc.stderr)
+
+
+# secp256k1 helpers (pure stdlib) for the W30 fail-closed ETH1 fakes above.
+_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+_G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
+      0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8)
+
+
+def _point_add(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    if a[0] == b[0] and (a[1] + b[1]) % _P == 0:
+        return None
+    if a == b:
+        lam = (3 * a[0] * a[0] * pow(2 * a[1], -1, _P)) % _P
+    else:
+        lam = ((b[1] - a[1]) * pow(b[0] - a[0], -1, _P)) % _P
+    x3 = (lam * lam - a[0] - b[0]) % _P
+    return (x3, (lam * (a[0] - x3) - a[1]) % _P)
+
+
+def _point_mul(k, pt):
+    k %= _N
+    result, addend = None, pt
+    while k:
+        if k & 1:
+            result = _point_add(result, addend)
+        addend = _point_add(addend, addend)
+        k >>= 1
+    return result
+
+
+def _eth1_pubkey(d):
+    q = _point_mul(d, _G)
+    return bytes([0x02 if q[1] % 2 == 0 else 0x03]) + q[0].to_bytes(32, "big")
 
 
 class ScriptImportTests(unittest.TestCase):
