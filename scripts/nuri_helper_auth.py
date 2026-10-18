@@ -127,7 +127,7 @@ def _check_private(st: os.stat_result, kind: str, shown: str) -> None:
         raise TokenError(f"{shown} is owned by uid {st.st_uid}, not by the current user (uid {uid})")
     mode = stat.S_IMODE(st.st_mode)
     want = 0o700 if kind == "dir" else 0o600
-    if mode & 0o077 or (kind == "dir" and mode != 0o700):
+    if mode != want:
         raise TokenError(f"{shown} has mode {mode:04o}; it must be private: chmod {want:o} '{shown}'")
 
 
@@ -167,8 +167,11 @@ def _read_token_at(dfd: int, name: str, shown: str) -> str:
             pass
         raise TokenError(f"cannot open token file {shown}: {e.strerror}") from e
     try:
-        _check_private(os.fstat(fd), "file", shown)
-        data = os.read(fd, 4096)
+        st = os.fstat(fd)
+        _check_private(st, "file", shown)
+        if st.st_size > 128:
+            raise TokenError("malformed token file: too large")
+        data = os.read(fd, 128)
     finally:
         os.close(fd)
     try:

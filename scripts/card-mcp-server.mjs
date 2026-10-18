@@ -8,7 +8,7 @@
 // ponytail: uses the card's existing MuSig2 proof flow (plain MuSig2, even-y).
 // It is NOT yet byte-compatible with sign.nuri.com's tweaked BIP327 session
 // (the applet takes no tweak32). Protocol alignment = a separate applet step.
-import { createServer } from 'node:http';
+
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -21,7 +21,7 @@ import {
   fetchUtxos,
   buildAndSignSpend,
 } from './nuri-card-wallet.mjs';
-import { checkBind, guardRequest, isLoopbackHost, loadOrCreateToken } from './helper-auth.mjs';
+import { checkBind, guardRequest, loadOrCreateToken, createHelperServer, readJson } from './helper-auth.mjs';
 
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
@@ -241,17 +241,6 @@ async function handleRpc(msg) {
   }
 }
 
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  for await (const c of req) {
-    size += c.length;
-    if (size > 1 << 20) throw new Error('body too large');
-    chunks.push(c);
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
-  return raw ? JSON.parse(raw) : {};
-}
 
 function send(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -262,13 +251,13 @@ function send(res, status, payload) {
 
 const port = Number(process.env.PORT || 8799);
 const host = process.env.HOST || '127.0.0.1';
-const remote = !isLoopbackHost(host);
+
 let auth = null; // { token, source } — set in main (not for --selftest)
 
-const server = createServer(async (req, res) => {
+const server = createHelperServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
-    const denied = guardRequest(req, { port: server.address()?.port ?? port, token: auth?.token || '', remote, bindHost: host });
+    const denied = guardRequest(req, { port: server.address()?.port ?? port, token: auth?.token || '' });
     if (denied) return send(res, denied.status, { error: denied.error });
     if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
     if (req.method === 'POST' && url.pathname === '/mcp') {
@@ -279,7 +268,7 @@ const server = createServer(async (req, res) => {
     }
     send(res, 404, { error: 'not found' });
   } catch (e) {
-    send(res, 500, { error: e?.message || String(e) });
+    if (!res.writableEnded) send(res, e.status || 500, { error: e.status ? e.message : 'request failed' });
   }
 });
 
@@ -302,12 +291,12 @@ if (process.argv.includes('--selftest')) {
   process.exit(0);
 }
 
-auth = loadOrCreateToken();
+auth = loadOrCreateToken({ service: 'mcp' });
 checkBind(host, { tokenSource: auth.source });
 server.listen(port, host, () => {
   const bound = server.address()?.port ?? port;
   console.log(`Nuri smartcard MCP cosigner: http://${host}:${bound}/mcp  (health: /healthz)`);
-  console.log(`Auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_CARD_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS.`);
+  console.log(`Auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_MCP_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS.`);
   console.log(`Mainnet broadcast: ${ALLOW_MAINNET ? 'ENABLED (NURI_ALLOW_MAINNET=1)' : 'disabled (set NURI_ALLOW_MAINNET=1 to allow)'}`);
-  if (remote) console.log(`WARNING: bound to ${host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.`);
+
 });

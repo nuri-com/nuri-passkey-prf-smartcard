@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createServer } from 'node:http';
+
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -13,7 +13,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bech32, bech32m } from '@scure/base';
 import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosign-flow.js';
 import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
-import { checkBind, guardRequest, injectToken, isLoopbackHost, loadOrCreateToken } from './helper-auth.mjs';
+import { checkBind, guardRequest, loadOrCreateToken, createHelperServer, readJson, PairingSessions, pairingPage } from './helper-auth.mjs';
 
 const card = createOnCardGeneratedCard();
 const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
@@ -259,7 +259,7 @@ function parseArgs(argv) {
     else if (arg.startsWith('--backend=')) args.backend = arg.slice('--backend='.length);
     else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node scripts/local-card-cosign-server.mjs [--host=127.0.0.1] [--port=8787] [--backend=simulated|real-card] [--selftest]');
-      console.log('Non-loopback --host needs NURI_ALLOW_REMOTE=1 and NURI_CARD_TOKEN (see docs/helper-servers-security.md).');
+      console.log('Loopback only; no remote bind override. Pair the browser using the terminal code.');
       process.exit(0);
     } else {
       throw new Error(`unknown argument: ${arg}`);
@@ -283,23 +283,10 @@ function json(res, status, payload) {
   res.end(body);
 }
 
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > 1024 * 1024) throw new Error('body too large');
-    chunks.push(chunk);
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
-  if (!raw) return {};
-  return JSON.parse(raw);
-}
 
 async function serveStatic(res, path, contentType) {
   let body = await readFile(path);
-  // Our own pages get the bearer token injected so their same-origin fetch('/api/..') calls pass the guard.
-  if (contentType.startsWith('text/html') && auth?.token) body = Buffer.from(injectToken(body.toString('utf8'), auth.token));
+  if (contentType.startsWith('text/html')) body = Buffer.from(pairingPage(body.toString('utf8')));
   res.writeHead(200, {
     'content-type': contentType,
     'cache-control': 'no-store',
@@ -1369,8 +1356,19 @@ async function handleSign(req, res) {
 async function requestHandler(req, res) {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
-    const denied = guardRequest(req, { port: server.address()?.port ?? args.port, token: auth?.token || '', remote, bindHost: args.host });
+    const denied = guardRequest(req, { port: server.address()?.port ?? args.port, token: auth?.token || '', sessions });
     if (denied) { json(res, denied.status, { error: denied.error }); return; }
+    if (req.method === 'GET' && url.pathname === '/helper-pair.js') {
+      await serveStatic(res, resolve('web/helper-pair.js'), 'application/javascript; charset=utf-8'); return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/session') return json(res, 200, { paired: true });
+    if (req.method === 'POST' && url.pathname === '/pair') {
+      const body = await readJson(req);
+      const cookie = sessions.exchange(typeof body?.code === 'string' && body.code.length <= 64 ? body.code.trim() : '');
+      if (!cookie) return json(res, 401, { error: 'invalid or consumed pairing code; check the helper terminal' });
+      res.setHeader('set-cookie', cookie);
+      return json(res, 200, { paired: true });
+    }
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/cosign-demo.html')) {
       await serveStatic(res, resolve('web/cosign-demo.html'), 'text/html; charset=utf-8');
       return;
@@ -1427,14 +1425,12 @@ async function requestHandler(req, res) {
     }
     json(res, 404, { error: 'not found' });
   } catch (error) {
-    json(res, 500, {
-      error: error?.message || String(error),
-    });
+    if (!res.writableEnded) json(res, error.status || 500, { error: error.status ? error.message : 'request failed' });
   }
 }
 
 const args = parseArgs(process.argv.slice(2));
-const remote = !isLoopbackHost(args.host);
+
 let auth = null; // { token, source } — set before listen (not for --selftest)
 
 if (args.selftest) {
@@ -1445,16 +1441,17 @@ if (args.selftest) {
   process.exit(0);
 }
 
-auth = loadOrCreateToken();
+auth = loadOrCreateToken({ service: 'cosign' });
 checkBind(args.host, { tokenSource: auth.source });
-const server = createServer(requestHandler);
+const sessions = new PairingSessions();
+const server = createHelperServer(requestHandler);
 server.listen(args.port, args.host, () => {
   const bound = server.address()?.port ?? args.port;
   console.log(`Nuri card cosign demo server at http://${args.host}:${bound}/cosign-demo.html`);
   console.log(`Merchant terminal: http://${args.host}:${bound}/terminal`);
   console.log(`Card profile: http://${args.host}:${bound}/profile`);
-  console.log(`API auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_CARD_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS. Pages served here get the token injected.`);
-  if (remote) console.log(`WARNING: bound to ${args.host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.`);
+  console.log(`API auth: browser pairing or Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_COSIGN_TOKEN' : auth.source}); loopback only, no CORS.`);
+
   if (args.backend === 'real-card') {
     console.log(`Real-card backend enabled; profile: ${REAL_CARD_PROFILE}`);
   } else {
