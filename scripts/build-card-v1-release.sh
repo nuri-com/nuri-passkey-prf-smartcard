@@ -7,6 +7,9 @@ WORK="$BUILD_ROOT/work"
 OUT="${CARD_RELEASE_OUT:-$BUILD_ROOT/artifacts}"
 JAVA8_HOME="${JAVA8_HOME:-}"
 
+source "$ROOT/scripts/require-system-gradle.sh"
+require_system_gradle
+
 if [[ -z "$JAVA8_HOME" ]] && [[ -x "${JAVA_HOME:-}/bin/java" ]] && \
    "$JAVA_HOME/bin/java" -version 2>&1 | head -1 | grep -Eq 'version "1\.8\.'; then
   JAVA8_HOME="$JAVA_HOME"
@@ -53,7 +56,7 @@ build_fido() {
   done
   (
     cd "$build_dir"
-    JC_HOME="$JC305" ./gradlew clean buildJavaCard --no-daemon
+    JC_HOME="$JC305" "$GRADLE_BIN" clean buildJavaCard --no-daemon
   )
   cp "$build_dir/build/javacard/FIDO2.cap" "$OUT/raw/$name.cap"
 }
@@ -95,6 +98,7 @@ done
   printf '%s\n' "javacard_sdk_ref=e2df471e04d86f33de69a947f44766fbef1d9d69"
   printf '%s\n' "ant_javacard_sha256=def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2"
   printf 'java=%s\n' "$($JAVA_HOME/bin/java -version 2>&1 | head -1)"
+  printf 'gradle=%s\n' "$GRADLE_VERSION"
 } >"$OUT/BUILD-PROVENANCE.txt"
 
 cat "$OUT/SHA256SUMS"

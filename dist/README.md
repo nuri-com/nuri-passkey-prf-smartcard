@@ -13,9 +13,9 @@ Card component.
 | --- | --- | --- | --- | --- | --- |
 | `FIDO2.cap` | `third_party/fido2-applet/` + patch 0001 | `A0000006472F0001` | package 0.4, `up:false` | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
 | `FIDO2-up.cap` | same + patches 0001 and 0002 | `A0000006472F0001` | package 0.4, `up:true` | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
-| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.11 / `KGEN` — no host seed import, one-shot KEYGEN | GPL-2.0-or-later portions | `a9b2eea825561f31da708836927290fd92b430c5084cdc614020fd5da3648126` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.11 / `KGEN` — no host seed import, one-shot KEYGEN | GPL-2.0-or-later combined work | `a9b2eea825561f31da708836927290fd92b430c5084cdc614020fd5da3648126` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | package 1.0 | MIT | `6f33f7c4aedea49238d3ac33867999b787972d8cc0c4f4948ad302c5e9ab1af2` |
-| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / `SIGN` — debug INS removed, one-shot KEYGEN | GPL-2.0-or-later portions | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
+| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / `SIGN` — debug INS removed, one-shot KEYGEN | GPL-2.0-or-later combined work | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
 | `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` (package `4E55524945544832`) | 2.0 / `ETH2` — native `ALG_ECDSA_SHA_256` + `signPreComputedHash`, no bignum, optional PIN, installs beside v1 | MIT | `f7c122328405d035050c5d3609483b572c4f7ebb03345a4d3e57b54cd268f3c5` |
 
 ## Exact build inputs
@@ -29,10 +29,21 @@ Card component.
 - Custom-applet build tool: `tools/ant-javacard-proven.jar`, SHA-256
   `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`
 
-The FIDO2 source snapshot and Gradle wrapper are vendored. The Oracle Java Card
-SDK checkout is fetched at its exact public commit because its licensing is
-separate from this repository. No confidential FEITIAN or IDEX material is used
-or distributed.
+The FIDO2 source snapshot is vendored with the packaging exclusions recorded in
+`third_party/fido2-applet/UPSTREAM.md`. The Gradle wrapper is not redistributed;
+install Gradle 8.2 or newer separately (`gradle --version`), or set `GRADLE_BIN`
+to its absolute executable path. The original wrapper used Gradle 8.2; the build
+records the installed version in `BUILD-PROVENANCE.txt`. Reproducibility with a
+different Gradle version must be checked, not assumed. The Oracle Java Card SDK
+checkout is fetched at its exact public commit and retains its separate licence.
+See `../THIRD_PARTY_NOTICES.md` for the source and combined-CAP licence map.
+
+```mermaid
+flowchart LR
+  S[Vendored applet source] --> B[External Gradle and Java Card SDK]
+  B --> C[Normalized CAP artifacts]
+  C --> V[Component and checksum verification]
+```
 
 ## Which FIDO2 artifact to install
 

@@ -4,6 +4,12 @@ vendor/
 # Do not force-add files from either path.
 vendor/feitian-nda-sdk/
 docs/feitian/nda/
+# Omitted vendor assets and build wrapper: see THIRD_PARTY_NOTICES.md.
+docs/feitian/*.pdf
+third_party/fido2-applet/mds.json
+third_party/fido2-applet/gradlew
+third_party/fido2-applet/gradlew.bat
+third_party/fido2-applet/gradle/wrapper/
 .build/
 __pycache__/
 *.py[cod]

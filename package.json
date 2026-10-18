@@ -2,7 +2,7 @@
   "name": "nuri-passkey-prf-smartcard",
   "version": "1.0.2",
   "private": true,
-  "license": "MIT",
+  "license": "SEE LICENSE IN THIRD_PARTY_NOTICES.md",
   "type": "module",
   "bin": {
     "nuricard": "bin/nuricard"
