@@ -1,154 +1,130 @@
 #!/usr/bin/env python3
-"""End-to-end PKCS#11 test for Nuri smartcard — host-side simulation.
+"""End-to-end PKCS#11 test for the Nuri smartcard module (dist/pkcs11-nuri.so).
 
-Proves the card can act as a PKCS#11 token:
-1. Generate a key (simulated on-card keygen)
-2. Sign hashes with ECDSA (simulated on-card signing)
-3. Verify with python-ecdsa (independent, audited library)
-4. Verify nonce uniqueness (proves TRNG on-card)
-5. Verify signature format is standard (r||s, 64 bytes)
+The previous version of this file only exercised python-ecdsa against itself.
+This one drives the real module through a real PKCS#11 consumer (OpenSC
+`pkcs11-tool`):
+
+  1. C_GetTokenInfo / C_GetMechanismList (pkcs11-tool -L, -M)
+  2. C_FindObjects + C_GetAttributeValue: CKA_EC_PARAMS = secp256k1 OID,
+     CKA_EC_POINT = DER OCTET STRING of the uncompressed point (-O, --read-object)
+  3. C_SignInit/C_Sign with CKM_ECDSA on a 32-byte digest (--sign -m ECDSA)
+  4. The signature is verified with python-ecdsa against the public key the
+     module itself reported (SubjectPublicKeyInfo from --read-object)
+  5. Inputs that are not 32 bytes are rejected (the applet signs one digest)
+  6. Several signatures over different digests all verify
+
+Default: NURI_PKCS11_MODE unset -> the helper runs --sim (no card, no PC/SC).
+Real card: NURI_PKCS11_MODE=card python3 scripts/test-pkcs11-e2e.py  (needs the
+ETH applet, pyscard, and a reader; see docs/hsm.md).
+
+Env: NURI_PKCS11_PYTHON (python with `ecdsa`, plus `pyscard` for card mode;
+     defaults to the interpreter running this test),
+     NURI_PKCS11_MODULE (default dist/pkcs11-nuri.so), PKCS11_TOOL (default pkcs11-tool).
 """
 
 import hashlib
+import os
+import shutil
+import subprocess
 import sys
-import json
+import tempfile
 
-def test_pkcs11_flow():
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODULE = os.environ.get("NURI_PKCS11_MODULE", os.path.join(ROOT, "dist", "pkcs11-nuri.so"))
+TOOL = os.environ.get("PKCS11_TOOL", "pkcs11-tool")
+SECP256K1_OID_DER = "06052b8104000a"  # OBJECT IDENTIFIER 1.3.132.0.10
+
+
+def tool(*args, check=True):
+    cmd = [TOOL, "--module", MODULE, *args]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if check and p.returncode != 0:
+        raise RuntimeError(f"{' '.join(cmd)} failed rc={p.returncode}\n{p.stdout}\n{p.stderr}")
+    return p
+
+
+def main():
+    from ecdsa import VerifyingKey, SECP256k1
+    from ecdsa.util import sigdecode_string
+
+    if not shutil.which(TOOL):
+        print(f"SKIP: {TOOL} not found (brew install opensc / apt install opensc)")
+        return 0
+    if not os.path.exists(MODULE):
+        print(f"FAIL: {MODULE} missing (run scripts/build-pkcs11.sh)")
+        return 1
+    os.environ.setdefault("NURI_PKCS11_PYTHON", sys.executable)
+    mode = os.environ.get("NURI_PKCS11_MODE", "sim")
     results = []
-    
-    # 1. Generate key (simulated on-card)
-    from ecdsa import SigningKey, VerifyingKey, SECP256k1
-    sk = SigningKey.generate(curve=SECP256k1)
-    vk = sk.get_verifying_key()
-    x = vk.pubkey.point.x()
-    y = vk.pubkey.point.y()
-    prefix = b'\x02' if y % 2 == 0 else b'\x03'
-    pubkey_compressed = prefix + x.to_bytes(32, 'big')
-    
-    results.append(("Key generation (on-card sim)", True, 
-                    f"pubkey={pubkey_compressed.hex()[:20]}... (33 bytes compressed)"))
-    
-    # 2. Sign a test message
-    message = b"Nuri PKCS#11 test message"
-    msg_hash = hashlib.sha256(message).digest()
-    
-    sig_der = sk.sign_digest(msg_hash, sigencode=lambda r, s, order: 
-        r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))
-    
-    results.append(("ECDSA signing (on-card sim)", True,
-                    f"sig={sig_der.hex()[:20]}... (64 bytes r||s)"))
-    
-    # 3. Verify with python-ecdsa (independent library)
-    try:
-        vk.verify_digest(sig_der, msg_hash, sigdecode=lambda sig, order: (
-            int.from_bytes(sig[:32], 'big'),
-            int.from_bytes(sig[32:], 'big')
-        ))
-        results.append(("python-ecdsa verification", True, "signature valid"))
-    except Exception as e:
-        results.append(("python-ecdsa verification", False, str(e)))
-    
-    # 4. Test multiple signatures (prove nonce uniqueness)
-    sigs = []
-    for i in range(10):
-        h = hashlib.sha256(f"test {i}".encode()).digest()
-        s = sk.sign_digest(h, sigencode=lambda r, s, order: 
-            r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))
-        sigs.append(s)
-    
-    unique = len(set(sigs)) == len(sigs)
-    results.append(("Nonce uniqueness (10 sigs)", unique,
-                    f"{len(set(sigs))}/{len(sigs)} unique — proves TRNG on-card"))
-    
-    # 5. Verify all 10 signatures
-    all_verified = True
-    for i, sig in enumerate(sigs):
-        h = hashlib.sha256(f"test {i}".encode()).digest()
-        try:
-            vk.verify_digest(sig, h, sigdecode=lambda sig, order: (
-                int.from_bytes(sig[:32], 'big'),
-                int.from_bytes(sig[32:], 'big')
-            ))
-        except:
-            all_verified = False
-            break
-    
-    results.append(("All 10 signatures verify", all_verified,
-                    "10/10 verified" if all_verified else "verification failed"))
-    
-    # 6. Signature format check
-    r = int.from_bytes(sig_der[:32], 'big')
-    s = int.from_bytes(sig_der[32:], 'big')
-    from ecdsa import SECP256k1
-    n = SECP256k1.order
-    
-    results.append(("Signature format (r||s, 64 bytes)", len(sig_der) == 64,
-                    f"len={len(sig_der)} bytes"))
-    results.append(("r < n (secp256k1 order)", r < n,
-                    f"r={hex(r)[:20]}..."))
-    results.append(("s < n (secp256k1 order)", s < n,
-                    f"s={hex(s)[:20]}..."))
-    # Note: real card v1.3 enforces EIP-2 low-s. Sim doesn't — informational only.
-    
-    # 7. PKCS#11 token info
-    token_info = {
-        "label": "Nuri Smartcard (ETH)",
-        "manufacturerID": "Nuri.com",
-        "model": "ETH v1.3",
-        "serialNumber": "0000000000000000",
-        "flags": "CKF_TOKEN_PRESENT | CKF_RW_SESSION",
-        "mechanisms": ["CKM_ECDSA"],
-        "key_type": "CKK_EC (secp256k1)",
-        "key_size": 256,
-        "signature_format": "r||s (64 bytes, raw ECDSA)",
-        "pkcs11_module": "dist/pkcs11-nuri.so",
-        "pkcs11_helper": "scripts/pkcs11-helper.py",
-    }
-    
-    results.append(("PKCS#11 token info", True, json.dumps(token_info, indent=2)))
-    
-    return results
 
-if __name__ == '__main__':
-    print("=" * 60)
-    print("Nuri Smartcard PKCS#11 — End-to-End Test")
-    print("=" * 60)
-    print()
-    
-    results = test_pkcs11_flow()
-    
-    all_pass = True
-    for name, passed, detail in results:
-        status = "PASS" if passed else "FAIL"
-        print(f"[{status}] {name}")
+    def rec(name, ok, detail=""):
+        results.append((name, bool(ok), detail))
+
+    # 1. token + mechanisms
+    out = tool("-L").stdout
+    rec("C_GetTokenInfo (-L)", "token initialized" in out and "Nuri Smartcard" in out, out.strip().splitlines()[1])
+    out = tool("-M").stdout
+    rec("C_GetMechanismList (-M) = ECDSA only", "ECDSA, keySize={256,256}" in out and out.count("keySize") == 1,
+        out.strip().splitlines()[-1])
+
+    # 2. objects + EC attributes
+    out = tool("-O").stdout
+    ec_point = [l.split()[1] for l in out.splitlines() if "EC_POINT:" in l]
+    ec_params = [l.split()[1] for l in out.splitlines() if "EC_PARAMS:" in l]
+    rec("Private + public key objects listed (-O)", "Private Key Object; EC" in out and "Public Key Object; EC" in out)
+    rec("CKA_EC_PARAMS = secp256k1 OID 1.3.132.0.10", ec_params == [SECP256K1_OID_DER], ec_params[0] if ec_params else "missing")
+    rec("CKA_EC_POINT = DER OCTET STRING(04||X||Y), 67 bytes",
+        len(ec_point) == 1 and ec_point[0].startswith("044104") and len(ec_point[0]) == 134, ec_point[0] if ec_point else "missing")
+
+    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as td:
+        pub = os.path.join(td, "pub.der")
+        tool("--read-object", "--type", "pubkey", "--id", "01", "-o", pub)
+        vk = VerifyingKey.from_der(open(pub, "rb").read())
+        rec("--read-object pubkey parses as SubjectPublicKeyInfo on SECP256k1", vk.curve == SECP256k1,
+            "pubkey_uncompressed=" + vk.to_string("uncompressed").hex())
+        rec("EC_POINT equals read-object pubkey", ec_point and ec_point[0][6:] == vk.to_string("uncompressed").hex()[2:])
+
+        # 3+4. sign 32-byte digests, verify against the module's own pubkey
+        sigs = []
+        n_sigs = 3 if mode == "card" else 5
+        for i in range(n_sigs):
+            digest = hashlib.sha256(f"Nuri PKCS#11 e2e {i}".encode()).digest()
+            din, sout = os.path.join(td, f"h{i}.bin"), os.path.join(td, f"s{i}.bin")
+            open(din, "wb").write(digest)
+            tool("--sign", "-m", "ECDSA", "-i", din, "-o", sout)
+            sig = open(sout, "rb").read()
+            ok = len(sig) == 64 and vk.verify_digest(sig, digest, sigdecode=sigdecode_string)
+            rec(f"C_Sign(CKM_ECDSA) #{i} verifies with python-ecdsa", ok, f"digest={digest.hex()} sig={sig.hex()}")
+            sigs.append(sig)
+        rec("Signatures are distinct (fresh nonces)", len(set(sigs)) == len(sigs))
+        low_s = all(int.from_bytes(s[32:], "big") <= SECP256k1.order // 2 for s in sigs)
+        rec("low-s (EIP-2)" + ("" if mode == "card" else " [informational in sim]"),
+            low_s if mode == "card" else True, f"all_low_s={low_s}")
+
+        # 5. wrong length rejected
+        bad = os.path.join(td, "h31.bin")
+        open(bad, "wb").write(b"\x00" * 31)
+        p = tool("--sign", "-m", "ECDSA", "-i", bad, "-o", os.path.join(td, "x.bin"), check=False)
+        err = (p.stderr or p.stdout).strip()
+        rec("31-byte input rejected (no partial sign)", p.returncode != 0 and not os.path.exists(os.path.join(td, "x.bin")),
+            err.splitlines()[-1] if err else "")
+
+    print("=" * 64)
+    print(f"Nuri Smartcard PKCS#11 end-to-end  mode={mode}  module={MODULE}")
+    print("=" * 64)
+    all_ok = True
+    for name, ok, detail in results:
+        print(f"[{'PASS' if ok else 'FAIL'}] {name}")
         if detail:
-            for line in detail.split('\n'):
-                print(f"       {line}")
-        if not passed:
-            all_pass = False
-    
-    print()
-    print("=" * 60)
-    if all_pass:
-        print("ALL TESTS PASSED")
-        print()
-        print("The Nuri smartcard can act as a PKCS#11 token.")
-        print("Signatures are standard ECDSA secp256k1 (r||s, 64 bytes).")
-        print("Verified by python-ecdsa (independent, audited library).")
-        print()
-        print("What this means:")
-        print("  - Card signatures are standard — any PKCS#11 consumer works")
-        print("  - OpenSSL can verify card signatures natively")
-        print("  - nginx/Apache can use card for TLS client certs")
-        print("  - The card IS an HSM — keys never leave the chip")
-        print("  - PKCS#11 is just a different envelope around the same APDUs")
-        print()
-        print("Files:")
-        print("  dist/pkcs11-nuri.so          — PKCS#11 module (.so)")
-        print("  scripts/pkcs11-nuri.c        — C source (330 lines)")
-        print("  scripts/pkcs11-helper.py     — Python helper (card bridge)")
-        print("  scripts/test-pkcs11-e2e.py   — This test")
-        sys.exit(0)
-    else:
-        print("SOME TESTS FAILED")
-        sys.exit(1)
+            print(f"       {detail}")
+        all_ok &= ok
+    print("=" * 64)
+    print("ALL TESTS PASSED" if all_ok else "SOME TESTS FAILED")
+    if mode != "card":
+        print("Mode: --sim (software key, deterministic). Nothing here was run on a card.")
+    return 0 if all_ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
