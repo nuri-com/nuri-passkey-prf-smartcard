@@ -177,7 +177,16 @@ class MuSig2Card:
     disconnect = close
 
     def _tx(self, apdu) -> bytes:
-        resp, sw = self.applet.transmit(bytes(apdu))
+        if self.applet is None:
+            raise RuntimeError("card is not connected")
+        try:
+            resp, sw = self.applet.transmit(bytes(apdu))
+        except Exception:
+            self.pin_verified = False
+            self._token = None
+            # Transport/provider exception text may echo request bytes. Never
+            # expose it: VERIFY and SET_PIN carry the owner credential.
+            raise RuntimeError(f"APDU INS={apdu[1]:02X} transport failed") from None
         if sw != 0x9000:
             # Applet 1.14 burns both validation and nonce state on every error.
             self.pin_verified = False

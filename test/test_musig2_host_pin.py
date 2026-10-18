@@ -96,6 +96,23 @@ class LegacyTests(Base):
 
 
 class Pin114Tests(Base):
+    def test_transport_exception_cannot_echo_pin_and_drops_validation(self):
+        card = musig2_fake_card.install(version=(1, 14), pin=PIN)
+        c = host.MuSig2Card().connect()
+        session = card.sessions[-1]
+        def broken(apdu):
+            raise RuntimeError("provider echoed PIN " + PIN + " " + bytes(apdu).hex())
+        session.transmit = broken
+        c.pin_verified = True
+        c._token = b"test"
+        with self.assertRaises(host.PinError) as ctx:
+            c.verify_pin(PIN.encode())
+        self.assertNotIn(PIN, str(ctx.exception))
+        self.assertNotIn(PIN.encode().hex(), str(ctx.exception))
+        self.assertFalse(c.pin_verified)
+        self.assertIsNone(c._token)
+        c.close()
+
     def test_keygen_already_set_error_reverifies_before_nonce(self):
         card = musig2_fake_card.install(version=(1, 14), pin=PIN)
         os.environ[host.PIN_ENV] = PIN

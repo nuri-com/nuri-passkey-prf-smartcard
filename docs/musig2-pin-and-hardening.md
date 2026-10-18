@@ -220,7 +220,7 @@ Three consecutive complete runs on macOS, Zulu JDK 17, pinned jCardSim 3.0.5.11:
 SCALAR256_OK assertions=15376024 ... bip327=6 ...
 MUSIG2_JCARDSIM_NONCE_LIFETIME_OK
 MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=1127
-Ran 15 tests ... OK
+Ran 16 tests ... OK
 Node: tests 39, pass 39, fail 0, skipped 0
 MUSIG2_HARDENING_NEGATIVE_CONTROLS_OK red=5 candidate=green
 ```
