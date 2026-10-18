@@ -367,9 +367,11 @@ class CardSigner:
         if not candidates:
             raise HostError("DOWNGRADE_REFUSED", "cannot confirm ETH2 absence: no reader; refusing ETH1")
         faults = []
+        confirmed = 0
         for rdr in candidates:
             conn = rdr.createConnection()
             absent = False
+            empty = False
 
             def probe(raw):
                 nonlocal absent
@@ -384,14 +386,24 @@ class CardSigner:
                 faults.append(f"ETH2 absence not confirmed (SW {sw:04X})")
                 return False
 
+            before = len(faults)
             try:
                 pcsc.connect_ladder(conn, probe)
-            except Exception:
-                faults.append("ETH2 reader/protocol failure")
+            except Exception as exc:
+                # Empty slot (no card on every protocol, no probe ran): holds no applet,
+                # e.g. the idle contactless side of a dual-interface reader.
+                if getattr(exc, "code", None) == "NO_CARD" and len(faults) == before:
+                    empty = True
+                else:
+                    faults.append("ETH2 reader/protocol failure")
             finally:
                 pcsc._disconnect(conn)
-            if not absent:
+            if absent:
+                confirmed += 1
+            elif not empty:
                 faults.append("ETH2 absence not confirmed for reader")
+        if not faults and confirmed == 0:
+            faults.append("no card answered SELECT ETH2")
         if faults:
             raise HostError("DOWNGRADE_REFUSED", "refusing ETH1 downgrade: " + "; ".join(faults))
 

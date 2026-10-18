@@ -95,9 +95,11 @@ def require_eth2_absent():
         raise RuntimeError('Cannot confirm ETH2 absence: no reader')
     select = nuri_pcsc.select_apdu(ETH2_AID)
     faults = []
+    confirmed = 0
     for reader in candidates:
         conn = reader.createConnection()
         absent = False
+        empty = False
         def probe(raw):
             nonlocal absent
             try:
@@ -110,14 +112,24 @@ def require_eth2_absent():
                 return True  # stop the ladder once absence is positively known
             faults.append(f'ETH2 absence not confirmed: SW={sw:04X}')
             return False
+        before = len(faults)
         try:
             nuri_pcsc.connect_ladder(conn, probe)
-        except nuri_pcsc.CardError:
-            faults.append('ETH2 reader/protocol failure')
+        except nuri_pcsc.CardError as error:
+            # An empty slot (e.g. the idle contactless side of a dual reader) holds no
+            # applet at all; only connect failures with no card on every protocol qualify.
+            if error.code == 'NO_CARD' and len(faults) == before:
+                empty = True
+            else:
+                faults.append('ETH2 reader/protocol failure')
         finally:
             nuri_pcsc._disconnect(conn)
-        if not absent:
+        if absent:
+            confirmed += 1
+        elif not empty:
             faults.append('ETH2 absence not confirmed for reader')
+    if not faults and confirmed == 0:
+        faults.append('no card answered SELECT ETH2')
     if faults:
         raise RuntimeError('Refusing ETH1 downgrade: ' + '; '.join(faults))
 

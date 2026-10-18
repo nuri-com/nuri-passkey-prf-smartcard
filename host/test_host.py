@@ -889,6 +889,36 @@ class Eth1DemoPolicyTests(FakePcscCardTests):
         self.assertEqual(resp["mode"], "card")
         self.assertEqual(self._eth1_opened(), [])
 
+    def test_empty_contactless_slot_does_not_block_demo(self):
+        # OMNIKEY 5422: the idle contactless slot says "no card" on every protocol.
+        # It holds no applet, so the contact slot's 6A82 is enough; no card anywhere refuses.
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        mod = sys.modules["nuri_pcsc"]
+        real_ladder = mod.connect_ladder
+
+        class Empty:
+            def createConnection(self):
+                return "empty"
+
+        def ladder(conn, probe, protocols=None):
+            if conn == "empty":
+                raise mod.CardError("NO_CARD", "no card in slot")
+            return real_ladder(conn, probe, protocols)
+        mod.connect_ladder = ladder
+        base = mod._list_readers()
+        mod._list_readers = lambda: [Empty()] + base + [Empty()]
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["applet"], "eth1")
+        reset_host()
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        mod = sys.modules["nuri_pcsc"]
+        mod.connect_ladder = ladder
+        mod._list_readers = lambda: [Empty(), Empty()]
+        resp = host.handle({"id": 2, "method": "info"})
+        self.assertEqual(resp["error"]["code"], "DOWNGRADE_REFUSED")
+        self.assertEqual(self._eth1_opened(), [])
+
     def test_unexpected_eth2_status_refuses_downgrade(self):
         for sw in (0x6999, 0x6A86, 0x6F00, 0x6985):
             with self.subTest(sw=f"{sw:04X}"):
@@ -1352,6 +1382,14 @@ class InstallerLauncherTests(unittest.TestCase):
         self.assertIn("unset NURI_CARD_SIM", text)
         self.assertNotIn("NURI_CARD_SIM=1", text)
         self.assertNotIn("--sim", text)
+
+    def test_eth1_demo_only_with_explicit_flag(self):
+        text = self._launcher()
+        self.assertIn("unset NURI_ALLOW_ETH1_DEMO", text)
+        self.assertNotIn("NURI_ALLOW_ETH1_DEMO=1", text)
+        demo = self._launcher("--eth1-demo")
+        self.assertIn("export NURI_ALLOW_ETH1_DEMO=1", demo)
+        self.assertIn("unset NURI_CARD_SIM", demo)
 
     def test_installed_snapshot_packages_attestation_verifier_and_checksums_offline(self):
         # Fake only the dependency installer. Exercise actual copying, checksums,

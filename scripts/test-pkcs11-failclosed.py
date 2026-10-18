@@ -101,6 +101,43 @@ class HelperPolicy(unittest.TestCase):
             self.assertEqual(card.aid_hex, helper.ETH2_AID)
             card.close()
 
+    def test_empty_slot_does_not_block_confirmed_absence(self):
+        # Dual-interface readers (OMNIKEY 5422) expose an idle contactless slot that
+        # reports "no card" on every protocol. It holds no applet, so it must not block
+        # a 6A82 answered by the card in the contact slot; a card nowhere still refuses.
+        import nuri_pcsc
+        class NoCardException(Exception):  # name nuri_pcsc._is_no_card recognises
+            pass
+        class Wire:
+            def __init__(self, result):
+                self.result = result
+            def connect(self, *args):
+                if self.result == 'empty':
+                    raise NoCardException('no card in slot')
+            def disconnect(self):
+                pass
+            def transmit(self, apdu):
+                if bytes(apdu).endswith(bytes.fromhex(helper.ETH1_AID)):
+                    return [], 0x90, 0
+                return [], self.result >> 8, self.result & 255
+        class Reader:
+            def __init__(self, result):
+                self.result = result
+            def createConnection(self):
+                return Wire(self.result)
+        os.environ['NURI_ALLOW_ETH1_DEMO'] = '1'
+        with patch.object(nuri_pcsc, '_list_readers', return_value=[Reader('empty'), Reader(0x6A82), Reader('empty')]), contextlib.redirect_stderr(io.StringIO()):
+            card = helper.card_init()
+            self.assertEqual(card.aid_hex, helper.ETH1_AID)
+            card.close()
+        with patch.object(nuri_pcsc, '_list_readers', return_value=[Reader('empty'), Reader('empty')]):
+            # No card anywhere: open_applet itself fails NO_CARD, never reaching ETH1.
+            with self.assertRaises((RuntimeError, nuri_pcsc.CardError)):
+                helper.card_init()
+        with patch.object(nuri_pcsc, '_list_readers', return_value=[Reader('empty'), Reader(0x6985)]):
+            with self.assertRaisesRegex(RuntimeError, 'Refusing ETH1 downgrade'):
+                helper.card_init()
+
     def test_mode_default_and_exact_sim(self):
         self.assertEqual(helper.selected_mode(), 'card')
         for mode in ('', 'SIM', 'sim ', 'typo', 'CARD'):
