@@ -15,7 +15,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/dist/pkcs11-nuri.so"
-[[ "${1:-}" == "--check" ]] && OUT="$(mktemp -t pkcs11-nuri).so"
+if [[ "${1:-}" == "--check" ]]; then
+  OUT="$(mktemp "${TMPDIR:-/tmp}/pkcs11-nuri.XXXXXX")"
+  trap 'rm -f "$OUT"' EXIT
+fi
 
 clang -dynamiclib -fvisibility=hidden -Wall -Wextra -O2 \
   -Wl,-install_name,pkcs11-nuri.so \

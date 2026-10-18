@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenSSL 3 -> pkcs11-provider -> Nuri module -> sim (default).
+# OpenSSL 3 -> pkcs11-provider -> Nuri module. Exact mode=sim is required for sim.
 # Hardware is opt-in with BOTH NURI_PKCS11_MODE=card and --card.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,10 +8,9 @@ export NURI_PKCS11_PYTHON="${NURI_PKCS11_PYTHON:-python3}"
 export NURI_PKCS11_HELPER="$ROOT/scripts/pkcs11-helper.py"
 case "${1:-}" in
   '')
-    [[ "${NURI_PKCS11_MODE:-}" != card ]] || {
-      echo 'Refusing inherited card mode: explicitly pass --card for hardware.' >&2; exit 64;
+    [[ "${NURI_PKCS11_MODE:-}" == sim ]] || {
+      echo 'Software selftest requires exact NURI_PKCS11_MODE=sim; hardware requires --card and mode=card.' >&2; exit 64;
     }
-    unset NURI_PKCS11_MODE
     MODE=sim
     ;;
   --card)
@@ -31,7 +30,7 @@ command -v "${PKCS11_TOOL:-pkcs11-tool}" >/dev/null
 mkdir -p "$ROOT/.build"
 WORK="$(mktemp -d "$ROOT/.build/hsm-openssl.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
-# Test/build scratch is task-owned (the unchanged C module uses /tmp internally).
+# Test/build scratch is task-owned; the C module honors TMPDIR.
 export TMPDIR="$WORK"
 PROVIDER="${NURI_PKCS11_PROVIDER:-}"
 if [[ -z "$PROVIDER" ]]; then
@@ -70,8 +69,10 @@ activate = 1
 (work / 'short31.bin').write_bytes(bytes(31))
 PY
 export OPENSSL_CONF="$WORK/openssl.cnf"
-PRIVATE_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=private'
-PUBLIC_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=public'
+LABEL='Nuri%20ETH%20Key'
+[[ "$MODE" != sim ]] || LABEL='Nuri%20SIMULATOR%20ETH%20Key'
+PRIVATE_URI="pkcs11:object=$LABEL;id=%01;type=private"
+PUBLIC_URI="pkcs11:object=$LABEL;id=%01;type=public"
 printf 'Nuri OpenSSL selftest mode=%s\n' "$MODE"
 "$OPENSSL" version
 "$OPENSSL" list -providers

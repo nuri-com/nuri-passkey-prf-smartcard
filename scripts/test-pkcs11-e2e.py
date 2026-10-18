@@ -14,7 +14,7 @@ This one drives the real module through a real PKCS#11 consumer (OpenSC
   5. Inputs that are not 32 bytes are rejected (the applet signs one digest)
   6. Several signatures over different digests all verify
 
-Default: NURI_PKCS11_MODE unset -> the helper runs --sim (no card, no PC/SC).
+Default: real card. Use exact NURI_PKCS11_MODE=sim for software-only checks.
 Real card: NURI_PKCS11_MODE=card python3 scripts/test-pkcs11-e2e.py  (needs the
 ETH applet, pyscard, and a reader; see docs/hsm.md).
 
@@ -55,7 +55,14 @@ def main():
         print(f"FAIL: {MODULE} missing (run scripts/build-pkcs11.sh)")
         return 1
     os.environ.setdefault("NURI_PKCS11_PYTHON", sys.executable)
-    mode = os.environ.get("NURI_PKCS11_MODE", "sim")
+    mode = os.environ.get("NURI_PKCS11_MODE", "card")
+    if mode not in ("card", "sim"):
+        raise ValueError("NURI_PKCS11_MODE must be exactly card or sim")
+    expect_pin_required = sys.argv[1:] == ['--expect-pin-required']
+    if sys.argv[1:] and not expect_pin_required:
+        raise ValueError('Usage: test-pkcs11-e2e.py [--expect-pin-required]')
+    if expect_pin_required and mode != 'card':
+        raise ValueError('--expect-pin-required is for ETH2 card-mode qualification only')
     results = []
 
     def rec(name, ok, detail=""):
@@ -63,13 +70,16 @@ def main():
 
     # 1. token + mechanisms
     out = tool("-L").stdout
-    rec("C_GetTokenInfo (-L)", "token initialized" in out and "Nuri Smartcard" in out, out.strip().splitlines()[1])
+    rec("C_GetTokenInfo (-L)", "token initialized" in out and ("Nuri SIMULATOR" if mode == "sim" else "Nuri Smartcard") in out, out.strip().splitlines()[1])
+    rec("Simulator token visibly labeled", ("SIMULATOR" in out) if mode == "sim" else True)
     out = tool("-M").stdout
     rec("C_GetMechanismList (-M) = ECDSA only", "ECDSA, keySize={256,256}" in out and out.count("keySize") == 1,
         out.strip().splitlines()[-1])
 
     # 2. objects + EC attributes
     out = tool("-O").stdout
+    labels = [l.split(":", 1)[1].strip() for l in out.splitlines() if "label:" in l]
+    rec("ALL simulator object labels contain SIMULATOR", len(labels) == 2 and all("SIMULATOR" in label for label in labels) if mode == "sim" else True)
     ec_point = [l.split()[1] for l in out.splitlines() if "EC_POINT:" in l]
     ec_params = [l.split()[1] for l in out.splitlines() if "EC_PARAMS:" in l]
     rec("Private + public key objects listed (-O)", "Private Key Object; EC" in out and "Public Key Object; EC" in out)
@@ -84,6 +94,23 @@ def main():
         rec("--read-object pubkey parses as SubjectPublicKeyInfo on SECP256k1", vk.curve == SECP256k1,
             "pubkey_uncompressed=" + vk.to_string("uncompressed").hex())
         rec("EC_POINT equals read-object pubkey", ec_point and ec_point[0][6:] == vk.to_string("uncompressed").hex()[2:])
+
+        if expect_pin_required:
+            digest_file, sig_file = os.path.join(td, 'pin32.bin'), os.path.join(td, 'pin-signature.bin')
+            open(digest_file, 'wb').write(hashlib.sha256(b'ETH2 PKCS11 PIN boundary').digest())
+            # Synthetic, non-secret marker avoids pkcs11-tool's interactive
+            # prompt. C_Login must reject locally without sending any PIN APDU.
+            rejected = tool('--login', '--pin', 'PKCS11-NO-AUTH', '--sign', '-m', 'ECDSA', '-i', digest_file, '-o', sig_file, check=False)
+            rec('ETH2 rejects signing with CKR_USER_NOT_LOGGED_IN and no signature',
+                rejected.returncode != 0 and 'CKR_USER_NOT_LOGGED_IN' in rejected.stderr + rejected.stdout
+                and not os.path.exists(sig_file), rejected.stderr.strip())
+            for name, ok, detail in results:
+                print(f"[{'PASS' if ok else 'FAIL'}] {name}")
+                if detail:
+                    print('       ' + detail)
+            ok = all(result[1] for result in results)
+            print('ETH2_PIN_FAILCLOSED_OK (no signature; PIN sessions not implemented)' if ok else 'ETH2_PIN_FAILCLOSED_FAILED')
+            return 0 if ok else 1
 
         # 3+4. sign 32-byte digests, verify against the module's own pubkey
         sigs = []

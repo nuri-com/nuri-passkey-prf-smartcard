@@ -1,166 +1,118 @@
 # PKCS#11 signing bridge
 
 ```mermaid
-flowchart LR
-  C["PKCS#11 C_Sign<br/>scripts/pkcs11-nuri.c:750-794"] --> H["Python helper process<br/>scripts/pkcs11-nuri.c:345-362"]
-  H -->|default: sim| S["Deterministic software key<br/>scripts/pkcs11-helper.py:24-32"]
-  H -->|mode: card| P["Shared PC/SC transport<br/>scripts/pkcs11-helper.py:81-86"]
-  P --> E["Legacy ETH digest signing<br/>card/eth/NuriEcdsaSigner.java:204-276"]
+flowchart TD
+  M[PKCS#11 initialization] --> V{NURI_PKCS11_MODE}
+  V -->|unset or card| C[Real PC/SC: prefer ETH2]
+  V -->|exact sim| S[SIMULATOR labels + stderr warning]
+  V -->|anything else| F[Fail: no software fallback]
+  C -->|ETH2 present| P[Public key available; login/sign fail: PIN required]
+  C -->|ETH2 absent + exact NURI_ALLOW_ETH1_DEMO=1| D[ETH1 DEMO: warn; no PIN]
+  C -->|otherwise| F
 ```
 
-This is a limited PKCS#11 signing adapter, not evidence of a certified HSM. Certification, physical extraction resistance, throughput and hardware acceptance are **UNVERIFIED** here.
+A limited secp256k1 signing adapter, **not a certified HSM**. Physical extraction resistance, concurrency, server deployment and hardware acceptance of this revision remain **UNVERIFIED**. No hardware was accessed for W28.
 
-## What is implemented
+## Fail-closed mode and applet selection
 
-| Interface | Source-backed scope |
-|---|---|
-| Objects | One slot; public/private EC objects labeled `Nuri ETH Key`, ID `01`; secp256k1 parameters and an uncompressed public point. [scripts/pkcs11-nuri.c:548-556](../scripts/pkcs11-nuri.c#L548-L556), [scripts/pkcs11-nuri.c:660-702](../scripts/pkcs11-nuri.c#L660-L702) |
-| Signing | `CKM_ECDSA` only. Caller supplies exactly one 32-byte digest; output is raw 64-byte `r || s`. The card helper drops the legacy applet's recovery byte. [scripts/pkcs11-nuri.c:750-794](../scripts/pkcs11-nuri.c#L750-L794), [scripts/pkcs11-nuri.c:797-805](../scripts/pkcs11-nuri.c#L797-L805), [scripts/pkcs11-helper.py:64-72](../scripts/pkcs11-helper.py#L64-L72) |
-| Unsupported operations | Multipart signing returns `CKR_FUNCTION_NOT_SUPPORTED`; hashing, verification, key generation, encryption and key wrapping are not wired in the function table. Public-key verify attributes do not implement `C_Verify`. [scripts/pkcs11-nuri.c:811-847](../scripts/pkcs11-nuri.c#L811-L847) |
-| Mode | Only `NURI_PKCS11_MODE=card` selects hardware; unset or any other value selects simulation. The simulation's deterministic software key must not protect assets. [scripts/pkcs11-nuri.c:353-362](../scripts/pkcs11-nuri.c#L353-L362), [scripts/pkcs11-helper.py:24-32](../scripts/pkcs11-helper.py#L24-L32) |
-| Helper configuration | `NURI_PKCS11_PYTHON` overrides `python3`; `NURI_PKCS11_HELPER` overrides the helper found relative to the module. [scripts/pkcs11-nuri.c:270-293](../scripts/pkcs11-nuri.c#L270-L293) |
+- **Real card by default.** Unset `NURI_PKCS11_MODE` means `card`. Only exact `sim` selects software. Empty strings, misspellings, case changes and trailing spaces fail initialization; they never select simulation. C freezes the dispatch mode at initialization and verifies helper exit status, explicit errors, mode and applet identity. Missing or invalid public keys fail initialization, not an empty-success token. Sources: [scripts/pkcs11-nuri.c:358](../scripts/pkcs11-nuri.c#L358), [scripts/pkcs11-nuri.c:528](../scripts/pkcs11-nuri.c#L528), [scripts/pkcs11-helper.py:21](../scripts/pkcs11-helper.py#L21).
+- **Unmistakable simulation.** The token label is `Nuri SIMULATOR`; both private and public object labels are `Nuri SIMULATOR ETH Key`, ID `01`. Slot/model also identify simulation, the mechanism omits `CKF_HW`, and initialization warns on stderr. The deterministic software key is public test material and must never protect assets. Sources: [scripts/pkcs11-nuri.c:262](../scripts/pkcs11-nuri.c#L262), [scripts/pkcs11-nuri.c:623](../scripts/pkcs11-nuri.c#L623), [scripts/pkcs11-nuri.c:732](../scripts/pkcs11-nuri.c#L732), [scripts/pkcs11-nuri.c:873](../scripts/pkcs11-nuri.c#L873).
+- **ETH2 first.** The helper tries AID `4E5552494554483201`. An initial `NO_APPLET` result is insufficient on its own: a second strict probe must confirm `6A82` (applet absent) on every selected reader before considering ETH1 AID `4E55524945544801`. Missing readers/cards, SELECT exceptions and other status words do not downgrade. Selecting ETH1 requires exact `NURI_ALLOW_ETH1_DEMO=1` and prints an `ETH1 DEMO` warning. The opt-in does not override an available ETH2. Sources: [scripts/pkcs11-helper.py:85](../scripts/pkcs11-helper.py#L85).
+- **ETH2 PIN is not bypassed.** This process-per-operation bridge does not implement a persistent, PIN-authenticated ETH2 session. ETH2 public-key discovery works, but `C_Login`, `C_SignInit` and `C_Sign` return `CKR_USER_NOT_LOGGED_IN`; the helper independently rejects ETH2 SIGN with `ETH2 PIN required` **before sending any SIGN APDU**. Token flags include `CKF_LOGIN_REQUIRED`; an arbitrary PKCS#11 PIN does not authenticate. No fallback to ETH1 follows a PIN failure, even with the demo flag set. Sources: [scripts/pkcs11-nuri.c:623](../scripts/pkcs11-nuri.c#L623), [scripts/pkcs11-nuri.c:685](../scripts/pkcs11-nuri.c#L685), [scripts/pkcs11-nuri.c:802](../scripts/pkcs11-nuri.c#L802), [scripts/pkcs11-helper.py:54](../scripts/pkcs11-helper.py#L54).
 
-## Access control: legacy bridge versus other applets
+ETH1 demo and simulator login are compatibility no-ops, **not authentication**. ETH1 still has no PIN or physical approval: any process with reader access and the demo opt-in can sign. Do not use the demo opt-in as a production security setting. ETH2 signing through PKCS#11 remains intentionally unavailable until real PIN-session support exists.
 
-**PKCS#11 login is not authentication.** The module omits `CKF_LOGIN_REQUIRED`, advertises zero PIN lengths and accepts any PIN in `C_Login`. Legacy ETH signing checks key initialization and digest length, not PIN or physical approval. Treat access to the reader and helper as signing authority; a compromised host can choose the digest. Sources: [scripts/pkcs11-nuri.c:573-598](../scripts/pkcs11-nuri.c#L573-L598), [scripts/pkcs11-nuri.c:637-641](../scripts/pkcs11-nuri.c#L637-L641), [card/eth/NuriEcdsaSigner.java:151-160](../card/eth/NuriEcdsaSigner.java#L151-L160), [card/eth/NuriEcdsaSigner.java:204-212](../card/eth/NuriEcdsaSigner.java#L204-L212).
+## Interface and helper protocol
 
-The bridge selects legacy ETH AID `4E55524945544801`; it does not use the separate ETH v2 signer. ETH v2 implements an **optional**, configured-PIN session gate, reset on deselection, and returns a different signing response. Do not transfer that PIN property to PKCS#11 or describe it as per-sign touch approval. Sources: [scripts/pkcs11-helper.py:64-86](../scripts/pkcs11-helper.py#L64-L86), [card/eth2/NuriEthSignerV2.java:188-218](../card/eth2/NuriEthSignerV2.java#L188-L218), [card/eth2/NuriEthSignerV2.java:322-343](../card/eth2/NuriEthSignerV2.java#L322-L343).
+One slot exposes a public and private EC object. Hardware objects retain label `Nuri ETH Key`, ID `01`; simulator objects use the distinct label above. Only `CKM_ECDSA` is supported: supply one 32-byte digest; receive raw 64-byte `r || s`. The ETH1 recovery byte is stripped. Invalid signature lengths/hex fail, rather than being decoded permissively. No key generation, import, PIN provisioning, multipart signing, hashing, wrapping or encryption is exposed. Sources: [scripts/pkcs11-nuri.c:712](../scripts/pkcs11-nuri.c#L712), [scripts/pkcs11-nuri.c:811](../scripts/pkcs11-nuri.c#L811), [scripts/pkcs11-nuri.c:884](../scripts/pkcs11-nuri.c#L884), [scripts/pkcs11-helper.py:54](../scripts/pkcs11-helper.py#L54).
 
-TOTP is separate too: its admin PIN protects secret replacement after initial provisioning, while CALC accepts an eight-byte counter and computes HMAC-SHA1 without checking that PIN. This is not a general HMAC-SHA256 API or a PKCS#11 authentication mechanism. Sources: [card/totp/NuriOathTotp.java:130-168](../card/totp/NuriOathTotp.java#L130-L168), [card/totp/NuriOathTotp.java:171-209](../card/totp/NuriOathTotp.java#L171-L209).
+`NURI_PKCS11_PYTHON` selects Python (default `python3`); `NURI_PKCS11_HELPER` overrides the helper found relative to the module. These are trusted code-execution configuration, not a sandbox boundary. Sources: [scripts/pkcs11-nuri.c:283](../scripts/pkcs11-nuri.c#L283).
 
-## Build and software checks
-
-Run from the repository root on macOS; the build script uses `clang -dynamiclib`. Linux build/runtime acceptance is **UNVERIFIED**. Source: [scripts/build-pkcs11.sh:15-22](../scripts/build-pkcs11.sh#L15-L22).
+The helper defaults to line-based `key=value` replies, each with `mode=card` or `mode=sim`. `--json` produces one JSON object per command, **every reply including errors has a `mode` field**. INIT includes `applet` and `pin_required`. `--sim` alone is insufficient: exact `NURI_PKCS11_MODE=sim` is still required. Conflicting CLI/environment modes fail before transport access. Source: [scripts/pkcs11-helper.py:139](../scripts/pkcs11-helper.py#L139). Command-line usage errors are argparse stderr, not protocol replies.
 
 ```sh
+# Software only; prints an explicit SIMULATOR warning on stderr.
+printf 'INIT\nSLOTS\nFIND_KEY\nFINALIZE\n' | \
+  NURI_PKCS11_MODE=sim python3 scripts/pkcs11-helper.py --json
+```
+
+## Native build and software-only regression
+
+macOS arm64 uses `clang -dynamiclib`; Linux compatibility is **UNVERIFIED**. Rebuild the shipped module whenever C changes and update only its entry in `dist/SHA256SUMS`; `--check` compares the rebuild to that entry. Sources: [scripts/build-pkcs11.sh](../scripts/build-pkcs11.sh), [dist/SHA256SUMS](../dist/SHA256SUMS).
+
+```sh
+export NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
 bash scripts/build-pkcs11.sh
-NURI_PKCS11_MODE=sim scripts/run-card-python.sh scripts/test-pkcs11-e2e.py
+bash scripts/build-pkcs11.sh --check
+"$NURI_PKCS11_PYTHON" scripts/test-pkcs11-failclosed.py
+NURI_PKCS11_MODE=sim "$NURI_PKCS11_PYTHON" scripts/test-pkcs11-e2e.py
 ```
 
-The Python launcher prepares pinned dependencies. The test uses `pkcs11-tool` to inspect objects, sign digests, independently verify signatures and reject a 31-byte input. A missing tool prints `SKIP` and exits successfully: **a zero exit alone is not a passing test**. Sources: [scripts/run-card-python.sh:4-30](../scripts/run-card-python.sh#L4-L30), [scripts/test-pkcs11-e2e.py:47-58](../scripts/test-pkcs11-e2e.py#L47-L58), [scripts/test-pkcs11-e2e.py:64-125](../scripts/test-pkcs11-e2e.py#L64-L125).
+The dedicated regression suite uses **fake PC/SC and a fake helper**, not a reader: it exercises the rebuilt module through its exported PKCS#11 function table, checks default real-card dispatch, exact mode validation, explicit ETH1 opt-in, ETH2 preference/PIN rejection, helper failure, missing/malformed public keys, malformed signatures, mode stability and JSON metadata. The OpenSC e2e suite checks **both** simulator object labels, token identity, EC attributes, public-key export, independently verified signatures and wrong digest length. A missing `pkcs11-tool` prints SKIP: a zero exit alone is not acceptance. Sources: [scripts/test-pkcs11-failclosed.py](../scripts/test-pkcs11-failclosed.py), [scripts/test-pkcs11-e2e.py](../scripts/test-pkcs11-e2e.py).
 
-## OpenSSL 3: simulator-proven PKCS#11 provider route
+## OpenSSL 3 software proof
 
-**Working route:** OpenSSL 3.6.5 + [pkcs11-provider v1.3.0](https://github.com/openssl-projects/pkcs11-provider/releases/tag/v1.3.0) + the existing `dist/pkcs11-nuri.so`, tested on macOS 15.5 arm64. The original `latchset/pkcs11-provider` repository redirects to `openssl-projects/pkcs11-provider`. Both prehashed `pkeyutl` and message-hashing `dgst` signatures verified in OpenSSL and python-ecdsa. The complete build and sim run is recorded in [proof output](proofs/hsm-openssl-sim.txt). **No real reader or card was used for this OpenSSL proof.**
-
-No module compatibility patch was necessary: label `Nuri ETH Key`, ID `01`, public EC parameters and raw `r || s` signing already work with this provider. `scripts/pkcs11-nuri.c`, `dist/pkcs11-nuri.so` and `dist/SHA256SUMS` are unchanged; the module rebuild check returned `PKCS11_BUILD_MATCHES_SHA256SUMS`. Sources: [scripts/pkcs11-nuri.c:680-702](../scripts/pkcs11-nuri.c#L680-L702), [scripts/pkcs11-nuri.c:750-794](../scripts/pkcs11-nuri.c#L750-L794).
-
-The OpenSSL 3 provider is the current route; a libp11 legacy ENGINE fallback was **not needed or tested**. `/usr/bin/openssl` on this Mac is LibreSSL, not the tested OpenSSL 3 executable. Dependency justification: pkcs11-provider supplies the OpenSSL 3 STORE/key/signature integration; Meson and Ninja are build-only dependencies installed into a temporary private directory, not the selected Python environment. Meson/Ninja wheels are version- and hash-pinned in `scripts/requirements-pkcs11-provider-build.txt`; pip/ccache build caching is disabled. The builder pins provider v1.3.0 and verifies release archive SHA-256 `b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538`. Sources: [scripts/build-pkcs11-provider.sh:7-50](../scripts/build-pkcs11-provider.sh#L7-L50).
-
-### One-command end-to-end proof
-
-Prerequisites: Homebrew OpenSSL 3, `pkg-config`, OpenSC's `pkcs11-tool`, Apple command-line C tools and Python 3.12+ with `ecdsa` and `pip`. The automatic provider build also needs network access to GitHub/PyPI. Select an existing Python environment that can `import ecdsa`; `requirements-card-v1.txt` alone does not include that package. Card mode additionally needs `pyscard`. The launch-test environment used `/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python`.
-
-```sh
-# Repository root. Set this to an existing Python environment with ecdsa.
-export NURI_PKCS11_PYTHON=python3
-export NURI_OPENSSL=/opt/homebrew/bin/openssl
-unset NURI_PKCS11_MODE NURI_PKCS11_PROVIDER PKCS11_PROVIDER_MODULE
-bash scripts/hsm-openssl-selftest.sh
-```
-
-With `NURI_PKCS11_PROVIDER` unset the selftest downloads, hash-checks and builds the provider, uses a worktree-local prefix, then deletes its source, tools, prefix and test files on exit. To reuse an already built provider, set `NURI_PKCS11_PROVIDER` to its absolute `.dylib` path; that externally supplied provider is not deleted. The script rejects an inherited `NURI_PKCS11_MODE=card` unless `--card` is also supplied, and clears the provider's `PKCS11_PROVIDER_MODULE` environment override so it cannot silently replace the configured Nuri module. Sources: [scripts/hsm-openssl-selftest.sh:9-40](../scripts/hsm-openssl-selftest.sh#L9-L40).
-
-Success ends with `HSM_OPENSSL_SELFTEST_OK mode=sim (OpenSSL + python-ecdsa + pkcs11-tool)`. It exports the public key, signs a SHA-256 digest and a message, verifies DER signatures twice, rejects a modified digest, rejects a 31-byte input and a missing key label, and runs the existing OpenSC e2e suite. Expected OpenSSL errors appear during negative controls; they are followed by explicit `PASS` lines. Sources: [scripts/hsm-openssl-selftest.sh:73-149](../scripts/hsm-openssl-selftest.sh#L73-L149).
-
-### Exact commands for an application or manual proof
-
-Run from the repository root with the Python/OpenSSL variables above. This keeps a provider prefix until the explicit cleanup at the end. The local install step deliberately avoids upstream's un-staged `meson install`, whose provider destination follows libcrypto's Homebrew `modulesdir`, **not** Meson's `--prefix`. Source: [scripts/build-pkcs11-provider.sh:45-51](../scripts/build-pkcs11-provider.sh#L45-L51).
-
-```sh
-unset NURI_PKCS11_MODE PKCS11_PROVIDER_MODULE
-NURI_PKCS11_PROVIDER="$(bash scripts/build-pkcs11-provider.sh "$PWD/.build/pkcs11-provider")" || exit 1
-export NURI_PKCS11_PROVIDER
-export OPENSSL_CONF="$PWD/.build/hsm-openssl.cnf"
-cat > "$OPENSSL_CONF" <<EOF
-openssl_conf = openssl_init
-[openssl_init]
-providers = providers
-[providers]
-default = default_sect
-pkcs11 = pkcs11_sect
-[default_sect]
-activate = 1
-[pkcs11_sect]
-module = "$NURI_PKCS11_PROVIDER"
-pkcs11-module-path = "$PWD/dist/pkcs11-nuri.so"
-pkcs11-module-cache-keys = false
-pkcs11-module-cache-sessions = 0
-pkcs11-module-login-behavior = never
-pkcs11-module-quirks = no-operation-state
-activate = 1
-EOF
-
-PRIVATE_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=private'
-PUBLIC_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=public'
-"$NURI_OPENSSL" list -providers
-"$NURI_OPENSSL" pkey -pubin -in "$PUBLIC_URI" -out .build/nuri-public.pem
-printf 'Nuri OpenSSL PKCS#11 signing selftest\n' > .build/message.txt
-"$NURI_OPENSSL" dgst -sha256 -binary .build/message.txt > .build/hash32.bin
-
-# ALREADY a 32-byte digest: no -rawin (which would hash the digest again).
-"$NURI_OPENSSL" pkeyutl -sign -inkey "$PRIVATE_URI" \
-  -in .build/hash32.bin -out .build/signature.der
-"$NURI_OPENSSL" pkeyutl -verify -pubin -inkey .build/nuri-public.pem \
-  -in .build/hash32.bin -sigfile .build/signature.der
-
-# Alternatively supply a message: OpenSSL/provider hashes it before CKM_ECDSA.
-"$NURI_OPENSSL" dgst -sha256 -sign "$PRIVATE_URI" \
-  -out .build/message-signature.der .build/message.txt
-"$NURI_OPENSSL" dgst -sha256 -verify .build/nuri-public.pem \
-  -signature .build/message-signature.der .build/message.txt
-
-"$NURI_PKCS11_PYTHON" - <<'PY'
-from pathlib import Path
-from ecdsa import SECP256k1, VerifyingKey
-from ecdsa.util import sigdecode_der
-key = VerifyingKey.from_pem(Path('.build/nuri-public.pem').read_bytes())
-assert key.curve == SECP256k1
-for name in ('signature.der', 'message-signature.der'):
-    assert key.verify_digest(Path('.build', name).read_bytes(),
-                             Path('.build/hash32.bin').read_bytes(),
-                             sigdecode=sigdecode_der)
-    print('PYTHON_ECDSA_VERIFIED', name)
-PY
-
-# When finished (do not retain downloaded build tools/prefix on a low-disk host):
-rm -rf .build/pkcs11-provider
-rm -f .build/hsm-openssl.cnf .build/nuri-public.pem .build/message.txt \
-  .build/hash32.bin .build/signature.der .build/message-signature.der
-unset OPENSSL_CONF NURI_PKCS11_PROVIDER
-```
-
-The provider converts PKCS#11's raw 64-byte `r || s` into OpenSSL's DER ECDSA signature; do **not** change the module to return DER. `dgst -sha256` works without adding `CKM_ECDSA_SHA256` or streaming hashing to the module. The selftest's independent `verify_digest` checks prove exactly one SHA-256, not a double-hashed digest. Sources: [scripts/hsm-openssl-selftest.sh:97-128](../scripts/hsm-openssl-selftest.sh#L97-L128), [scripts/test-pkcs11-e2e.py:88-98](../scripts/test-pkcs11-e2e.py#L88-L98).
-
-## Card-mode qualification
-
-For a separately authorized hardware test, an already provisioned legacy ETH applet is required. The helper only selects it, reads its public key and signs; it does not generate a key. Sources: [scripts/pkcs11-helper.py:64-86](../scripts/pkcs11-helper.py#L64-L86), [scripts/pkcs11-helper.py:120-139](../scripts/pkcs11-helper.py#L120-L139).
-
-```sh
-NURI_PKCS11_MODE=card scripts/run-card-python.sh scripts/test-pkcs11-e2e.py
-
-# Parent-only OpenSSL qualification: both switches are mandatory; never KEYGEN.
-NURI_PKCS11_MODE=card bash scripts/hsm-openssl-selftest.sh --card
-```
-
-Exact launch-parent command (uses the already prepared shared Python, builds a disposable provider and cleans it on exit):
+Use OpenSSL 3 + pkcs11-provider v1.3.0 + the rebuilt `dist/pkcs11-nuri.so`. The provider translates PKCS#11 raw `r || s` to DER. `pkeyutl` signs an already hashed digest **without `-rawin`**; `dgst -sha256` hashes a message once. The selftest independently verifies both with python-ecdsa and rejects a modified digest, 31-byte input and wrong object label. It selects the simulator's distinct object URI automatically. Sources: [scripts/hsm-openssl-selftest.sh](../scripts/hsm-openssl-selftest.sh), [scripts/build-pkcs11-provider.sh](../scripts/build-pkcs11-provider.sh).
 
 ```sh
 NURI_OPENSSL=/opt/homebrew/bin/openssl \
 NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python \
-NURI_PKCS11_MODE=card \
-NURI_PKCS11_EXPECTED_PUBKEY=0239a28d96002c4950a3052a9288da801085aba4a9d4907ab6d93d6b97c29006e0 \
-bash /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/scripts/hsm-openssl-selftest.sh --card
+NURI_PKCS11_MODE=sim \
+bash scripts/hsm-openssl-selftest.sh
 ```
 
-Expected success is `HSM_OPENSSL_SELFTEST_OK mode=card (OpenSSL + python-ecdsa + pkcs11-tool)`, with `public_key=0239a28d96002c4950a3052a9288da801085aba4a9d4907ab6d93d6b97c29006e0`. Before signing, the selftest rejects the known simulation key in card mode and enforces `NURI_PKCS11_EXPECTED_PUBKEY` if set. The expected launch-card key is from the parent's prior physical-card read; do not change it to make a mismatch pass. **OpenSSL real-card acceptance remains UNVERIFIED until the parent runs this command**; simulator success is not hardware acceptance.
+The script never silently enables simulation: without arguments it requires exact mode `sim`; hardware requires **both** mode `card` and `--card`. Unknown modes fail. An unset mode aborts rather than contacting hardware from this software-proof wrapper. This extra wrapper arming requirement does not change the module/helper's real-card default. Sources: [scripts/hsm-openssl-selftest.sh:9](../scripts/hsm-openssl-selftest.sh#L9).
 
-The test selects the launcher's interpreter for the module's helper unless `NURI_PKCS11_PYTHON` is already set. Card mode checks three signatures and low-S normalization. This command is a qualification procedure, **not a claim it was run on hardware**. Sources: [scripts/test-pkcs11-e2e.py:57-58](../scripts/test-pkcs11-e2e.py#L57-L58), [scripts/test-pkcs11-e2e.py:88-103](../scripts/test-pkcs11-e2e.py#L88-L103).
+With `NURI_PKCS11_PROVIDER` unset, the script hash-verifies and builds the pinned provider in task-owned `.build` scratch, then removes the provider source/tools/install/test files. Set `NURI_PKCS11_PROVIDER` to reuse an existing absolute provider dylib path (not deleted). It clears `PKCS11_PROVIDER_MODULE` so another module cannot silently replace the configured Nuri one. No global OpenSSL installation is changed. Sources: [scripts/build-pkcs11-provider.sh:9](../scripts/build-pkcs11-provider.sh#L9), [scripts/hsm-openssl-selftest.sh:25](../scripts/hsm-openssl-selftest.sh#L25).
 
-## Operational limits
+Expected software success: `HSM_OPENSSL_SELFTEST_OK mode=sim (OpenSSL + python-ecdsa + pkcs11-tool)`. Historical [sim proof output](proofs/hsm-openssl-sim.txt) predates the fail-closed defaults and distinct simulator labels; it is **not evidence for this revision**.
 
-- The adapter spawns helper processes; its session and object state are module-global, with one active session handle. Multi-consumer concurrency and server deployment are **UNVERIFIED**. [scripts/pkcs11-nuri.c:247-260](../scripts/pkcs11-nuri.c#L247-L260), [scripts/pkcs11-nuri.c:345-385](../scripts/pkcs11-nuri.c#L345-L385), [scripts/pkcs11-nuri.c:601-614](../scripts/pkcs11-nuri.c#L601-L614).
-- No objects can mean public-key discovery failed: initialization can return success without finding a key, and enumeration then yields none. See [reader compatibility](reader-compatibility.md). [scripts/pkcs11-nuri.c:501-523](../scripts/pkcs11-nuri.c#L501-L523), [scripts/pkcs11-nuri.c:714-740](../scripts/pkcs11-nuri.c#L714-L740).
-- secp256k1 only; no RSA, P-256, Ed25519 or key import/generation through this bridge. This does not supply ordinary TLS server authentication: TLS 1.3's named ECDSA signature schemes use P-256/P-384/P-521, not secp256k1 ([RFC 8446 §4.2.3](https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.3)). No TLS server integration was tested. Mechanism/key boundary: [scripts/pkcs11-nuri.c:105-106](../scripts/pkcs11-nuri.c#L105-L106), [scripts/pkcs11-nuri.c:797-827](../scripts/pkcs11-nuri.c#L797-L827).
-- It cannot supply an SSH-RSA key. The card's working SSH path is the separate FIDO2 `ecdsa-sk` provider, not this legacy ETH/secp256k1 PKCS#11 object; see [SSH smartcard setup](ssh-smartcard.md) and [scripts/ssh-pcsc-sk-helper.py:82-99](../scripts/ssh-pcsc-sk-helper.py#L82-L99).
-- OpenSSL integration is proven in sim for the commands above, not for TLS services, concurrent applications or long-lived daemons. Bearer-credential brokering is still **UNVERIFIED** and is not supplied by the exported function table: [scripts/pkcs11-nuri.c:830-854](../scripts/pkcs11-nuri.c#L830-L854).
+### W28 software acceptance
+
+On macOS arm64 / Apple clang 17.0.0, the native rebuild produced SHA-256
+`b27a41734535d15d032ef553974643a4f97cabc1d67216fca1b1069d19b21299`;
+`build-pkcs11.sh --check` returned `PKCS11_BUILD_MATCHES_SHA256SUMS`.
+The final fake/native policy suite passed **18 tests on three consecutive runs**;
+the explicit-simulator OpenSC e2e suite passed three consecutive runs. OpenSSL
+3.6.5 + provider 1.3.0 passed the full simulator selftest three times in this
+work session (the final two after the strict-absence and qualification-test edits).
+
+Five deliberate negative controls turned the relevant tests red: defaulting to
+simulation, bypassing ETH2 login, bypassing ETH2 signing, ignoring helper exit
+failure, and removing the strict `6A82` absence confirmation. The last caught a
+real transport-classification seam: shared PC/SC `NO_APPLET` can represent a
+SELECT exception, not just an absent applet. The helper now independently
+confirms absence before permitting a demo downgrade. All controls used fakes or
+throwaway mutated libraries; the shipped source/artifact remained unchanged.
+
+## Parent-only real-card qualification (not run by W28)
+
+Run from the reviewed checkout. These commands do not generate, reset or provision keys. They read public identity and, only for the explicitly armed legacy demo, sign test digests.
+
+```sh
+export NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+export NURI_OPENSSL=/opt/homebrew/bin/openssl
+unset NURI_PKCS11_HELPER NURI_ALLOW_ETH1_DEMO
+
+# Existing ETH1-only card: MUST fail initialization, without selecting ETH1.
+NURI_PKCS11_MODE=card pkcs11-tool --module "$PWD/dist/pkcs11-nuri.so" -L
+
+# Available provisioned ETH2: public discovery may succeed; signing MUST fail
+# CKR_USER_NOT_LOGGED_IN. Do not add a PIN-bypass option to make this pass.
+NURI_PKCS11_MODE=card "$NURI_PKCS11_PYTHON" scripts/test-pkcs11-e2e.py --expect-pin-required
+
+# Existing ETH1-only launch demo: explicitly acknowledge its lack of PIN.
+NURI_ALLOW_ETH1_DEMO=1 NURI_PKCS11_MODE=card \
+  "$NURI_PKCS11_PYTHON" scripts/test-pkcs11-e2e.py
+NURI_ALLOW_ETH1_DEMO=1 NURI_PKCS11_MODE=card \
+NURI_PKCS11_EXPECTED_PUBKEY=0239a28d96002c4950a3052a9288da801085aba4a9d4907ab6d93d6b97c29006e0 \
+  bash scripts/hsm-openssl-selftest.sh --card
+```
+
+The expected legacy public key is the launch parent's prior card read, **not a W28 hardware observation**. Do not change it to make a mismatch pass. ETH2 presence still prevents an ETH1 demo fallback; only an ETH1-only card should pass the last two commands. The ETH2 negative qualification must end `ETH2_PIN_FAILCLOSED_OK` (exit 0): it checks the specific `CKR_USER_NOT_LOGGED_IN` error and absence of a signature, not just an arbitrary failure. Current hardware results remain **UNVERIFIED** until the parent executes them.
+
+## Limits
+
+- Module-global state supports one active session. Helper processes do not retain a PIN-authenticated card session. Concurrent consumers and long-lived daemons remain **UNVERIFIED**. Source: [scripts/pkcs11-nuri.c:247](../scripts/pkcs11-nuri.c#L247).
+- Only secp256k1, not RSA/P-256/Ed25519. No ordinary TLS server integration is established. The separate FIDO2 `ecdsa-sk` path supplies SSH; this module does not provide SSH-RSA. See [SSH setup](ssh-smartcard.md).
+- Simulator success proves host plumbing, not a hardware security boundary, card PIN integration or physical approval.

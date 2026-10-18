@@ -3,11 +3,11 @@
  * 
  * Build: scripts/build-pkcs11.sh (one clang command, see there).
  *
- * Test (sim, no card):  pkcs11-tool --module dist/pkcs11-nuri.so -L / -O / --sign -m ECDSA
+ * Test (sim, no card):  NURI_PKCS11_MODE=sim pkcs11-tool --module dist/pkcs11-nuri.so -L / -O / --sign -m ECDSA
  * Real card:            NURI_PKCS11_MODE=card pkcs11-tool --module dist/pkcs11-nuri.so ...
  * Helper lookup: $NURI_PKCS11_HELPER, else <dir of this .so>/../scripts/pkcs11-helper.py.
  * Python: $NURI_PKCS11_PYTHON, else python3 (needs ecdsa; pyscard for card mode).
- * No PIN: C_Login accepts anything, CKF_LOGIN_REQUIRED is not set. See docs/hsm.md.
+ * ETH2 PIN sessions are not implemented: login/sign fail closed. ETH1 is demo-only.
  */
 
 #define _DARWIN_C_SOURCE
@@ -255,6 +255,19 @@ static uint8_t key_point[65];                    /* 04||X||Y, filled by C_Initia
 static size_t key_point_len = 0;
 static int key_found = 0;
 static int logged_in = 0;
+static int sim_mode = 0;
+static int pin_required = 1;
+static char selected_applet[16] = {0};
+
+static const char *object_label(void) {
+    return sim_mode ? "Nuri SIMULATOR ETH Key" : "Nuri ETH Key";
+}
+
+static void padded(CK_BYTE *out, size_t size, const char *text) {
+    memset(out, ' ', size);
+    size_t n = strlen(text);
+    memcpy(out, text, n < size ? n : size);
+}
 /* find state: which handles still to return for the current C_FindObjectsInit */
 static int find_active = 0;
 static int find_want_priv = 0, find_want_pub = 0;
@@ -344,28 +357,33 @@ static char *value_for(const char *output, const char *key) {
 
 static char *run_helper(const char *input) {
     /* Use temp file for input */
-    char tmp_in[] = "/tmp/nuri-pkcs11-in-XXXXXX";
+    const char *tmpdir = getenv("TMPDIR");
+    char *tmp_in = NULL;
+    if (asprintf(&tmp_in, "%s/nuri-pkcs11-in-XXXXXX", (tmpdir && *tmpdir) ? tmpdir : "/tmp") < 0) return NULL;
     int fd_in = mkstemp(tmp_in);
-    if (fd_in < 0) return NULL;
-    write(fd_in, input, strlen(input));
+    if (fd_in < 0) { free(tmp_in); return NULL; }
+    size_t input_len = strlen(input);
+    ssize_t written = write(fd_in, input, input_len);
     close(fd_in);
+    if (written < 0 || (size_t)written != input_len) { unlink(tmp_in); free(tmp_in); return NULL; }
 
     char *python3 = python_path(), *helper3 = helper_path();
     char *pq = shell_quote(python3), *hq = shell_quote(helper3);
     char *run_cmd = NULL;
-    /* NURI_PKCS11_MODE=card talks to the real card; default stays --sim for tests. */
-    const char *mode = getenv("NURI_PKCS11_MODE");
-    const char *flag = (mode && strcmp(mode, "card") == 0) ? "--card" : "--sim";
-    asprintf(&run_cmd, "%s %s %s < %s", pq, hq, flag, tmp_in);
+    /* C_Initialize freezes the selected mode. The helper also rejects conflicts. */
+    const char *flag = sim_mode ? "--sim" : "--card";
+    char *tq = shell_quote(tmp_in);
+    asprintf(&run_cmd, "%s %s %s < %s", pq, hq, flag, tq);
+    free(tq);
     free(pq); free(hq); free(python3); free(helper3);
 
     FILE *fp = popen(run_cmd, "r");
     free(run_cmd);
-    if (!fp) { unlink(tmp_in); return NULL; }
+    if (!fp) { unlink(tmp_in); free(tmp_in); return NULL; }
 
     size_t cap = 4096, len = 0;
     char *out = malloc(cap);
-    if (!out) { pclose(fp); unlink(tmp_in); return NULL; }
+    if (!out) { pclose(fp); unlink(tmp_in); free(tmp_in); return NULL; }
     out[0] = '\0';
     char chunk[1024];
     while (fgets(chunk, sizeof(chunk), fp)) {
@@ -373,15 +391,24 @@ static char *run_helper(const char *input) {
         if (len + n + 1 > cap) {
             cap = (len + n + 1) * 2;
             char *tmp = realloc(out, cap);
-            if (!tmp) { free(out); pclose(fp); unlink(tmp_in); return NULL; }
+            if (!tmp) { free(out); pclose(fp); unlink(tmp_in); free(tmp_in); return NULL; }
             out = tmp;
         }
         memcpy(out + len, chunk, n);
         len += n;
         out[len] = '\0';
     }
-    pclose(fp);
+    int status = pclose(fp);
     unlink(tmp_in);
+    free(tmp_in);
+    char *mode = value_for(out, "mode");
+    char *error = value_for(out, "error");
+    char *applet = value_for(out, "applet");
+    int valid = status == 0 && !error && mode &&
+        strcmp(mode, sim_mode ? "sim" : "card") == 0 &&
+        (!selected_applet[0] || (applet && strcmp(applet, selected_applet) == 0));
+    free(mode); free(error); free(applet);
+    if (!valid) { free(out); return NULL; }
     return out;
 }
 
@@ -502,10 +529,30 @@ static CK_RV C_Initialize(void *pInitArgs) {
     (void)pInitArgs;
     if (initialized) return CKR_OK;
 
+    const char *mode = getenv("NURI_PKCS11_MODE");
+    if (mode && strcmp(mode, "card") != 0 && strcmp(mode, "sim") != 0) {
+        fprintf(stderr, "NURI_PKCS11_MODE must be exactly card or sim (unset means card)\n");
+        return CKR_ARGUMENTS_BAD;
+    }
+    sim_mode = mode && strcmp(mode, "sim") == 0;
+    key_found = 0; key_point_len = 0; key_pubkey[0] = 0;
+    pin_required = 1; selected_applet[0] = 0;
+    if (sim_mode) fprintf(stderr, "WARNING: SIMULATOR: deterministic software key, NOT hardware\n");
     /* Run helper to init and find key */
     char *out = run_helper("INIT\nSLOTS\nOPEN_SESSION\nFIND_KEY\nCLOSE_SESSION\nFINALIZE\n");
     if (!out) return CKR_DEVICE_ERROR;
 
+    char *applet = value_for(out, "applet");
+    char *pin = value_for(out, "pin_required");
+    const char *demo = getenv("NURI_ALLOW_ETH1_DEMO");
+    int valid = applet && pin &&
+        ((sim_mode && strcmp(applet, "SIMULATOR") == 0 && strcmp(pin, "0") == 0) ||
+         (!sim_mode && strcmp(applet, "ETH2") == 0 && strcmp(pin, "1") == 0) ||
+         (!sim_mode && strcmp(applet, "ETH1") == 0 && strcmp(pin, "0") == 0 && demo && strcmp(demo, "1") == 0));
+    if (!valid) { free(applet); free(pin); free(out); return CKR_DEVICE_ERROR; }
+    snprintf(selected_applet, sizeof(selected_applet), "%s", applet);
+    pin_required = strcmp(pin, "1") == 0;
+    free(applet); free(pin);
     char *pk = value_for(out, "key_pubkey");
     if (pk) {
         strncpy(key_pubkey, pk, sizeof(key_pubkey) - 1);
@@ -513,12 +560,12 @@ static CK_RV C_Initialize(void *pInitArgs) {
         int n = hex_decode(pk, raw, sizeof(raw));
         key_point_len = 0;
         if (n == 33 && secp256k1_decompress(raw, key_point) == 0) key_point_len = 65;
-        else if (n == 65 && raw[0] == 0x04) { memcpy(key_point, raw, 65); key_point_len = 65; }
         key_found = (key_point_len == 65);
         free(pk);
     }
     free(out);
 
+    if (!key_found) { selected_applet[0] = 0; return CKR_DEVICE_ERROR; }
     initialized = 1;
     return CKR_OK;
 }
@@ -526,6 +573,9 @@ static CK_RV C_Initialize(void *pInitArgs) {
 static CK_RV C_Finalize(void *pReserved) {
     (void)pReserved;
     initialized = 0;
+    key_found = 0; key_point_len = 0; key_pubkey[0] = 0;
+    selected_applet[0] = 0; pin_required = 1;
+    find_want_priv = find_want_pub = 0;
     open_session = 0;
     logged_in = 0;
     find_active = 0;
@@ -560,7 +610,7 @@ static CK_RV C_GetSlotInfo(CK_SLOT_ID slotID, CK_SLOT_INFO *pInfo) {
     if (slotID != 1) return CKR_SLOT_ID_INVALID;
     if (!pInfo) return CKR_ARGUMENTS_BAD;
     memset(pInfo, 0, sizeof(*pInfo));
-    memcpy(pInfo->slotDescription, "Nuri Smartcard (PC/SC)          ", 64);
+    padded(pInfo->slotDescription, sizeof(pInfo->slotDescription), sim_mode ? "Nuri SIMULATOR (software)" : "Nuri Smartcard (PC/SC)");
     memcpy(pInfo->manufacturerID, "Nuri.com                        ", 32);
     pInfo->flags = CKF_TOKEN_PRESENT;
     pInfo->hardwareVersion.major = 1;
@@ -574,19 +624,18 @@ static CK_RV C_GetTokenInfo(CK_SLOT_ID slotID, CK_TOKEN_INFO *pInfo) {
     if (slotID != 1) return CKR_SLOT_ID_INVALID;
     if (!pInfo) return CKR_ARGUMENTS_BAD;
     memset(pInfo, 0, sizeof(*pInfo));
-    memcpy(pInfo->label, "Nuri Smartcard                  ", 32);
+    padded(pInfo->label, sizeof(pInfo->label), sim_mode ? "Nuri SIMULATOR" : "Nuri Smartcard");
     memcpy(pInfo->manufacturerID, "Nuri.com                        ", 32);
-    memcpy(pInfo->model, "ETH v1.3        ", 16);
+    padded(pInfo->model, sizeof(pInfo->model), selected_applet);
     memcpy(pInfo->serialNumber, "0000000000000000", 16);
-    /* No CKF_LOGIN_REQUIRED: the ETH applet has no PIN (any local process can
-     * sign). CKF_TOKEN_INITIALIZED is required or pkcs11-tool refuses --sign. */
-    pInfo->flags = CKF_TOKEN_INITIALIZED | CKF_WRITE_PROTECTED;
+    /* Do not claim login can authenticate an ETH2 process-per-operation bridge. */
+    pInfo->flags = CKF_TOKEN_INITIALIZED | CKF_WRITE_PROTECTED | (pin_required ? CKF_LOGIN_REQUIRED : 0);
     pInfo->ulMaxSessionCount = 1;
     pInfo->ulSessionCount = 0;
     pInfo->ulMaxRwSessionCount = 1;
     pInfo->ulRwSessionCount = 0;
-    pInfo->ulMaxPinLen = 0;
-    pInfo->ulMinPinLen = 0;
+    pInfo->ulMaxPinLen = pin_required ? 16 : 0;
+    pInfo->ulMinPinLen = pin_required ? 4 : 0;
     pInfo->ulTotalPublicMemory = 1024;
     pInfo->ulFreePublicMemory = 1024;
     pInfo->ulTotalPrivateMemory = 1024;
@@ -631,12 +680,15 @@ static CK_RV C_GetSessionInfo(CK_SESSION_HANDLE hSession, CK_SESSION_INFO *pInfo
     return CKR_OK;
 }
 
-/* The card has no PIN, so login is a no-op that accepts any PIN (including
- * none). It exists only so `pkcs11-tool -l` and PKCS#11 consumers that always
- * log in do not fail with CKR_FUNCTION_NOT_SUPPORTED. */
+/* ETH2 requires a real authenticated card session; none is implemented here.
+ * In sim / explicitly armed ETH1 demo only, login does not authenticate a PIN. */
 static CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_ULONG userType, CK_BYTE *pPin, CK_ULONG ulPinLen) {
     (void)userType; (void)pPin; (void)ulPinLen;
     if (hSession != open_session) return CKR_SESSION_HANDLE_INVALID;
+    if (pin_required) {
+        fprintf(stderr, "ETH2 PIN required: PKCS#11 authenticated PIN sessions not implemented\n");
+        return CKR_USER_NOT_LOGGED_IN;
+    }
     logged_in = 1;
     return CKR_OK;
 }
@@ -677,7 +729,7 @@ static CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hO
             CK_KEY_TYPE kt = CKK_EC;
             r = put_attr(a, &kt, sizeof(kt)); break;
         }
-        case CKA_LABEL:    r = put_attr(a, "Nuri ETH Key", 12); break;
+        case CKA_LABEL:    r = put_attr(a, object_label(), strlen(object_label())); break;
         case CKA_ID:       r = put_attr(a, "\x01", 1); break;
         case CKA_TOKEN:    r = put_attr(a, &t, 1); break;
         case CKA_PRIVATE:  r = put_attr(a, is_priv ? &t : &f, 1); break;
@@ -688,11 +740,11 @@ static CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hO
         case CKA_EXTRACTABLE: r = put_attr(a, &f, 1); break;
         case CKA_NEVER_EXTRACTABLE: r = put_attr(a, &t, 1); break;
         case CKA_ALWAYS_SENSITIVE: r = put_attr(a, is_priv ? &t : &f, 1); break;
-        case CKA_LOCAL:    r = put_attr(a, &t, 1); break;   /* key born on-card (one-shot KEYGEN) */
+        case CKA_LOCAL:    r = put_attr(a, sim_mode ? &f : &t, 1); break;
         case CKA_ENCRYPT: case CKA_DECRYPT: case CKA_WRAP: case CKA_UNWRAP:
         case CKA_SIGN_RECOVER: case CKA_VERIFY_RECOVER: case CKA_DERIVE:
             r = put_attr(a, &f, 1); break;
-        case CKA_ALWAYS_AUTHENTICATE: r = put_attr(a, &f, 1); break;  /* no PIN on the card */
+        case CKA_ALWAYS_AUTHENTICATE: r = put_attr(a, is_priv && pin_required ? &t : &f, 1); break;
         case CKA_EC_PARAMS:
             r = put_attr(a, SECP256K1_OID_DER, sizeof(SECP256K1_OID_DER)); break;
         case CKA_EC_POINT: {
@@ -724,7 +776,7 @@ static CK_RV C_FindObjectsInit(CK_SESSION_HANDLE hSession, CK_ATTRIBUTE *pTempla
         } else if (a->type == CKA_ID && a->pValue) {
             if (!(a->ulValueLen == 1 && ((CK_BYTE *)a->pValue)[0] == 1)) find_want_priv = find_want_pub = 0;
         } else if (a->type == CKA_LABEL && a->pValue) {
-            if (!(a->ulValueLen == 12 && memcmp(a->pValue, "Nuri ETH Key", 12) == 0)) find_want_priv = find_want_pub = 0;
+            if (!(a->ulValueLen == strlen(object_label()) && memcmp(a->pValue, object_label(), a->ulValueLen) == 0)) find_want_priv = find_want_pub = 0;
         }
     }
     find_active = 1;
@@ -752,12 +804,15 @@ static CK_RV C_SignInit(CK_SESSION_HANDLE hSession, CK_MECHANISM *pMechanism, CK
     if (!pMechanism) return CKR_ARGUMENTS_BAD;
     if (pMechanism->mechanism != CKM_ECDSA) return CKR_MECHANISM_INVALID;
     if (hKey != priv_handle) return CKR_OBJECT_HANDLE_INVALID;
+    if (pin_required) return CKR_USER_NOT_LOGGED_IN;
     return CKR_OK;
 }
 
 static CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE *pData, CK_ULONG ulDataLen, CK_BYTE *pSignature, CK_ULONG *pulSignatureLen) {
     (void)hSession;
     if (!pData || !pulSignatureLen) return CKR_ARGUMENTS_BAD;
+    if (!initialized || !key_found) return CKR_DEVICE_ERROR;
+    if (pin_required) return CKR_USER_NOT_LOGGED_IN;
     /* The ETH applet signs exactly one 32-byte digest (INS 04, Lc=0x20). */
     if (ulDataLen != 32) return CKR_DATA_LEN_RANGE;
     if (!pSignature) { *pulSignatureLen = 64; return CKR_OK; }   /* size query: no card round-trip */
@@ -777,17 +832,15 @@ static CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE *pData, CK_ULONG ulDataL
 
     if (!sig_hex) return CKR_FUNCTION_FAILED;
 
-    size_t sig_hex_len = strlen(sig_hex);
-    size_t sig_len = sig_hex_len / 2;
+    uint8_t decoded[64];
+    if (strlen(sig_hex) != 128 || hex_decode(sig_hex, decoded, sizeof(decoded)) != 64) {
+        free(sig_hex); return CKR_FUNCTION_FAILED;
+    }
+    size_t sig_len = sizeof(decoded);
 
     if (pSignature) {
         if (*pulSignatureLen < sig_len) { free(sig_hex); return CKR_BUFFER_TOO_SMALL; }
-        for (size_t i = 0; i < sig_len; i++) {
-            char hi = sig_hex[i*2], lo = sig_hex[i*2+1];
-            int hv_hi = (hi >= '0' && hi <= '9') ? hi-'0' : (hi >= 'a' && hi <= 'f') ? hi-'a'+10 : (hi >= 'A' && hi <= 'F') ? hi-'A'+10 : 0;
-            int hv_lo = (lo >= '0' && lo <= '9') ? lo-'0' : (lo >= 'a' && lo <= 'f') ? lo-'a'+10 : (lo >= 'A' && lo <= 'F') ? lo-'A'+10 : 0;
-            pSignature[i] = (hv_hi << 4) | hv_lo;
-        }
+        memcpy(pSignature, decoded, sig_len);
     }
     *pulSignatureLen = sig_len;
     free(sig_hex);
@@ -823,7 +876,7 @@ static CK_RV C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type, CK_ME
     if (!pInfo) return CKR_ARGUMENTS_BAD;
     pInfo->ulMinKeySize = 256;
     pInfo->ulMaxKeySize = 256;
-    pInfo->flags = CKF_HW | CKF_SIGN | CKF_EC_F_P | CKF_EC_UNCOMPRESS | CKF_EC_COMPRESS;
+    pInfo->flags = (sim_mode ? 0 : CKF_HW) | CKF_SIGN | CKF_EC_F_P | CKF_EC_UNCOMPRESS | CKF_EC_COMPRESS;
     return CKR_OK;
 }
 
