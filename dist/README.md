@@ -18,7 +18,7 @@ attestation and vault CAPs are simulator only. [Feature status](../README.md#fea
 | `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.14, package 2.2; PIN/token/attestation | MIT | `eee7a911723c7fcd0541a791362b29375333e66075bb207136587ef6a32a3b53` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
 | `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / SIGN; demo, no PIN | GPL-2.0-or-later combined | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
-| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation | MIT | `158088eec670eab578fc81d4621087c3752e4001f7afcf288e8ff48b01f9261e` |
+| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; tear-safe SET/CHANGE/UNBLOCK transactions | MIT | `cf943d7ddcd161c83742204a9a2e108267c9f5204b2b8d8cffc75f5965ec0a01` |
 | `nuri-vault.cap` | `card/vault/` | `4E555249564C5401` | package 1.1; PIN slots and attestation | MIT | `70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33` |
 | `pkcs11-nuri.so` | `scripts/pkcs11-nuri.c` | `not an applet` | macOS native module; rebuild for your platform | MIT source | `9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165` |
 
