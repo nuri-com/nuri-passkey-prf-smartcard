@@ -18,6 +18,7 @@ Card V1 consists of four independent Java Card applets:
 | Bitcoin/Arkade MuSig2 signer | `card/musig2/` | `dist/nuri-musig2-v20-keygen.cap` | `4E5552494D554701` |
 | OATH-TOTP | `card/totp/` | `dist/nuri-oath-totp.cap` | `4E555249544F5450` |
 | Ethereum/EVM signer | `card/eth/` | `dist/nuri-eth-signer.cap` | `4E55524945544801` |
+| Ethereum/EVM signer v2 (native ECDSA, optional PIN; see `docs/eth-applet-v2.md`) | `card/eth2/` | `dist/nuri-eth2-signer.cap` | `4E5552494554483201` |
 
 The corresponding host proofs, APDU clients, Arkade/Lightning flows, PC/SC SSH
 bridge, and Expo NFC app are versioned in this repository. `dist/SHA256SUMS`

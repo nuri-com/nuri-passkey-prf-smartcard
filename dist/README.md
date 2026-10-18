@@ -16,6 +16,7 @@ Card component.
 | `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.11 / `KGEN` — no host seed import, one-shot KEYGEN | GPL-2.0-or-later portions | `a9b2eea825561f31da708836927290fd92b430c5084cdc614020fd5da3648126` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | package 1.0 | MIT | `6f33f7c4aedea49238d3ac33867999b787972d8cc0c4f4948ad302c5e9ab1af2` |
 | `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / `SIGN` — debug INS removed, one-shot KEYGEN | GPL-2.0-or-later portions | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
+| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` (package `4E55524945544832`) | 2.0 / `ETH2` — native `ALG_ECDSA_SHA_256` + `signPreComputedHash`, no bignum, optional PIN, installs beside v1 | MIT | `f7c122328405d035050c5d3609483b572c4f7ebb03345a4d3e57b54cd268f3c5` |
 
 ## Exact build inputs
 

@@ -62,6 +62,8 @@
     "card:ctap:makecred-matrix": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-matrix",
     "card:ctap:makecred-pin": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-pin",
     "card:ctap:makecred-uv": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-uv",
+    "card:eth2:install": "scripts/install-eth2-card.sh",
+    "card:eth2:test:sim": "scripts/test-eth2-sim.sh",
     "card:musig2:install": "scripts/install-musig2-card.sh",
     "card:musig2:test": "scripts/test-musig2-card.sh",
     "card:musig2:test:sim": "scripts/test-musig2-jcardsim.sh",

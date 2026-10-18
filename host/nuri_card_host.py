@@ -149,6 +149,27 @@ def parse_der_signature(der: bytes) -> tuple[int, int]:
     return sigdecode_der(der, curve_order())
 
 
+def parse_eth2_signature(resp: bytes, expected_pubkey: bytes | None = None) -> tuple[int, int]:
+    """Parse an ETH v2 SIGN response (card/eth2/NuriEthSignerV2.java).
+
+    Native format: r(32) || s(32, low-S) || pubkey(65, uncompressed) = 129 bytes.
+    The echoed pubkey must match the card identity when one is given (a
+    mismatch means we are talking to a different key than `info` reported).
+    A DER SEQUENCE is accepted too so a card OS that skips the on-card
+    r||s||pub packing still works; the caller verifies either way.
+    """
+    if len(resp) == 129 and resp[64] == 0x04:
+        if expected_pubkey is not None and compress_pubkey(resp[64:]) != compress_pubkey(expected_pubkey):
+            raise HostError("VERIFY_FAILED", "ETH2 SIGN echoed a pubkey that differs from the card identity")
+        return int.from_bytes(resp[:32], "big"), int.from_bytes(resp[32:64], "big")
+    if resp[:1] == b"\x30":
+        try:
+            return parse_der_signature(resp)
+        except Exception as exc:
+            raise HostError("CARD_ERROR", f"ETH2 DER signature unparsable: {resp.hex()} ({exc})")
+    raise HostError("CARD_ERROR", f"ETH2 signature must be r||s||pub65 (129 B) or DER, got {len(resp)} B: {resp.hex()}")
+
+
 # --------------------------------------------------------------------------- #
 # Signers                                                                     #
 # --------------------------------------------------------------------------- #
@@ -241,6 +262,12 @@ class CardSigner:
         ver = self._tx(APDU_VERSION, "GET VERSION")
         if len(ver) >= 3:
             self.applet_version = f"{ver[0]}.{ver[1]}.{ver[2]}"
+        if self.applet == "eth2" and len(ver) >= 9:
+            # 02 00 00 'ETH2' state(b0 keyed, b1 pinSet) pinTriesLeft
+            self.pin_set = bool(ver[7] & 0x02)
+            self.pin_tries_left = ver[8]
+            if not (ver[7] & 0x01):
+                raise HostError("CARD_ERROR", "ETH2 applet has no key yet (KEYGEN not run)")
         pub = self._tx(APDU_PUBKEY, "GET PUBKEY")
         if self.applet == "eth2":
             if len(pub) != 65 or pub[0] != 0x04:
@@ -259,10 +286,7 @@ class CardSigner:
         finally:
             self.close()
         if self.applet == "eth2":
-            try:
-                return parse_der_signature(resp)
-            except Exception as exc:
-                raise HostError("CARD_ERROR", f"ETH2 DER signature unparsable: {resp.hex()} ({exc})")
+            return parse_eth2_signature(resp, self.pubkey)
         if len(resp) != 65:
             raise HostError("CARD_ERROR", f"ETH1 signature must be 65 bytes, got {len(resp)}: {resp.hex()}")
         # Card-reported v (resp[64]) is ignored on purpose: yParity is recomputed by recovery.
