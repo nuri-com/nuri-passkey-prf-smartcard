@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Derive the Nuri/Arkade client key from the card's FIDO2 PRF, byte-for-byte the
-// same way the phone app does it (nuri-expo: deriveWalletEntropy ->
+// same way the phone app does it (companion wallet: deriveWalletEntropy ->
 // deriveBitcoinAddress BIP86 m/86'/0'/0'/0/0). The only difference: instead of
 // browser navigator.credentials PRF, the PRF comes from the physical card.
 //
@@ -22,7 +22,7 @@ const utf8 = (s) => new TextEncoder().encode(s);
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 const PRF_PROFILE = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
-// MUST match nuri-expo PRF_SALT (config/constants.ts) and the arkade signing vault.
+// MUST match companion wallet PRF_SALT (config/constants.ts) and the arkade signing vault.
 const PRF_SALT = process.env.NURI_WALLET_PRF_SALT || 'nuri-prf-salt-v1';
 
 function prfFromCard() {
@@ -37,14 +37,14 @@ function prfFromCard() {
   });
 }
 
-// Exact port of nuri-expo/lib/walletDerivation.ts deriveWalletEntropy(prf, "bitcoin")
+// Exact port of companion wallet/lib/walletDerivation.ts deriveWalletEntropy(prf, "bitcoin")
 function deriveWalletEntropy(prfBytes) {
   const salt = sha256(utf8('app:nuri.com|wallet|v1'));
   const info = utf8('app:nuri.com|wallet|v1|chain=bitcoin|fmt=taproot');
   return new Uint8Array(hkdf(sha256, prfBytes, salt, info, 32));
 }
 
-// Exact port of nuri-expo/lib/bitcoin/bip86.ts deriveBitcoinAddress(entropy)
+// Exact port of companion wallet/lib/bitcoin/bip86.ts deriveBitcoinAddress(entropy)
 //   m/86'/0'/0'/0/0, returns the INTERNAL key (untweaked) used in MuSig2.
 //   (nuri's fn also returns a tweaked address; arkade signing only needs the
 //   internal key, which is what IndividualPubkey is computed from.)
@@ -74,7 +74,7 @@ let result = {
   source: 'card_fido2_prf',
   prf_profile: PRF_PROFILE,
   prf_salt: PRF_SALT,
-  derivation: 'HKDF -> BIP86 m/86\'/0\'/0\'/0/0 (exact nuri-expo port)',
+  derivation: 'HKDF -> BIP86 m/86\'/0\'/0\'/0/0 (exact companion wallet port)',
   client_pk33: bytesToHex(pk1),
 };
 if (verifyTwice) {

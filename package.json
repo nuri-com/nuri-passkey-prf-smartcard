@@ -34,7 +34,6 @@
     "source:audit": "scripts/audit-source-completeness.sh",
     "reproduce:v1": "scripts/reproduce-v1.sh",
     "web:prf": "scripts/serve-prf-test.sh",
-    "web:tunnel": "scripts/serve-prf-ngrok.sh",
     "mobile:android": "scripts/run-expo-nfc-prf-probe.sh android",
     "mobile:ios": "scripts/run-expo-nfc-prf-probe.sh ios --device",
     "mobile:start": "scripts/run-expo-nfc-prf-probe.sh start",

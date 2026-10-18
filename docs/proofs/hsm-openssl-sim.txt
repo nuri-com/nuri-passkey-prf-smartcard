@@ -1,3 +1,4 @@
+PATH NORMALIZATION: <REPO>/<WORKSPACE> replace developer-specific paths; result bytes and hashes unchanged.
 Evidence formatting: trailing spaces removed; all command output lines retained.
 W18 simulator proof; no real card/reader accessed. Script SHA-256 values identify the tested source independently of the evidence commit.
 $ date -u +%Y-%m-%dT%H:%M:%SZ
@@ -8,7 +9,7 @@ ProductName:		macOS
 ProductVersion:		15.5
 BuildVersion:		24F74
 exit=0 expected=0
-$ git -C /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl rev-parse HEAD
+$ git -C <REPO> rev-parse HEAD
 bd5306034083905a443aed5b1e287fcb018b6d1f
 exit=0 expected=0
 00cae580123eb4a6d2febcc2967c46150514af7e81ed117e58090582552dfd5f  scripts/build-pkcs11-provider.sh
@@ -20,24 +21,24 @@ $ bash -n scripts/build-pkcs11-provider.sh scripts/hsm-openssl-selftest.sh
 
 exit=0 expected=0
 $ bash scripts/build-pkcs11.sh
-9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165  /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/dist/pkcs11-nuri.so
+9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165  <REPO>/dist/pkcs11-nuri.so
 exit=0 expected=0
 Module rebuild matches dist/SHA256SUMS: 9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165
 RUN 1: automatic download/hash-check/build, disposable prefix; NURI_PKCS11_MODE unset
 $ bash scripts/hsm-openssl-selftest.sh
 pkcs11-provider source SHA-256: b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538
-Collecting meson==1.12.1 (from -r /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/scripts/requirements-pkcs11-provider-build.txt (line 2))
+Collecting meson==1.12.1 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 2))
   Downloading meson-1.12.1-py3-none-any.whl (1.1 MB)
      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 4.5 MB/s  0:00:00
-Collecting ninja==1.13.2 (from -r /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/scripts/requirements-pkcs11-provider-build.txt (line 3))
+Collecting ninja==1.13.2 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 3))
   Downloading ninja-1.13.2-py3-none-macosx_10_9_universal2.whl (306 kB)
 Installing collected packages: ninja, meson
 
 Successfully installed meson-1.12.1 ninja-1.13.2
 The Meson build system
 Version: 1.12.1
-Source dir: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0
-Build dir: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/build
+Source dir: <REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0
+Build dir: <REPO>/.build/pkcs11-provider-build.S1PVLv/build
 Build type: native build
 Project name: pkcs11-provider
 Project version: 1.3.0
@@ -67,13 +68,13 @@ Run-time dependency p11-kit-1 found: YES 0.26.5
 Has header "dlfcn.h" : YES
 Checking for function "OSSL_PROVIDER_load_ex" with dependency libcrypto: YES
 Configuring config.h using configuration
-Compiler for C supports link arguments -Wl,--version-script,/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/src/provider.map: NO
+Compiler for C supports link arguments -Wl,--version-script,<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/src/provider.map: NO
 Found CMake: /opt/homebrew/bin/cmake (4.0.3)
 Run-time dependency nss-softokn found: NO  (tried pkg-config, framework and cmake)
 Run-time dependency nss found: YES 3.125
 Program valgrind found: NO
-Program setup.sh found: YES (/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/setup.sh)
-Program test-wrapper found: YES (/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/test-wrapper)
+Program setup.sh found: YES (<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/setup.sh)
+Program test-wrapper found: YES (<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/test-wrapper)
 Build targets in project: 22
 
 pkcs11-provider 1.3.0
@@ -81,10 +82,10 @@ pkcs11-provider 1.3.0
   User defined options
     buildtype: release
     libdir   : lib
-    prefix   : /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/hsm-openssl.xjinmR/provider
+    prefix   : <REPO>/.build/hsm-openssl.xjinmR/provider
 
-Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja
-ninja: Entering directory `/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/build'
+Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at <REPO>/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja
+ninja: Entering directory `<REPO>/.build/pkcs11-provider-build.S1PVLv/build'
 [1/42] Compiling C object src/pkcs11.dylib.p/asymmetric_cipher.c.o
 [2/42] Compiling C object src/pkcs11.dylib.p/cipher.c.o
 [3/42] Compiling C object src/pkcs11.dylib.p/debug.c.o
@@ -128,7 +129,7 @@ ninja: Entering directory `/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-opens
 [41/42] Compiling C object src/pkcs11.dylib.p/util.c.o
 [42/42] Linking target src/pkcs11.dylib
 INFO: autodetecting backend as ninja
-INFO: calculating backend command to run: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja -C /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.S1PVLv/build -j 2
+INFO: calculating backend command to run: <REPO>/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja -C <REPO>/.build/pkcs11-provider-build.S1PVLv/build -j 2
 Nuri OpenSSL selftest mode=sim
 OpenSSL 3.6.5 29 Sep 2026 (Library: OpenSSL 3.6.5 29 Sep 2026)
 Providers:
@@ -155,7 +156,7 @@ Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
 pkeyutl: Error loading key
 PASS: wrong object label rejected
 ================================================================
-Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/dist/pkcs11-nuri.so
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
 ================================================================
 [PASS] C_GetTokenInfo (-L)
        Slot 0 (0x1): Nuri Smartcard (PC/SC)
@@ -217,7 +218,7 @@ Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
 pkeyutl: Error loading key
 PASS: wrong object label rejected
 ================================================================
-Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/dist/pkcs11-nuri.so
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
 ================================================================
 [PASS] C_GetTokenInfo (-L)
        Slot 0 (0x1): Nuri Smartcard (PC/SC)
@@ -279,7 +280,7 @@ Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
 pkeyutl: Error loading key
 PASS: wrong object label rejected
 ================================================================
-Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/dist/pkcs11-nuri.so
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
 ================================================================
 [PASS] C_GetTokenInfo (-L)
        Slot 0 (0x1): Nuri Smartcard (PC/SC)
@@ -327,7 +328,7 @@ Select OpenSSL 3 with NURI_OPENSSL (not LibreSSL).
 exit=69 expected=69
 GUARD: missing provider rejected
 $ bash scripts/hsm-openssl-selftest.sh
-Provider missing: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/missing-provider
+Provider missing: <REPO>/.build/missing-provider
 exit=66 expected=66
 GUARD: expected-key mismatch rejected before signing
 $ bash scripts/hsm-openssl-selftest.sh
@@ -406,18 +407,18 @@ rm -f .build/hsm-openssl.cnf .build/nuri-public.pem .build/message.txt \
   .build/hash32.bin .build/signature.der .build/message-signature.der
 unset OPENSSL_CONF NURI_PKCS11_PROVIDER
 pkcs11-provider source SHA-256: b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538
-Collecting meson==1.12.1 (from -r /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/scripts/requirements-pkcs11-provider-build.txt (line 2))
+Collecting meson==1.12.1 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 2))
   Downloading meson-1.12.1-py3-none-any.whl (1.1 MB)
      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 4.0 MB/s  0:00:00
-Collecting ninja==1.13.2 (from -r /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/scripts/requirements-pkcs11-provider-build.txt (line 3))
+Collecting ninja==1.13.2 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 3))
   Downloading ninja-1.13.2-py3-none-macosx_10_9_universal2.whl (306 kB)
 Installing collected packages: ninja, meson
 
 Successfully installed meson-1.12.1 ninja-1.13.2
 The Meson build system
 Version: 1.12.1
-Source dir: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0
-Build dir: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/build
+Source dir: <REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0
+Build dir: <REPO>/.build/pkcs11-provider-build.QH8p0v/build
 Build type: native build
 Project name: pkcs11-provider
 Project version: 1.3.0
@@ -447,13 +448,13 @@ Run-time dependency p11-kit-1 found: YES 0.26.5
 Has header "dlfcn.h" : YES
 Checking for function "OSSL_PROVIDER_load_ex" with dependency libcrypto: YES
 Configuring config.h using configuration
-Compiler for C supports link arguments -Wl,--version-script,/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/src/provider.map: NO
+Compiler for C supports link arguments -Wl,--version-script,<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/src/provider.map: NO
 Found CMake: /opt/homebrew/bin/cmake (4.0.3)
 Run-time dependency nss-softokn found: NO  (tried pkg-config, framework and cmake)
 Run-time dependency nss found: YES 3.125
 Program valgrind found: NO
-Program setup.sh found: YES (/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/setup.sh)
-Program test-wrapper found: YES (/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/test-wrapper)
+Program setup.sh found: YES (<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/setup.sh)
+Program test-wrapper found: YES (<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/test-wrapper)
 Build targets in project: 22
 
 pkcs11-provider 1.3.0
@@ -461,10 +462,10 @@ pkcs11-provider 1.3.0
   User defined options
     buildtype: release
     libdir   : lib
-    prefix   : /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider
+    prefix   : <REPO>/.build/pkcs11-provider
 
-Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja
-ninja: Entering directory `/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/build'
+Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at <REPO>/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja
+ninja: Entering directory `<REPO>/.build/pkcs11-provider-build.QH8p0v/build'
 [1/42] Compiling C object src/pkcs11.dylib.p/asymmetric_cipher.c.o
 [2/42] Compiling C object src/pkcs11.dylib.p/cipher.c.o
 [3/42] Compiling C object src/pkcs11.dylib.p/debug.c.o
@@ -508,7 +509,7 @@ ninja: Entering directory `/Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-opens
 [41/42] Compiling C object src/pkcs11.dylib.p/util.c.o
 [42/42] Linking target src/pkcs11.dylib
 INFO: autodetecting backend as ninja
-INFO: calculating backend command to run: /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja -C /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl/.build/pkcs11-provider-build.QH8p0v/build -j 2
+INFO: calculating backend command to run: <REPO>/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja -C <REPO>/.build/pkcs11-provider-build.QH8p0v/build -j 2
 Providers:
   default
     name: OpenSSL Default Provider
@@ -523,7 +524,7 @@ Verified OK
 PYTHON_ECDSA_VERIFIED signature.der
 PYTHON_ECDSA_VERIFIED message-signature.der
 exit=0 expected=0
-$ git -C /Users/eminmahrt/Developer/nuri-card-wt/w18-hsm-openssl diff --exit-code -- scripts/pkcs11-nuri.c dist/pkcs11-nuri.so dist/SHA256SUMS
+$ git -C <REPO> diff --exit-code -- scripts/pkcs11-nuri.c dist/pkcs11-nuri.so dist/SHA256SUMS
 
 exit=0 expected=0
 SELFTEST_TEMP_PREFIXES_REMOVED; three current-script simulator runs passed; exact manual docs recipe passed.

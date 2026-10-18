@@ -1,4 +1,4 @@
-# PKCS#11 signing bridge
+# PKCS#11 and OpenSSL secp256k1 signing
 
 ```mermaid
 flowchart TD
@@ -41,7 +41,7 @@ printf 'INIT\nSLOTS\nFIND_KEY\nFINALIZE\n' | \
 macOS arm64 uses `clang -dynamiclib`; Linux compatibility is **UNVERIFIED**. Rebuild the shipped module whenever C changes and update only its entry in `dist/SHA256SUMS`; `--check` compares the rebuild to that entry. Sources: [scripts/build-pkcs11.sh](../scripts/build-pkcs11.sh), [dist/SHA256SUMS](../dist/SHA256SUMS).
 
 ```sh
-export NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+export NURI_PKCS11_PYTHON=/path/to/venv/bin/python
 bash scripts/build-pkcs11.sh
 bash scripts/build-pkcs11.sh --check
 "$NURI_PKCS11_PYTHON" scripts/test-pkcs11-failclosed.py
@@ -56,7 +56,7 @@ Use OpenSSL 3 + pkcs11-provider v1.3.0 + the rebuilt `dist/pkcs11-nuri.so`. The 
 
 ```sh
 NURI_OPENSSL=/opt/homebrew/bin/openssl \
-NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python \
+NURI_PKCS11_PYTHON=/path/to/venv/bin/python \
 NURI_PKCS11_MODE=sim \
 bash scripts/hsm-openssl-selftest.sh
 ```
@@ -90,7 +90,7 @@ throwaway mutated libraries; the shipped source/artifact remained unchanged.
 Run from the reviewed checkout. These commands do not generate, reset or provision keys. They read public identity and, only for the explicitly armed legacy demo, sign test digests.
 
 ```sh
-export NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+export NURI_PKCS11_PYTHON=/path/to/venv/bin/python
 export NURI_OPENSSL=/opt/homebrew/bin/openssl
 unset NURI_PKCS11_HELPER NURI_ALLOW_ETH1_DEMO
 

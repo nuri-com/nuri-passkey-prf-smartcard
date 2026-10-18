@@ -33,8 +33,8 @@ for current protocol, measured checks and unverified physical boundaries.
 `card/musig2/Scalar256.java` is independently written for the narrow W14 §5.2
 call contract: unsigned 256-bit compare/zero, reduce, add, negate and multiply
 modulo the secp256k1 group order. The implementer and test author did not open,
-copy or transliterate `Biginteger.java`, `BigIntegerWrapper.java`,
-`BigIntegerMod.java`, Satochip implementation source or Keycard arithmetic.
+copy or transliterate Biginteger.java, BigIntegerWrapper.java,
+BigIntegerMod.java, Satochip implementation source or Keycard arithmetic.
 The inherited three MuSig2 math files are deleted, not relabelled. Existing
 applet protocol/EC/APDU logic was read only to replace the specified calls.
 This statement concerns the new scalar file, not an assertion that all other
@@ -151,7 +151,7 @@ Zulu JDK 8, then normalize its ZIP metadata:
 ```sh
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
-export ANT_OPTS=-Djava.io.tmpdir=/Users/eminmahrt/.hermes/cache/scratch
+export ANT_OPTS=-Djava.io.tmpdir=${TMPDIR:?select a private temporary directory}
 ant -f card/musig2/build.xml -Djckit.path="$JC304_KIT" \
   -Dcap.output="$PWD/.build/card-v1/musig2-raw.cap" build
 /opt/homebrew/bin/python3.13 scripts/normalize-cap.py \
@@ -198,31 +198,10 @@ No reader, hardware key, card install or server was touched. The fixed-iteration
 software multiply may be slower than hardware RSA; parent must measure on a
 supported spare card before any production migration.
 
-## Exact parent real-card commands (not executed by W16)
+## Physical-card acceptance
 
-Do not delete/reinstall the only SSH-key card. Installation of this CAP requires
-an explicitly chosen **blank spare/test card**; the installer will not overwrite
-an existing applet unless separately armed (`scripts/install-musig2-card.sh:15-26`).
-For a parent-approved blank spare, after selecting its reader explicitly:
-
-```sh
-GP_READER="$SPARE_READER_INDEX" \
-MUSIG2_CAP="$PWD/dist/nuri-musig2-v20-keygen.cap" \
-  scripts/install-musig2-card.sh
-# Blank spare only: one-shot on-card keygen, then partial and aggregate proof.
-NURI_READER="$SPARE_READER_NAME" \
-  scripts/run-card-python.sh scripts/real-card-cosign-proof.py \
-  --message 'W16 Scalar256 spare-card keygen acceptance'
-# Existing keyed test card: no KEYGEN, no key replacement, no network transaction.
-NURI_READER="$SPARE_READER_NAME" npm run card:musig2:test
-```
-
-PC/SC proof reader selection uses `NURI_READER` as a name substring
-(`scripts/nuri_pcsc.py:65-69`); verify that it names
-the intended spare before executing any proof. Capture APDU version `010D`,
-`card_partial_verified=true`, `client_partial_verified=true` and
-`final_signature_verified=true` from the JSON output. The existing proof is not
-an on-card official BIP327 vector or reset-injection harness; it uses the legacy
-host session-construction path (`scripts/real-card-cosign-proof.py:337-362`).
-Hardware reset/nonce-lifetime and latency acceptance require a separate
-parent-controlled APDU harness; no nonexistent command is claimed here.
+The old W16 pre-PIN acceptance recipe is withdrawn: it predates the current
+1.14 PIN/session-token and attestation contract. Use the
+[current MuSig2 spare-card acceptance](musig2-pin-and-hardening.md#exact-parent-spare-card-acceptance-commands--not-executed-here)
+and [blank-card personalization](attestation.md#blank-card-personalization).
+Do not delete or reinstall an operational wallet or sole SSH-key card.

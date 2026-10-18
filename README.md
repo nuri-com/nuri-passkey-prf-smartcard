@@ -1,50 +1,82 @@
-# Nuri Card — open smartcard signing
-
-Java Card applets for FIDO2 passkeys and PRF, Bitcoin MuSig2, Ethereum ECDSA and
-TOTP, with SSH, browser-wallet and agent bridges. This is a demonstrator, not a
-certified hardware wallet. Card-held signing keys and host-visible derived
-secrets have different security boundaries: [signing architecture](docs/signing-architecture.md).
+# Nuri Card
 
 ```mermaid
 flowchart LR
-  H[Host applications] --> B[SSH / extension / local helper / MCP]
+  H[Host applications] --> B[SSH / Chrome extension / local MCP]
   B --> F[FIDO2 passkey + PRF]
-  B --> M[MuSig2 partial signer]
-  B --> E[ETH v1 or separate v2 signer]
-  B --> T[TOTP]
-  F --> D[PRF-derived secret in host memory]
-  M --> V[Host verifies and aggregates]
-  E --> V
+  B --> E[ETH2 signer: mandatory PIN by default]
+  B --> M[MuSig2 cosigner: PIN + session token]
+  B --> V[Credential vault + TOTP]
+  F --> K[PRF-derived secrets in host memory]
+  E --> R[Host verification and transaction review]
+  M --> R
 ```
 
-The applet interfaces and host boundaries are mapped to source in
-[capabilities](docs/card-capability-summary.md) and [security model](docs/security-model.md).
+An open Java Card stack: FIDO2 passkeys with PRF, OpenSSH FIDO2 `sk` keys,
+Ethereum digest signing, Bitcoin MuSig2 cosigning, credential storage and TOTP.
+Host integrations include a Chrome extension wallet, local MCP tools for agents,
+and a secp256k1 PKCS#11/OpenSSL signing adapter. New applets add CA-backed
+attestation; GlobalPlatform management-key rotation has encrypted owner escrow.
 
-## Status — implementation is not hardware acceptance
+**Research-grade: not externally audited, not a certified hardware wallet.**
+The card has **no screen** and performs **blind signing**. It cannot independently
+show or approve the recipient, amount or chain. Do not treat a public source
+release as consumer-funds approval. See [SECURITY.md](SECURITY.md),
+[security advisories](docs/security-advisories.md) and [security model](docs/security-model.md).
 
-“Historical” means a retained run record, not a fresh test of this revision.
-A simulator, fake reader or browser mock cannot establish physical-card behavior.
+## Feature status
 
-| Function | Software / simulator evidence | Physical-card evidence | Phone / browser boundary |
-|---|---|---|---|
-| FIDO2 passkey + PRF | [`fido2:test-prf`](package.json#L31), [baseline](docs/fido2-prf-baseline.md) | Fresh launch acceptance UNVERIFIED | Browser must expose a supported transport and PRF; PC/SC alone is not WebAuthn. [UP/PRF guide](docs/fido2-user-presence.md) |
-| Bitcoin MuSig2 | [`card:musig2:test:sim`](package.json#L70), [`npm test`](package.json#L11) | [Historical Signet record](docs/proofs/real-card-signet-proof.md) | Native NFC and PC/SC are separate paths. [Architecture](docs/signing-architecture.md) |
-| PRF + MuSig2 wallet | [`cosign:demo`](package.json#L18) | [Historical wallet record](docs/proofs/nuri-card-wallet-proof-report.md) | Local helper, not a browser-native card transport |
-| ETH v1 | [Source and protocol](docs/eth-signing-spec.md) | Fresh launch acceptance UNVERIFIED | Host-side hashing and approval; no v1 PIN gate |
-| ETH v2 | [`card:eth2:test:sim`](package.json#L67) | New applet installation and signing UNVERIFIED | Optional applet PIN; native host cannot unlock it. [Protocol](docs/eth-applet-v2.md) |
-| SSH | [Provider/helper source](docs/ssh-smartcard.md) | Fresh launch login UNVERIFIED | Card in reader; not fresh-touch authorization |
-| PKCS#11 | [Simulator instructions](docs/hsm.md) | UNVERIFIED | Host library is not a certification claim |
-| TOTP | [`card:totp:test:sim`](package.json#L74), RFC 6238 vectors | New fallback/PIN revision UNVERIFIED | Admin PIN protects replacement, not reading codes. [Guide](docs/totp-applet.md) |
-| MCP signer | [`card:mcp:selftest`](package.json#L76) | Fresh launch card-backed run UNVERIFIED | Agent policy is host-side. [Helper boundaries](docs/helper-servers-security.md) |
-| Arkade / Lightning | [Local client-signer proof](docs/proofs/arkade-card-signer-proof.md) | Historical signing is not fresh settlement proof | [Integration limits](docs/arkade-lightning.md); merchant settlement UNVERIFIED |
-| Fingerprint unlock | Not integrated into these public applets | UNVERIFIED | No biometric authorization claim |
+Status describes the exact scope in the first column, not all revisions or clients.
+Physical evidence is from the operator's 2026-10-17/18 runs; older transaction
+records do not qualify newly changed CAPs. New PIN, vault-applet, extension,
+pairing, attestation and GP-lock work has **simulator only** status until separately
+accepted on a physical card. Here that label also covers fake-host/browser tests.
 
-## Quickstart
+| Feature / scope | Status |
+|---|---|
+| FIDO2 passkey + PRF via PC/SC (disk-vault unlock) | proven on a physical card |
+| SSH login via FIDO2 `ecdsa-sk` bridge | proven on a physical card |
+| ETH v1 demo digest signing, without PIN | proven on a physical card |
+| PKCS#11 / OpenSSL secp256k1 signing via ETH v1 | proven on a physical card |
+| PRF-encrypted disk credential vault: put/run/rm | proven on a physical card |
+| ETH signer v2: mandatory PIN by default, attestation | simulator only |
+| MuSig2 cosigner: PIN, session ownership and arithmetic hardening | simulator only |
+| On-card credential vault applet: PIN, HMAC and bearer storage | simulator only |
+| TOTP: RFC 6238 / software-HMAC fallback | simulator only |
+| Chrome extension wallet: approval binding, PIN flow and Base send | simulator only |
+| MCP agent tools and paired loopback helper authorization | simulator only |
+| CA-backed applet attestation and signing-key binding | simulator only |
+| GP management-key rotation and encrypted escrow (reversible lock) | simulator only |
+| Fingerprint authorization, secure messaging, independent lost-card recovery | planned |
 
-### 1. Exercise the software without a card
+Evidence and reproducible checks:
+- [Reader hardware runs](docs/reader-compatibility.md#hardware-runs-parent-physical-card):
+  SSH, FIDO2 PIN status, ETH1 signatures, native-host info/sign_hash and disk vault.
+- [OpenSSL physical-card run](docs/hsm.md#physical-card-run-2026-10-18) and
+  [disk-vault physical-card run](docs/card-secrets.md#physical-card-run-2026-10-18).
+- [ETH2](docs/eth-applet-v2.md), [MuSig2 hardening](docs/musig2-pin-and-hardening.md),
+  [vault applet](docs/card-vault-applet.md), [TOTP](docs/totp-applet.md),
+  [Chrome extension](docs/chrome-extension.md), [helpers/MCP](docs/helper-servers-security.md),
+  [attestation](docs/attestation.md) and [GP lock](docs/card-lock.md) give software checks.
 
-Requires Node.js/npm. Java Card simulator and CAP builds additionally need the
-Java/Python toolchains described in [reproduction](docs/reproducing.md).
+### Supported readers — observed combinations, not certification
+
+| Reader | Proven connection |
+|---|---|
+| HID Global OMNIKEY 5422, contact slot | default |
+| Realtek `0bda:0165`, ATR `3b119580` | T=0 fallback |
+| ACS ACR39U ICC Reader | T=0 fallback |
+
+The tested card reports CPLC fabricator `4090`, OS ID `86aa`, OS date `5134`
+(2025-05-14). Exact commercial model and product certification are UNVERIFIED;
+do not call it NXP JCOP4. [Hardware requirements](docs/hardware.md).
+
+## Quick start
+
+### Without hardware
+
+Requires Node.js/npm. Applet builds additionally need Java, Python and separately
+installed tools: [reproduce](docs/reproducing.md).
 
 ```sh
 git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git
@@ -54,135 +86,73 @@ npm test
 npm run cosign:demo
 ```
 
-These commands use software paths. Never fund simulator/demo keys.
-To include applet simulation and release rebuilding:
+These are software paths. **Never fund simulator or public demo keys.**
+The optional [mobile source reference](mobile/expo-nfc-prf-probe/README.md) needs
+separate access to a restricted UI dependency; a public clone cannot build it alone.
 
-```sh
-npm run test:virtual
-npm run card:release:verify
-```
+### Blank development card
 
-The script names above are the names in the current [package manifest](package.json),
-not proposed replacement names.
+1. Read [hardware](docs/hardware.md), [acceptance](docs/acceptance.md) and
+   [key handling](docs/real-card-key-handling.md). Select a blank, disposable card
+   with supplier transport keys; never use an existing wallet or your only SSH key.
+2. Build/verify before writing any card:
 
-### 2. Select and provision a blank development card
+   ```sh
+   npm run card:release:verify
+   ```
 
-Read [hardware requirements](docs/hardware.md), [reader compatibility](docs/reader-compatibility.md)
-and the [acceptance runbook](docs/acceptance.md) first. A model listing is not
-qualification; exact algorithms, OS and install rights matter. No current price
-or universal reader compatibility is claimed.
+3. The existing bundle installer is a **demo installer**, not consumer provisioning:
+   it installs FIDO2, MuSig2, TOTP and **PIN-less ETH v1**, not ETH2 or the vault.
+   Only for that explicitly selected blank demo target:
 
-```sh
-# Rebuild and verify artifacts before any card write.
-npm run card:release:verify
-# Choose your reader and obtain transport keys securely before invoking this.
-CARD_PROVISION_CONFIRM=YES GP_READER="$CARD_READER" GP_KEY="$CARD_TRANSPORT_KEY" \
-  npm run card:provision:v1
-```
+   ```sh
+   CARD_PROVISION_CONFIRM=YES GP_READER="$CARD_READER" GP_KEY="$CARD_TRANSPORT_KEY"      npm run card:provision:v1
+   npm run card:pin:set
+   ```
 
-Provisioning writes a physical card. Use a blank development card, never an
-existing wallet or your only SSH key. The bundle installer installs ETH **v1**;
-ETH v2 has a separate installation flow. [Source: scripts/provision-card-v1.sh:48–67](scripts/provision-card-v1.sh#L48-L67).
+4. FIDO2 PIN does not protect other applets. For the newer PIN-gated stack follow
+   [ETH2 enrollment and CA personalization](docs/attestation.md#blank-card-personalization),
+   [MuSig2 PIN setup](docs/musig2-pin-and-hardening.md) and
+   [vault setup](docs/card-vault-applet.md). This flow is simulator-tested, **not**
+   physical-card accepted. Do not deposit funds on the strength of these instructions.
+5. Record exact CAP hashes and physical acceptance on your target, then review
+   [GP escrow/lock](docs/card-lock.md). That lock is reversible management-key
+   rotation, not irreversible lifecycle sealing or a wallet backup.
 
-### 3. SSH and passkeys
+[SSH setup](docs/ssh-smartcard.md) · [Chrome extension setup](docs/chrome-extension.md) ·
+[All documentation](docs/README.md) · [Release verification](docs/release.md).
 
-Follow the complete [SSH setup](docs/ssh-smartcard.md) before modifying your server's
-authorized keys. Authorize a second independently enrolled card as backup; do not
-assume a non-exportable credential can be cloned.
+## Consent, secrets and loss
 
-For a browser-visible FIDO2 card, set the FIDO2 PIN interactively and register it
-on your chosen WebAuthn site:
+- **Card presence is not user touch.** FIDO2 user presence is assumed true,
+  not measured: the patch advertises `up:true`, CTAP2 signs UP according to
+  request options and selection succeeds without a physical check. The U2F path
+  hardcodes UP=1. A touch prompt is not evidence of fresh consent.
+  [UP details](docs/fido2-user-presence.md). The current SSH bridge does not
+  implement PIN verification; leaving the card inserted can allow its use.
+- ETH2 and current MuSig2 have their **own** PIN policies. Session PIN validation
+  is not a trusted per-transaction display or physical touch. ETH1 has no PIN.
+  TOTP PIN protects replacement, not code calculation. APDUs have no secure channel.
+- PRF output, derived client keys and bearer credentials reach trusted host memory.
+  Only the vault's HMAC-kind key has no export command; bearer use requires reveal.
+  An agent must be restricted to allowlisted brokers, not arbitrary processes.
+- **A lost card can mean lost money or access.** Same-card PRF + MuSig2 is not
+  independent two-device custody. CSV expiry does not recreate the PRF/client key.
+  Enroll and test independent SSH access and path-specific backups in advance.
 
-```sh
-npm run card:pin:set
-```
-
-No browser PRF support is promised by a successful passkey login; test the
-actual browser/transport combination using [the PRF guide](docs/fido2-user-presence.md).
-FIDO2 PIN settings do not protect other applets.
-
-### 4. Browser wallet and extension
-
-```sh
-# Software wallet helper; inspect its printed URL/token, not a public tunnel.
-npm run cosign:web
-```
-
-See [helper authentication](docs/helper-servers-security.md) before connecting a
-page or choosing the real-card backend. The separate Chrome extension uses a
-native host: [installation and software checks](docs/chrome-extension.md).
-Its approval window is host-side, not an on-card transaction display.
-
-The [Expo NFC app](mobile/expo-nfc-prf-probe/README.md) is source reference:
-its private design-system dependency requires separate access. A public clone
-alone is not sufficient to build it. No complete Lightning settlement is claimed.
-
-## Security model — what we cannot claim
-
-- **Presence is not consent.** FIDO2 UP signaling is not a fresh physical check.
-  MuSig2 and ETH v1 have no PIN/UP gate. Remove the card when it should not be
-  usable. [Applet-specific boundaries](docs/signing-architecture.md#authorization-is-applet-specific).
-- **Secrets can reach the host.** PRF output and derived wallet client keys are
-  host-visible secrets. TOTP seeds are supplied by the provisioning host.
-  No “all keys always stay inside” claim applies to these paths.
-- **ETH v2 PIN is optional until configured**, and the current native host does
-  not implement its PIN verification. TOTP's admin PIN does not gate CALC.
-  See [ETH v2](docs/eth-applet-v2.md) and [TOTP](docs/totp-applet.md).
-- **Blind signing remains.** Card applets do not show the recipient, amount or
-  chain. A compromised host can submit signing requests while access is available.
-- **No independent security audit, constant-time software bignum proof,
-  EAL/FIPS/FIDO product certification or physical tamper-resistance qualification
-  is established by this repository.** Such claims are UNVERIFIED.
-- A same-card PRF + MuSig2 wallet is not independent two-device custody.
-  Recovery is path-specific, not a promise that every lost card can be recovered.
-  [Security model](docs/security-model.md).
-
-| Failure | Boundary / action |
+| Failure | Consequence / action |
 |---|---|
-| Card lost or applet deleted | Non-exportable keys may be unrecoverable; provision independent SSH backup before depending on one card |
-| Card left connected to a compromised host | Do not assume fresh-touch consent; disconnect it |
-| Host compromised during PRF derivation | Host-visible PRF/client secrets can be captured |
-| Reader returns `61xx` / `6Cxx` or transport fails | Use the shared PC/SC handling; [reader guide](docs/reader-compatibility.md) |
-| Local helper token or browser origin rejected | Do not expose the service publicly or disable guards; [helper guide](docs/helper-servers-security.md) |
-| Payment broadcast succeeds | Do not infer merchant settlement; verify completion separately |
-
-## Comparison — research pending
-
-No competitor capability, current price or superiority claim is made here.
-“Pending” is deliberately not a negative feature assertion.
-
-| Criterion | Nuri Card | Tangem | Satochip | Keycard |
-|---|---|---|---|---|
-| Form factor | Java Card applets; qualify exact card | Pending | Pending | Pending |
-| Public implementation | This repository; mixed licensing below | Pending | Pending | Pending |
-| Signing / passkey / SSH support | Scoped evidence table above | Pending | Pending | Pending |
-| Certification / price | UNVERIFIED / not quoted | Pending | Pending | Pending |
-
-## Repository map
-
-- `card/`: MuSig2, ETH v1/v2 and TOTP applets; `third_party/` and `patches/`: FIDO2 source/build inputs.
-- `src/`, `scripts/`, `test/`: host integrations, simulators and tests.
-- `host/`, `extension/`: native messaging and Chrome extension.
-- `web/`: local browser tools and service-specific demonstrations; not an independent custody service.
-- `mobile/`: native NFC source reference with restricted build dependency.
-- `dist/`, `tools/`: applet artifacts and pinned build tooling; verify rather than trusting filenames.
-- `docs/`: maintained guides; `docs/proofs/`: explicitly historical evidence, not deployment assertions.
-
-## Documentation
-
-[How it works](docs/how-it-works.md) · [Capabilities](docs/card-capability-summary.md) ·
-[Security](docs/security-model.md) · [Signing architecture](docs/signing-architecture.md) ·
-[SSH](docs/ssh-smartcard.md) · [ETH v1](docs/eth-signing-spec.md) · [ETH v2](docs/eth-applet-v2.md) ·
-[MuSig2](docs/musig2-card-extension.md) · [TOTP](docs/totp-applet.md) ·
-[FIDO2 baseline](docs/fido2-prf-baseline.md) · [User presence](docs/fido2-user-presence.md) ·
-[Hardware](docs/hardware.md) · [Readers](docs/reader-compatibility.md) ·
-[Release](docs/release.md) · [Acceptance](docs/acceptance.md) · [Reproduce](docs/reproducing.md) ·
-[Chrome extension](docs/chrome-extension.md) · [PKCS#11 / secret handling](docs/hsm.md) ·
-[Changes](CHANGELOG.md).
+| Card lost, blocked, reset or applet deleted | Non-exportable keys may be unrecoverable; no universal recovery guarantee |
+| Host compromised while card connected | Host can request exposed operations and capture host-visible secrets; disconnect card |
+| Reader fails or returns `61xx` / `6Cxx` | Use the [shared transport](docs/reader-compatibility.md), not reset/key generation |
+| Helper pairing/token rejected | Keep helpers loopback-only; do not disable guards or tunnel signing ports |
+| Broadcast returns a transaction hash | Not a receipt, confirmation or merchant settlement |
 
 ## Licence
 
-The root [LICENSE](LICENSE) is MIT. **That does not make the entire repository or
-all combined CAPs MIT.** Existing GPL-2.0-or-later bignum-derived components impose
-additional distribution obligations. Consult [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-and component licences before redistributing; an all-MIT relicence is not claimed.
+Nuri-authored source, current MuSig2 scalar arithmetic, FIDO2 and build-tool source
+are MIT with retained third-party notices. **ETH v1 in `card/eth/` still contains
+GPL-2.0-or-later arithmetic; its combined CAP is GPL-2.0-or-later.** This is not an
+MIT-only distribution or an alternative MIT grant for GPL code. External tools,
+libraries and card OS firmware retain their own terms.
+[Licence map and obligations](THIRD_PARTY_NOTICES.md) · [MIT licence](LICENSE).

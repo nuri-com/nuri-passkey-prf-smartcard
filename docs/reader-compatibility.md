@@ -8,7 +8,9 @@ flowchart TD
   A --> T["6CXX resend; 61XX GET RESPONSE<br/>scripts/nuri_pcsc.py:104-133"]
 ```
 
-This page documents transport behavior and fake-reader coverage, not a certified reader list. Hardware compatibility, card manufacturer and ATR identity are **UNVERIFIED** here.
+This page records software transport coverage and the exact physical-card runs
+below, not a certified reader list. Other card/reader/OS combinations and
+manufacturer/product certification remain **UNVERIFIED**.
 
 ## Connection behavior
 
@@ -59,10 +61,10 @@ The suite injects fake readers and a stand-in FIDO2 module; its import check als
 
 ## Hardware runs (parent, physical card)
 
-Each row is one run on Emin's demo card (CPLC fabricator 4090, OS id 86aa) with the stated reader. Rows record what ran, not a certified reader list.
+Each row is one run on the public demo card (CPLC fabricator 4090, OS id 86aa) with the stated reader. Rows record what ran, not a certified reader list.
 
 | Reader (USB id / ATR) | Date | Protocol `nuri_pcsc` chose | Paths that passed |
 |---|---|---|---|
-| HID Global OMNIKEY 5422, contact slot | 2026-10-18 | `default` | SSH login (`ssh nuri.com`), FIDO2 PIN status, ETH v1 sign verified with python-ecdsa, PKCS#11 `pkcs11-tool --sign` verified, native host `info`/`sign_hash`, card-secrets `put`/`run`/`rm` |
+| HID Global OMNIKEY 5422, contact slot | 2026-10-18 | `default` | SSH login (operator-controlled test server), FIDO2 PIN status, ETH v1 sign verified with python-ecdsa, PKCS#11 `pkcs11-tool --sign` verified, native host `info`/`sign_hash`, card-secrets `put`/`run`/`rm` |
 | Generic Realtek `0bda:0165`, ATR `3b119580` | 2026-10-17/18 | `T0` (default connect: `0x80100066`, T=1: `0x8010000F`) | SSH login, FIDO2 PIN status, ETH SELECT/version/pubkey |
 | ACS ACR39U ICC Reader | 2026-10-18 | `T0` | SSH login, FIDO2 PIN status, ETH v1 sign verified, PKCS#11 sign verified, native host `info`/`sign_hash` (as Chrome launches it), card-secrets `put`/`run`/`rm` |

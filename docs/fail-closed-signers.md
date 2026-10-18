@@ -85,7 +85,7 @@ SELECT behavior failed the intended assertions and were restored.
 Hardware behavior remains **UNVERIFIED by W28**. From the merged checkout:
 
 ```sh
-export NURI_PKCS11_PYTHON=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+export NURI_PKCS11_PYTHON=/path/to/venv/bin/python
 unset NURI_PKCS11_HELPER NURI_CARD_SIM NURI_ALLOW_ETH1_DEMO
 
 # Current demo card is ETH1-only: expect initialization failure without the flag.

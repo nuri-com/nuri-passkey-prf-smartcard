@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 // Card-backed Arkade/Nuri wallet identity.
 //
-// This is the importable SEAM: it exposes the same identity surface the nuri-expo
+// This is the importable SEAM: it exposes the same identity surface the companion wallet
 // phone app derives from a browser passkey PRF, but the PRF comes from the
-// physical card. A nuri-expo SigningKeyVault pointed at this module would make
+// physical card. A companion wallet SigningKeyVault pointed at this module would make
 // the card the wallet identity root — no browser prompt, no phone.
 //
 // Exported:
 //   getPublicKey()       -> Uint8Array clientPk33 (the arkade internal key)
 //   getSigningKey()      -> Uint8Array clientPrivateKey (BIP86 m/86'/0'/0'/0/0)
-//   prfProfile / prfSalt -> the PRF inputs (so nuri-expo can reuse its own credId)
+//   prfProfile / prfSalt -> the PRF inputs (so companion wallet can reuse its own credId)
 //
 // Derivation is a byte-for-byte port of:
-//   nuri-expo/lib/walletDerivation.ts  deriveWalletEntropy(prf, "bitcoin")
-//   nuri-expo/lib/bitcoin/bip86.ts     deriveBitcoinAddress(entropy)
-//   nuri-expo/lib/bitcoin/BitcoinPasskeySigningKey.ts
+//   companion wallet/lib/walletDerivation.ts  deriveWalletEntropy(prf, "bitcoin")
+//   companion wallet/lib/bitcoin/bip86.ts     deriveBitcoinAddress(entropy)
+//   companion wallet/lib/bitcoin/BitcoinPasskeySigningKey.ts
 import { execFile } from 'node:child_process';
 import { HDKey } from '@scure/bip32';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
@@ -25,7 +25,7 @@ import { bytesToHex } from '@noble/curves/abstract/utils';
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
 export const prfProfile = process.env.NURI_WALLET_PRF_PROFILE || 'wallet-client';
-// MUST match nuri-expo config/constants.ts PRF_SALT.
+// MUST match companion wallet config/constants.ts PRF_SALT.
 export const prfSalt = process.env.NURI_WALLET_PRF_SALT || 'nuri-prf-salt-v1';
 const utf8 = (s) => new TextEncoder().encode(s);
 
@@ -43,14 +43,14 @@ export function prfFromCard() {
   });
 }
 
-// Port of nuri-expo deriveWalletEntropy(prf, "bitcoin")
+// Port of companion wallet deriveWalletEntropy(prf, "bitcoin")
 function deriveWalletEntropy(prfBytes) {
   const salt = sha256(utf8('app:nuri.com|wallet|v1'));
   const info = utf8('app:nuri.com|wallet|v1|chain=bitcoin|fmt=taproot');
   return new Uint8Array(hkdf(sha256, prfBytes, salt, info, 32));
 }
 
-// Port of nuri-expo deriveBitcoinAddress(entropy) -> returns the internal key
+// Port of companion wallet deriveBitcoinAddress(entropy) -> returns the internal key
 // used by MuSig2 (arkade signs with the untweaked internal key).
 export function deriveArkadeClientKey(prfBytes) {
   const entropy = deriveWalletEntropy(prfBytes);
@@ -85,10 +85,10 @@ if (isMain) {
     source: 'card_fido2_prf',
     prf_profile: prfProfile,
     prf_salt: prfSalt,
-    derivation: "HKDF -> BIP86 m/86'/0'/0'/0/0 (nuri-expo port)",
+    derivation: "HKDF -> BIP86 m/86'/0'/0'/0/0 (companion wallet port)",
     client_pk33: bytesToHex(pk1),
     stable_across_taps: stable,
-    note: 'Drop-in for nuri-expo SigningKeyVault: same client key the phone derives from its browser passkey PRF.',
+    note: 'Drop-in for companion wallet SigningKeyVault: same client key the phone derives from its browser passkey PRF.',
   }, null, 2));
   if (!stable) process.exit(1);
 }

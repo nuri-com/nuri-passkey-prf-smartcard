@@ -26,7 +26,8 @@ rights to that dependency.
 
 ## Build entrypoints
 
-From the repository root, with authorized design-system access:
+From the repository root, set `NURI_DESIGN_SYSTEM_URL` to the UI dependency
+repository you are authorized to use. No private repository URL is shipped:
 
 ```sh
 npm run mobile:prepare:v1
@@ -55,7 +56,7 @@ TypeScript or Metro export.
 - PRF output and derived secrets are sensitive host/phone memory, not public data.
 - Signing, broadcast, server completion and Lightning settlement are distinct
   outcomes; no fresh end-to-end settlement is claimed here.
-- Defaults in the source are demonstration configuration, not recipient advice;
+- The default `merchant@example.com` is a non-payable placeholder, not recipient advice;
   choose an authorized recipient explicitly before sending.
 
 See [signing architecture](../../docs/signing-architecture.md),

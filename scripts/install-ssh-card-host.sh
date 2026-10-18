@@ -83,7 +83,7 @@ fi
 
 SNIPPET="$CONFIG_MARKER_BEGIN
 # The card is the SSH key. Private key never leaves the secure element.
-# Each sign requires the card in the reader + a tap (user presence).
+# The applet assumes user presence: insertion is not fresh touch or consent.
 # Edit HostName/User below for your server.
 Host nuri-card-host
   HostName REPLACE_ME.example.com

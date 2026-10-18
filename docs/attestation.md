@@ -146,7 +146,10 @@ remain. Reinstallation generates new keys; this is not a migration of ETH v1.
   packages the verifier next to the host and verifies its snapshot checksums.
   When unset, info has `{verified:false, reason:"unverified"}`; never fake true.
 
-## Exact parent commands — approved BLANK spare only, NOT executed by W25
+## Blank-card personalization
+
+Operator-only procedure on an approved blank spare; simulator-tested, not
+physical-card accepted. Never use a funded card or your only SSH key.
 
 Remove the owner's SSH card. The following installs **only these three applets**
 on a separately approved blank spare, without deleting anything. It intentionally
@@ -163,7 +166,7 @@ set -euo pipefail
 : "${SPARE_READER_NAME:?set matching PCSC reader name}"
 : "${NURI_CA_KEY:?set external mode-0600 P256 CA PEM path}"
 : "${NURI_CARD_CA_PUBKEY:?set independently pinned CA public-key file}"
-PY=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+PY="${PYTHON_BIN:-python3}"
 export NURI_READER="$SPARE_READER_NAME"
 umask 077
 EVIDENCE="$(mktemp -d "$HOME/nuri-attestation-acceptance.XXXXXX")"
@@ -211,11 +214,11 @@ reader regressions follow under parent control; applet sealing is not GP lock.
 ## Reproduce and reader-free verification
 
 ```sh
-PY=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+PY="${PYTHON_BIN:-python3}"
 "$PY" scripts/generate-attestation.py --check
 PYTHON_BIN="$PY" bash scripts/test-attestation-sim.sh
-ETH2_TEST_VENV=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv \
-  PYTHON_BIN=/opt/homebrew/bin/python3.13 bash scripts/test-eth2-sim.sh
+ETH2_TEST_VENV="${ETH2_TEST_VENV:?select your prepared test venv}" \
+  PYTHON_BIN="$PY" bash scripts/test-eth2-sim.sh
 bash scripts/test-musig2-jcardsim.sh
 bash scripts/test-vault-sim.sh
 "$PY" -m unittest discover -s test -p 'test_*.py' -v
