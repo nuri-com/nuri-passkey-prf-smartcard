@@ -141,10 +141,12 @@ class SimSignTests(unittest.TestCase):
 class FakePcscCardTests(unittest.TestCase):
     """Card mode against a fake nuri_pcsc module (C1 shape). No reader, no card."""
 
-    def _install_fake(self, applets: set, sim_key):
+    def _install_fake(self, applets: set, sim_key, eth2_format="der", eth2_echo_key=None):
+        """eth2_format: "der" (legacy fake) or "rspub" (real applet: r||s||pub65, 129 B)."""
         import types
         from ecdsa.util import sigencode_string, sigencode_der
         calls = []
+        echo_vk = (eth2_echo_key or sim_key).get_verifying_key()
 
         class CardError(Exception):
             def __init__(self, code, msg=""):
@@ -162,7 +164,7 @@ class FakePcscCardTests(unittest.TestCase):
                 calls.append(bytes(apdu).hex())
                 ins = apdu[1]
                 if ins == 0x01:
-                    return (b"\x01\x03\x01ETH1" if self.aid == host.AID_ETH_V1 else b"\x02\x00\x00ETH2"), 0x9000
+                    return (b"\x01\x03\x01ETH1" if self.aid == host.AID_ETH_V1 else b"\x02\x00\x00ETH2\x01\x05"), 0x9000
                 if ins == 0x02:
                     vk = sim_key.get_verifying_key()
                     return (vk.to_string("compressed") if self.aid == host.AID_ETH_V1 else vk.to_string("uncompressed")), 0x9000
@@ -171,7 +173,10 @@ class FakePcscCardTests(unittest.TestCase):
                     if self.aid == host.AID_ETH_V1:
                         sig = sim_key.sign_digest_deterministic(digest, sigencode=sigencode_string)
                         return sig + b"\x00", 0x9000  # v byte is deliberately wrong; host must recover it
-                    return sim_key.sign_digest_deterministic(digest, sigencode=sigencode_der), 0x9000
+                    if eth2_format == "der":
+                        return sim_key.sign_digest_deterministic(digest, sigencode=sigencode_der), 0x9000
+                    sig = sim_key.sign_digest_deterministic(digest, sigencode=sigencode_string)
+                    return sig + echo_vk.to_string("uncompressed"), 0x9000
                 return b"", 0x6D00
 
             def close(self):
@@ -227,6 +232,34 @@ class FakePcscCardTests(unittest.TestCase):
         digest = hashlib.sha256(b"eth2").digest()
         res = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})["result"]
         self.assertEqual(recover_address(digest, int(res["r"], 16), int(res["s"], 16), res["yParity"]), info["result"]["address"])
+
+    def test_eth2_native_rs_pub_signature(self):
+        """Real ETH2 output: r(32)||s(32)||pub(65). Host must parse, verify and recover v."""
+        calls = self._install_fake({host.AID_ETH_V2}, self.key, eth2_format="rspub")
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["applet"], "eth2")
+        digest = hashlib.sha256(b"eth2-rspub").digest()
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})
+        self.assertTrue(resp["ok"], resp)
+        res = resp["result"]
+        self.assertLessEqual(int(res["s"], 16), host.curve_order() // 2)
+        self.assertEqual(recover_address(digest, int(res["r"], 16), int(res["s"], 16), res["yParity"]), info["result"]["address"])
+        self.assertIn("8004000020" + digest.hex(), calls)
+
+    def test_eth2_echoed_pubkey_mismatch_is_verify_failed(self):
+        from ecdsa import SigningKey, SECP256k1
+        other = SigningKey.from_secret_exponent(0x7654321, curve=SECP256k1)
+        self._install_fake({host.AID_ETH_V2}, self.key, eth2_format="rspub", eth2_echo_key=other)
+        host.handle({"id": 1, "method": "info"})
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
+        self.assertFalse(resp["ok"])
+        self.assertEqual(resp["error"]["code"], "VERIFY_FAILED")
+
+    def test_eth2_parse_rejects_garbage(self):
+        with self.assertRaises(host.HostError) as ctx:
+            host.parse_eth2_signature(b"\x00" * 40)
+        self.assertEqual(ctx.exception.code, "CARD_ERROR")
 
     def test_no_applet_error_code(self):
         self._install_fake(set(), self.key)
