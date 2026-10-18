@@ -37,7 +37,8 @@ accepted on a physical card. Here that label also covers fake-host/browser tests
 | FIDO2 passkey + PRF via PC/SC (disk-vault unlock) | proven on a physical card |
 | SSH login via FIDO2 `ecdsa-sk` bridge | proven on a physical card |
 | ETH v1 demo digest signing, without PIN | proven on a physical card |
-| PKCS#11 / OpenSSL secp256k1 signing via ETH v1 | proven on a physical card |
+| PKCS#11 / OpenSSL secp256k1 signing via ETH v1 (demo opt-in `NURI_ALLOW_ETH1_DEMO=1`) | proven on a physical card |
+| PKCS#11 fail-closed defaults: real card by default, labelled simulator only on request, ETH2 preferred | simulator only |
 | PRF-encrypted disk credential vault: put/run/rm | proven on a physical card |
 | ETH signer v2: mandatory PIN by default, attestation | simulator only |
 | MuSig2 cosigner: PIN, session ownership and arithmetic hardening | simulator only |

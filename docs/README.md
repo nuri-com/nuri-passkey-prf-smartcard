@@ -23,13 +23,14 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [chrome-extension.md](chrome-extension.md) — Chrome wallet installation, immutable approval, PIN/native protocol and demo steps.
 - [eth-applet-v2.md](eth-applet-v2.md) — Current ETH2 mandatory-default PIN, commands, attestation and simulator coverage.
 - [eth-signing-spec.md](eth-signing-spec.md) — ETH1 demo versus ETH2 digest-signing contract and host verification.
+- [fail-closed-signers.md](fail-closed-signers.md) — Audit of every signer entry point: card absent is an error, simulators only with explicit flags, ETH1 behind `NURI_ALLOW_ETH1_DEMO=1`.
 - [fido2-prf-baseline.md](fido2-prf-baseline.md) — Pinned FIDO2 build inputs, patches and simulator PRF mapping.
 - [fido2-user-presence.md](fido2-user-presence.md) — UP is assumed, not a measured touch; PIN/UV and browser compatibility are separate.
 - [gp-macos-troubleshooting.md](gp-macos-troubleshooting.md) — Classify GP/transport/install errors before attempting destructive changes.
 - [hardware.md](hardware.md) — Exact CPLC observations, required algorithms and unqualified batch/model limits.
 - [helper-servers-security.md](helper-servers-security.md) — Loopback-only HTTP/MCP pairing, scoped bearer files and resource/framing limits.
 - [how-it-works.md](how-it-works.md) — Host transaction construction, PRF-derived secrets and card partial signing overview.
-- [hsm.md](hsm.md) — secp256k1 PKCS#11/OpenSSL use, ETH1 authorization limits and physical-run scope.
+- [hsm.md](hsm.md) — secp256k1 PKCS#11/OpenSSL use: real card by default, labelled simulator only on request, ETH2 preferred, ETH1 only with the demo opt-in.
 - [musig2-nonce-lifetime-fix.md](musig2-nonce-lifetime-fix.md) — Current 1.14 nonce reset/consumption and session-token boundary.
 - [musig2-pin-and-hardening.md](musig2-pin-and-hardening.md) — Current MuSig2 PIN, token, blinding, point validation and one-shot keygen contract.
 - [proofs/arkade-card-signer-proof.md](proofs/arkade-card-signer-proof.md) — Bounded source/simulator Arkade signer record, not live settlement.
