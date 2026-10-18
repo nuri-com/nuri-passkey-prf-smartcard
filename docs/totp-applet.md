@@ -1,122 +1,54 @@
-# OATH-TOTP applet (`card/totp/NuriOathTotp.java`)
-
-CAP `dist/nuri-oath-totp.cap`, package AID `4E555249544F50`, applet AID
-`4E555249544F5450` ("NURITOTP"), CAP version 1.1.
-
-The card stores a TOTP shared secret and computes HMAC-SHA1(secret, counter).
-The host sends the 8-byte time counter (`floor(unixtime / 30)`) and does the
-public RFC 4226 truncation. The secret never leaves the card.
+# TOTP applet
 
 ```mermaid
 flowchart LR
-  H[host: scripts/card-totp.py] -->|SELECT 4E555249544F5450| A[NuriOathTotp]
-  H -->|INS_PUT 01: pinLen, pin, secret| A
-  H -->|INS_CALC 02: 8-byte counter| A
-  H -->|INS_STATUS 03| A
-  A --> E{HMAC engine chosen at install}
-  E -->|KeyBuilder TYPE_HMAC + ALG_HMAC_SHA1 ok| N[native HMACKey + Signature]
-  E -->|CryptoException, e.g. JCOP4 J3R180 / SECORA| S[software RFC 2104:<br/>SHA1 of K^opad, SHA1 of K^ipad, msg<br/>MessageDigest.ALG_SHA]
-  N --> R[20-byte HMAC-SHA1]
-  S --> R
-  R -->|dynamic truncation on host| C[6 or 8 digit code]
+  P["PIN and imported secret<br/>scripts/card-totp.py:125-137"] --> S["Protected PUT<br/>card/totp/NuriOathTotp.java:171-209"]
+  T["Host counter8<br/>scripts/card-totp.py:44-45"] --> H["Native or software HMAC-SHA1<br/>card/totp/NuriOathTotp.java:142-156"]
+  S --> H
+  H --> C["Host truncates to code<br/>scripts/card-totp.py:140-144"]
 ```
 
-## Why two HMAC engines
+## Contract
 
-JCAlgTest reports `KeyBuilder.TYPE_HMAC` and `Signature.ALG_HMAC_SHA1` as
-unsupported on every NXP JCOP4 (J3R180/J3R200/P71), JCOP3 and Infineon SECORA
-profile (`_launch/out/W4a-card-sourcing.md` section 2, audit finding A10 in
-`_launch/out/W5-audit-and-eth-v2-design.md`). Applet 1.0 called both in its
-constructor without a `try` block (`NuriOathTotp.java:36-37` in 1.0), so the
-INSTALL would fail on the target production chip. Applet 1.1:
+CAP `dist/nuri-oath-totp.cap`, package AID `4E555249544F50`, applet AID `4E555249544F5450`, package version 1.1: [card/totp/build.xml:9-15](../card/totp/build.xml#L9-L15).
 
-1. tries the native pair inside `try { … } catch (CryptoException)`;
-2. on failure builds `MessageDigest.ALG_SHA` (yes on all profiles) and keeps
-   the secret in a persistent 64-byte array, computing
-   `SHA1((K ^ opad) || SHA1((K ^ ipad) || counter))` with K zero-padded to the
-   64-byte block (RFC 2104). Secrets are capped at 64 bytes so no pre-hash of K
-   is needed (RFC 4226 recommends 20).
+The host imports a Base32 shared secret; it therefore sees the plaintext during provisioning. The applet offers PUT/CALC/STATUS, not a secret-export command. CALC accepts a host-chosen counter and returns HMAC-SHA1; the host supplies time and performs truncation: [scripts/card-totp.py:38-55](../scripts/card-totp.py#L38-L55), [125-144](../scripts/card-totp.py#L125-L144), [card/totp/NuriOathTotp.java:130-169](../card/totp/NuriOathTotp.java#L130-L169).
 
-The GP install parameter (application-specific data, first byte `0x01`) forces
-the software engine; the jCardSim test uses it because the simulator supports
-native HMAC. `INS_STATUS` reports which engine is active.
+Host APDUs use CLA `00`, P1/P2 `00`; the applet dispatches on INS without checking CLA/P1/P2: [scripts/card-totp.py:48-55](../scripts/card-totp.py#L48-L55), [113-115](../scripts/card-totp.py#L113-L115), [140-141](../scripts/card-totp.py#L140-L141), [card/totp/NuriOathTotp.java:130-169](../card/totp/NuriOathTotp.java#L130-L169).
 
-The Feitian card in use today (CPLC fabricator 4090) runs applet 1.0 with the
-native engine. Whether its 1.1 install picks native or software is UNVERIFIED
-until the parent runs `card-totp.py status` on it.
-
-## APDUs
-
-| INS | Data | Response | Status words |
+| INS | Data | Response / errors | Source |
 |---|---|---|---|
-| `01` PUT | `[pinLen][pin 4..16][secret 1..64]` | none | `9000`; `6700` bad lengths; `63Cx` wrong PIN, x tries left; `6983` PIN blocked |
-| `02` CALC | 8-byte big-endian counter | 20-byte HMAC-SHA1 | `9000`; `6985` not provisioned; `6700` length != 8 |
-| `03` STATUS | none | `[provisioned 0/1][engine 0=native 1=software][pin tries left]` | `9000` |
+| `01` PUT | `pinLen || PIN(4–16 bytes) || secret(1–64 bytes)` | No response body; invalid shape `6700`; wrong PIN `63Cx`; exhausted `6983` | [card/totp/NuriOathTotp.java:171-209](../card/totp/NuriOathTotp.java#L171-L209) |
+| `02` CALC | Eight-byte big-endian counter | HMAC-SHA1, 20 bytes; unprovisioned `6985`; bad length `6700` | [card/totp/NuriOathTotp.java:142-156](../card/totp/NuriOathTotp.java#L142-L156) |
+| `03` STATUS | No data | `[provisioned][engine: 0 native / 1 software][PIN attempts left]` | [card/totp/NuriOathTotp.java:159-163](../card/totp/NuriOathTotp.java#L159-L163) |
 
-`INS_CALC`'s wire format is unchanged from 1.0, so an existing host keeps
-reading codes. `INS_PUT` changed: 1.0 took the raw secret; 1.1 prefixes
-`[pinLen][pin]`. `scripts/card-totp.py put` builds the new form and prompts
-for the PIN (or reads `NURI_TOTP_PIN`).
+## Access and engine limits
 
-## PUT protection (audit A10)
+- The first PUT chooses the administrative PIN and stores the secret in a transaction. Later PUTs require that PIN; five failed attempts block replacement. There is no PIN-change/unblock command: [card/totp/NuriOathTotp.java:56-63](../card/totp/NuriOathTotp.java#L56-L63), [130-209](../card/totp/NuriOathTotp.java#L130-L209).
+- **CALC is not PIN- or touch-gated**, including when PUT is blocked. Anyone able to communicate with the provisioned applet can request HMACs for arbitrary counters; this is not per-code user approval: [card/totp/NuriOathTotp.java:142-156](../card/totp/NuriOathTotp.java#L142-L156), [183-190](../card/totp/NuriOathTotp.java#L183-L190).
+- Construction tries native `TYPE_HMAC`/`ALG_HMAC_SHA1`. If that throws `CryptoException`, software HMAC uses `MessageDigest.ALG_SHA` with a persistent secret array. Install application data byte `01` forces software mode: [card/totp/NuriOathTotp.java:79-127](../card/totp/NuriOathTotp.java#L79-L127), [198-205](../card/totp/NuriOathTotp.java#L198-L205), [213-232](../card/totp/NuriOathTotp.java#L213-L232).
+- Particular chip support, power-loss guarantees and hardware tamper resistance are **UNVERIFIED** here. The simulator deliberately forces software mode; it does not demonstrate a physical card's unsupported-algorithm exception: [test/totp/NuriOathTotpSimTest.java:117-128](../test/totp/NuriOathTotpSimTest.java#L117-L128).
 
-```mermaid
-stateDiagram-v2
-  [*] --> Blank
-  Blank --> Provisioned: PUT (pin, secret) sets OwnerPIN + secret in one transaction
-  Provisioned --> Provisioned: PUT with correct PIN replaces secret, tries reset to 5
-  Provisioned --> Provisioned: PUT wrong PIN -> 63Cx, tries-1
-  Provisioned --> Blocked: 5th wrong PIN -> 6983
-  Blocked --> Blocked: any PUT -> 6983 (CALC still works)
-  Blocked --> Blank: gp delete + reinstall (TOTP_REINSTALL=YES)
+## Host use
+
+```sh
+# Offline: no reader access
+python3 scripts/card-totp.py --selfcheck
+
+# Card operations: run only with the intended card and reader
+python3 scripts/card-totp.py status
+python3 scripts/card-totp.py put '<BASE32_SECRET>'
+python3 scripts/card-totp.py code
 ```
 
-- The first PUT on a blank applet chooses the admin PIN (`OwnerPIN`, 5 tries,
-  4..16 bytes) and stores the secret. There is no window where the secret is
-  set and the PIN is not: both are written inside
-  `JCSystem.beginTransaction()/commitTransaction()`.
-- Every later PUT must present the PIN. Wrong PIN leaves the secret untouched.
-  After 5 wrong tries PUT is blocked for the life of the instance; CALC keeps
-  working so the owner is not locked out of their 2FA.
-- CALC is deliberately not PIN-gated: the card is a possession factor for a
-  panel login, and the host flow (`nuricard totp`) must stay one command. If
-  "holding the card = reading codes" becomes unacceptable, gate `INS_CALC`
-  with the same `pin.check` (one `if`).
-- The PIN cannot be changed without reinstalling. Reinstall wipes the secret.
+`put` prompts for the admin PIN (or reads `NURI_TOTP_PIN`). `code` defaults to a 30-second step and six digits; `--step` and `--digits` override them: [scripts/card-totp.py:71-88](../scripts/card-totp.py#L71-L88), [96-107](../scripts/card-totp.py#L96-L107), [125-144](../scripts/card-totp.py#L125-L144). Treat the positional secret as exposed to host command history/process inspection; this CLI accepts it as an argument: [scripts/card-totp.py:98-99](../scripts/card-totp.py#L98-L99), [125-130](../scripts/card-totp.py#L125-L130).
 
-## Tests
+Reinstallation is destructive: `TOTP_REINSTALL=YES` enables deletion of the applet/package, discarding their stored state. Set `GP_READER` explicitly for the intended reader; the installer has a numeric default. Do not reinstall as a routine code-reading step: [scripts/install-totp-card.sh:4-7](../scripts/install-totp-card.sh#L4-L7), [15-35](../scripts/install-totp-card.sh#L15-L35).
 
-`scripts/test-totp-sim.sh` (also `npm run card:totp:test:sim`, part of
-`npm run test:virtual`) compiles the applet and
-`test/totp/NuriOathTotpSimTest.java` against jCardSim 3.0.5.11 (sha256
-`f6c3b6b8140401a47cf39d7b9dbfc052e381474c6c3b22018051024be1fca97c`, the same
-artifact the FIDO2 sim tests pull through Gradle) and runs, on the native
-engine and again with the software engine forced:
+## Offline verification
 
-- RFC 6238 Appendix B SHA-1 vectors, secret `12345678901234567890`, 8 digits:
-  T=59 → `94287082`, T=1111111109 → `07081804`, T=1111111111 → `14050471`,
-  T=1234567890 → `89005924`, T=2000000000 → `69279037`,
-  T=20000000000 → `65353130`;
-- CALC before PUT `6985`, bad PUT shapes `6700`, CALC length `6700`,
-  unknown INS `6D00`;
-- re-PUT with wrong PIN `63C4` and secret unchanged, correct PIN replaces the
-  secret and resets tries, five wrong PINs `63C4..63C1, 6983`, blocked PUT
-  `6983` with CALC still returning the right code;
-- state survives `CardSimulator.reset()`.
-
-`scripts/card-totp.py --selfcheck` checks the same vectors host-side plus the
-PUT APDU layout, with no card.
-
-jCardSim does not model chips without `ALG_HMAC_SHA1`; the fallback is
-exercised through the install flag, not through a real `CryptoException`.
-Install on a J3R180 is UNVERIFIED until the parent flashes one.
-
-## Parent real-card commands (not run here)
-
-```bash
-npm run card:release:verify                       # dist hashes vs rebuild
-TOTP_REINSTALL=YES npm run card:totp:install      # deletes 1.0 instance + secret
-scripts/run-card-python.sh scripts/card-totp.py status   # expect engine + pin_tries_left=5
-scripts/run-card-python.sh scripts/card-totp.py put "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # RFC secret, PIN 1234
-scripts/run-card-python.sh scripts/card-totp.py code     # compare with oathtool --totp -b ...
+```sh
+bash scripts/test-totp-sim.sh
 ```
+
+The runner compiles and runs jCardSim without a reader: [scripts/test-totp-sim.sh:45-51](../scripts/test-totp-sim.sh#L45-L51). Tests cover both HMAC engines, RFC 6238 vectors, malformed requests, PIN-protected replacement, blocked PUT with CALC still working and simulated reset: [test/totp/NuriOathTotpSimTest.java:35-114](../test/totp/NuriOathTotpSimTest.java#L35-L114). `--selfcheck` checks host truncation and PUT layout only: [scripts/card-totp.py:58-68](../scripts/card-totp.py#L58-L68). Real-card acceptance remains **UNVERIFIED** here.

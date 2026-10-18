@@ -1,508 +1,55 @@
-# Nuri Card Ethereum Signing — Specification & Integration Plan
+# Ethereum signing contract
 
-> Current status: implemented and real-card proven as applet v1.3. The complete
-> source is `card/eth/`, the reproducible CAP is `dist/nuri-eth-signer.cap`, and
-> the safe existing-key acceptance command is `python3 scripts/card-eth-test.py`.
-> The implementation-plan sections below are retained as design history; use
-> `docs/card-v1-release.md` and `docs/card-v1-acceptance.md` operationally.
+```mermaid
+flowchart LR
+  E["Extension hashes message or transaction<br/>extension/lib/hashing.js:40-78"] --> H["Native host sign_hash<br/>host/nuri_card_host.py:341-348"]
+  H --> V2["Prefer ETH v2<br/>host/nuri_card_host.py:229-233"]
+  V2 -->|"NO_APPLET only"| V1["Fall back to ETH v1<br/>host/nuri_card_host.py:234-241"]
+  V2 --> R["Verify, low-S, recover parity<br/>host/nuri_card_host.py:103-144"]
+  V1 --> R
+```
 
-Add standard secp256k1 ECDSA signing to the Nuri smartcard so it becomes a
-**hardware Ethereum/EVM wallet** alongside its existing Bitcoin, SSH, and TOTP
-capabilities. The private key is generated on-card and never leaves the secure
-element — same security model as Bitcoin MuSig2 and FIDO2 SSH.
+This is the implemented digest-signing interface, not a proposed slot-based protocol. The applets accept a 32-byte digest without a slot byte and do not parse Ethereum transaction fields: [card/eth/NuriEcdsaSigner.java:204-218](../card/eth/NuriEcdsaSigner.java#L204-L218), [card/eth2/NuriEthSignerV2.java:322-343](../card/eth2/NuriEthSignerV2.java#L322-L343).
 
----
+## Applet comparison
 
-## Table of contents
-
-- [What it does](#what-it-does)
-- [Why this works (the card already has the hard part)](#why-this-works-the-card-already-has-the-hard-part)
-- [Architecture: phone + card flow](#architecture-phone--card-flow)
-- [Applet specification](#applet-specification)
-- [Host-side ethers.js signer](#host-side-ethersjs-signer)
-- [APDU reference](#apdu-reference)
-- [Security model](#security-model)
-- [Historical implementation plan](#historical-implementation-plan-completed)
-- [Testing](#testing)
-- [Future: on-card keccak256](#future-on-card-keccak256)
-
----
-
-## What it does
-
-The card becomes a hardware Ethereum wallet:
-
-- **Key generation on-card.** A secp256k1 private key is generated inside the
-  card's secure element. The card returns only the 33-byte compressed public
-  key. The private key never leaves — no export APDU exists.
-- **Transaction signing on-card.** The phone/computer hashes the Ethereum
-  transaction with keccak256 (standard — `ethers` / `@noble/hashes` does this),
-  sends the 32-byte hash to the card, the card computes the ECDSA signature
-  `(r, s, v)`, and the phone broadcasts the signed transaction.
-- **Same card, more chains.** One card does SSH + Bitcoin (MuSig2) + Ethereum
-  (ECDSA) + TOTP + passkey login — all with independent keys in one secure
-  element.
-
----
-
-## Why this works (the card already has the hard part)
-
-The card's MuSig2 applet already proves these primitives work on this exact
-hardware (Feitian JCOP, OS 2025-05-14):
-
-| Primitive (secp256k1) | Proven by | ECDSA needs it? |
+| | ETH v1 source | ETH v2 source |
 |---|---|---|
-| Key generation (`KeyPair.genKeyPair()` on secp256k1) | ✅ MuSig2 `INS_KEYGEN` | ✅ yes — same |
-| EC point multiply (`ALG_EC_SVDP_DH_PLAIN_XY`) | ✅ MuSig2 nonce gen | ✅ yes — for `r = (k·G).x mod n` |
-| Scalar arithmetic on-card | ✅ MuSig2 partial sign (`s = k + e·a·sk`) | ✅ yes — for `s = k⁻¹(z + r·d) mod n` |
+| Applet AID | `4E55524945544801` — [card-eth-test.py:19](../scripts/card-eth-test.py#L19) | `4E5552494554483201` — [build.xml:13-14](../card/eth2/build.xml#L13-L14) |
+| Version response | `01 04 01 45 54 48 31` (seven bytes) — [NuriEcdsaSigner.java:33](../card/eth/NuriEcdsaSigner.java#L33), [163-171](../card/eth/NuriEcdsaSigner.java#L163-L171) | `02 00 00 45 54 48 32 state tries` (nine bytes) — [NuriEthSignerV2.java:227-236](../card/eth2/NuriEthSignerV2.java#L227-L236) |
+| Public key (`02`) | Compressed 33 bytes — [NuriEcdsaSigner.java:195-201](../card/eth/NuriEcdsaSigner.java#L195-L201) | P1 `00`: 65 bytes; `01`: 33 bytes — [NuriEthSignerV2.java:252-265](../card/eth2/NuriEthSignerV2.java#L252-L265) |
+| KEYGEN (`03`) | Random scalar, one-shot guard `6989` — [NuriEcdsaSigner.java:174-192](../card/eth/NuriEcdsaSigner.java#L174-L192) | Native keygen with RNG/ECDH fallback, one-shot guard `6989` — [NuriEthSignerV2.java:277-316](../card/eth2/NuriEthSignerV2.java#L277-L316) |
+| SIGN (`04`) | Software scalar arithmetic; returns `r32 || s32 || parity1` (65 bytes) — [NuriEcdsaSigner.java:204-276](../card/eth/NuriEcdsaSigner.java#L204-L276) | Native precomputed-hash ECDSA; returns `r32 || low-s32 || pubkey65` (129 bytes) — [NuriEthSignerV2.java:322-343](../card/eth2/NuriEthSignerV2.java#L322-L343) |
+| Access | No PIN/touch gate in dispatch or SIGN — [NuriEcdsaSigner.java:151-161](../card/eth/NuriEcdsaSigner.java#L151-L161), [204-218](../card/eth/NuriEcdsaSigner.java#L204-L218) | Optional session PIN; open until configured — [NuriEthSignerV2.java:188-218](../card/eth2/NuriEthSignerV2.java#L188-L218) |
 
-Standard ECDSA is **simpler than MuSig2**:
-- MuSig2: `s = k + e·a·sk` (coefficient `a`, aggregate key, nonce aggregation)
-- ECDSA: `s = k⁻¹(z + r·d) mod n` (single key, modular inverse)
+The host emits CLA `80`. V2 enforces it; v1 currently dispatches only on INS. For SIGN use `80 04 00 00 20` followed by digest32. A slot-prefixed 33-byte payload is rejected with `6700`: [host/nuri_card_host.py:45-47](../host/nuri_card_host.py#L45-L47), [card/eth/NuriEcdsaSigner.java:151-161](../card/eth/NuriEcdsaSigner.java#L151-L161), [204-208](../card/eth/NuriEcdsaSigner.java#L204-L208), [card/eth2/NuriEthSignerV2.java:193-208](../card/eth2/NuriEthSignerV2.java#L193-L208), [322-327](../card/eth2/NuriEthSignerV2.java#L322-L327).
 
-The only new operation is **modular inverse** (`k⁻¹ mod n`), which is a
-~30-line extended-GCD implementation in Java Card. No new hardware primitive
-needed — the card already does everything else.
+V1 implements only INS `01`–`04`; v2 INS `05` is CAPS, not address derivation. Address derivation is host-side Keccak of the uncompressed public key: [card/eth/NuriEcdsaSigner.java:151-160](../card/eth/NuriEcdsaSigner.java#L151-L160), [card/eth2/NuriEthSignerV2.java:197-207](../card/eth2/NuriEthSignerV2.java#L197-L207), [host/nuri_card_host.py:75-88](../host/nuri_card_host.py#L75-L88).
 
-**keccak256 stays on the host.** This is how every hardware wallet does
-Ethereum (Ledger, Trezor, GridPlus). The card signs a 32-byte hash; it never
-needs to understand Ethereum, RLP, gas, or keccak. This keeps the applet tiny
-and the audit surface minimal.
+## Host integration
 
----
+Native messaging methods are `info` and `sign_hash`; messages use four-byte little-endian length-prefixed JSON: [host/nuri_card_host.py:325-361](../host/nuri_card_host.py#L325-L361), [368-387](../host/nuri_card_host.py#L368-L387).
 
-## Architecture: phone + card flow
-
-```
-┌──────────────┐
-│  Phone /     │  ethers.js / @noble/hashes
-│  Computer    │
-└──────┬───────┘
-       │ 1. Build Ethereum transaction (legacy or EIP-1559)
-       │ 2. keccak256(RLP-encoded tx) → 32-byte hash z
-       │
-       ▼
-┌──────────────┐     NFC tap or PC/SC reader
-│  Card reader │     (user taps card = user presence)
-└──────┬───────┘
-       │ 3. APDU: ECDSA_SIGN(z, key_slot)
-       ▼
-┌──────────────┐
-│  Nuri card   │  secp256k1 ECDSA on-card
-│  ECDSA applet│
-│              │  4. Generate random nonce k (TRNG)
-│              │  5. r = (k·G).x mod n
-│              │  6. s = k⁻¹(z + r·d) mod n
-│              │  7. v = 27 + parity(k·G.y)  [for EIP-155: v = 0/1]
-│              │  (private key d never leaves)
-└──────┬───────┘
-       │ 8. Card returns: r(32) || s(32) || v(1)
-       ▼
-┌──────────────┐
-│  Phone /     │  9.  Assemble signed tx: rawTx + (r, s, v)
-│  Computer    │  10. Broadcast to Ethereum network
-└──────────────┘
+```json
+{"id":1,"method":"sign_hash","params":{"hash":"<64_HEX_DIGITS>"}}
 ```
 
----
+The example contains a placeholder, not a valid request digest. Input must decode to exactly 32 bytes. Success contains `r`, `s`, `yParity` and a 65-byte hexadecimal signature with final byte `27 + yParity`; errors contain a code/message: [host/nuri_card_host.py:313-322](../host/nuri_card_host.py#L313-L322), [138-144](../host/nuri_card_host.py#L138-L144), [341-361](../host/nuri_card_host.py#L341-L361).
 
-## Applet specification
+The host ignores v1's parity byte, validates r/s, normalizes low-S, verifies against the loaded identity and recovers parity itself. V2's echoed key must match that identity; DER is an additional host-parser fallback, not the applet's native response format: [host/nuri_card_host.py:103-170](../host/nuri_card_host.py#L103-L170), [282-293](../host/nuri_card_host.py#L282-L293).
 
-### AID
+The extension computes personal-message, typed-data and EIP-1559 transaction hashes and assembles signatures outside the card: [extension/lib/hashing.js:23-85](../extension/lib/hashing.js#L23-L85). See [chrome-extension.md](chrome-extension.md) and [eth-applet-v2.md](eth-applet-v2.md) for the client and v2 command table.
 
-```text
-4E 55 52 49 45 54 48 01    ("NURIETH1")
+## Operational limits
+
+- No per-signature touch/UP or trusted-display approval is enforced by either SIGN handler. PIN-configured v2 requires session validation, not a new PIN per signature: [card/eth/NuriEcdsaSigner.java:204-276](../card/eth/NuriEcdsaSigner.java#L204-L276), [card/eth2/NuriEthSignerV2.java:213-218](../card/eth2/NuriEthSignerV2.java#L213-L218), [322-343](../card/eth2/NuriEthSignerV2.java#L322-L343).
+- The native host cannot verify a PIN; `6982` becomes `PIN_REQUIRED`. It falls back only on missing v2 applet, not on locked or uninitialized v2: [host/nuri_card_host.py:229-249](../host/nuri_card_host.py#L229-L249), [261-289](../host/nuri_card_host.py#L261-L289), [325-353](../host/nuri_card_host.py#L325-L353).
+- Do not probe KEYGEN on older v1 deployments. The acceptance script only probes the one-shot guard for version ≥1.4; the explicit `--regenerate` path sends KEYGEN: [scripts/card-eth-test.py:104-124](../scripts/card-eth-test.py#L104-L124). Hardware key retention, firmware identity and on-chain settlement are **UNVERIFIED** here.
+
+## Offline checks
+
+```sh
+bash scripts/test-eth2-sim.sh
 ```
 
-### Java Card class: `com.nuri.eth.NuriEcdsaSigner`
-
-A minimal applet (~200 lines) that:
-
-1. **Generates** a secp256k1 key pair on-card (one-time, at provisioning).
-2. **Stores** the private key in the card's protected key store.
-3. **Signs** a 32-byte hash with ECDSA, returning `(r, s, v)`.
-4. **Returns** the public key on request (for address derivation on the host).
-
-### Key storage
-
-| Key | Type | Storage |
-|---|---|---|
-| secp256k1 private key | `ECPrivateKey` (secp256k1 parameters) | Card key store, non-exportable |
-| secp256k1 public key | `ECPublicKey` | Derived from private key, returned to host on request |
-
-The applet uses `KeyBuilder.TYPE_EC_F2M_PRIVATE` or
-`KeyBuilder.TYPE_EC_FP_PRIVATE` with secp256k1 domain parameters, same as the
-MuSig2 applet. The key is generated via `KeyPair.genKeyPair()` — same call that
-MuSig2 `INS_KEYGEN` uses and that is already proven on this card.
-
-### Modular inverse
-
-Java Card does not have a built-in modular inverse for the secp256k1 order `n`.
-The applet implements it with the extended Euclidean algorithm (~30 lines):
-
-```java
-// Modular inverse via extended GCD: a^-1 mod n
-// n = secp256k1 order: FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-private static byte[] modInverse(byte[] a, byte[] n) {
-    // Extended Euclidean algorithm, 256-bit operands
-    // Returns a^-1 mod n as 32-byte big-endian
-    // ... ~30 lines of BigInteger-free arithmetic on byte arrays
-}
-```
-
-Alternatively, use `javacardx.crypto.BigInteger` if the card supports it
-(JC 3.0.5+ — this card is JC 3.0.5). That makes it a one-liner:
-
-```java
-BigInteger inv = BigInteger.valueOf(a).modInverse(BigInteger.valueOf(n));
-```
-
-### User presence (tap)
-
-Every `ECDSA_SIGN` command requires user presence. The applet checks a
-presence flag set by the card's physical interface (same mechanism FIDO2
-uses). On the Feitian BioCARD, this is the NFC tap or the contact pad.
-
----
-
-## Host-side ethers.js signer
-
-A custom `ethers.Signer` subclass that routes signing through the card:
-
-```typescript
-// src/eth/NuriCardSigner.ts
-import { ethers } from "ethers";
-import { keccak_256 } from "@noble/hashes/sha3";
-import { secp256k1 } from "@noble/curves/secp256k1";
-import { NuriCardTransport } from "./transport"; // PC/SC or NFC bridge
-
-export class NuriCardSigner extends ethers.Signer {
-  readonly transport: NuriCardTransport;
-  readonly keySlot: number;
-  private _address: string | null = null;
-
-  constructor(transport: NuriCardTransport, provider?: ethers.Provider, keySlot = 0) {
-    super();
-    this.transport = transport;
-    this.keySlot = keySlot;
-    if (provider) this.provider = provider;
-  }
-
-  // Get the Ethereum address (keccak256(pubkey)[12:])
-  async getAddress(): Promise<string> {
-    if (this._address) return this._address;
-    const pubKey = await this.transport.ecdsaGetPubkey(this.keySlot); // 33 bytes compressed
-    const uncompressed = secp256k1.getPublicKey(pubKey).slice(1); // 64 bytes (x||y)
-    const hash = keccak_256(uncompressed);
-    this._address = ethers.getAddress("0x" + Buffer.from(hash.slice(12)).toString("hex"));
-    return this._address;
-  }
-
-  // Sign a transaction (ethers calls this)
-  async signTransaction(tx: ethers.TransactionRequest): Promise<string> {
-    const txObj = await this.populateCall(tx);
-    const unsignedTx = ethers.Transaction.from(txObj);
-    const rawTxHex = unsignedTx.unsignedSerialized;
-    const msgHash = keccak_256(Buffer.from(rawTxHex.slice(2), "hex")); // host hashes
-    const sig = await this.transport.ecdsaSign(this.keySlot, msgHash); // card signs
-    const signedTx = unsignedTx.addSignature(sig.r, sig.s, sig.v);
-    return signedTx.serialized;
-  }
-
-  // Sign a message (EIP-191 personal_sign)
-  async signMessage(message: ethers.Message): Promise<string> {
-    const msgBytes = typeof message === "string" && !message.startsWith("0x")
-      ? Buffer.from(message) : Buffer.from(message.slice(2), "hex");
-    const prefixed = Buffer.concat([
-      Buffer.from("\x19Ethereum Signed Message:\n"),
-      Buffer.from(msgBytes.length.toString()),
-      msgBytes,
-    ]);
-    const msgHash = keccak_256(prefixed);
-    const sig = await this.transport.ecdsaSign(this.keySlot, msgHash);
-    return ethers.Signature.from({
-      r: "0x" + sig.r.toString(16).padStart(64, "0"),
-      s: "0x" + sig.s.toString(16).padStart(64, "0"),
-      v: 27 + sig.v,
-    }).serialized;
-  }
-
-  // Sign typed data (EIP-712 signTypedData)
-  async signTypedData(domain: ethers.TypedDataDomain, types: ethers.TypedDataTypes, value: Record<string, any>): Promise<string> {
-    const msgHash = ethers.TypedDataEncoder.hash(domain, types, value);
-    const sig = await this.transport.ecdsaSign(this.keySlot, Buffer.from(msgHash.slice(2), "hex"));
-    return ethers.Signature.from({
-      r: "0x" + sig.r.toString(16).padStart(64, "0"),
-      s: "0x" + sig.s.toString(16).padStart(64, "0"),
-      v: 27 + sig.v,
-    }).serialized;
-  }
-}
-```
-
-### Transport (PC/SC or NFC)
-
-The transport layer sends the APDU and parses the response. On desktop it
-uses the same Python `fido2` + `pyscard` stack as the SSH provider. On phone it
-uses the native NFC ISO-DEP path (same as the existing mobile PRF probe).
-
-```typescript
-// src/eth/NuriCardTransport.ts
-export interface NuriCardTransport {
-  ecdsaGetPubkey(slot: number): Promise<Uint8Array>; // 33 bytes compressed
-  ecdsaSign(slot: number, hash: Uint8Array): Promise<{ r: Uint8Array; s: Uint8Array; v: number }>;
-}
-
-export class NuriCardPcscTransport implements NuriCardTransport {
-  // Calls the Python helper over PC/SC — same pattern as ssh-pcsc-sk-helper.py
-  async ecdsaGetPubkey(slot: number): Promise<Uint8Array> {
-    // APDU: SELECT NURIETH1 AID, then INS_GET_PUBKEY
-    // Returns 33-byte compressed pubkey
-  }
-  async ecdsaSign(slot: number, hash: Uint8Array): Promise<{r: Uint8Array; s: Uint8Array; v: number}> {
-    // APDU: SELECT NURIETH1 AID, then INS_SIGN with hash
-    // Tap card when prompted
-    // Returns r(32) || s(32) || v(1)
-  }
-}
-```
-
----
-
-## APDU reference
-
-All commands use **CLA `0x00`** (matching the MuSig2 applet's convention).
-
-### SELECT
-
-```text
-CLA=00 A4 04 00 08  4E 55 52 49 45 54 48 01
-SW=9000 on success
-```
-
-### INS_GET_VERSION (`0x01`)
-
-Returns applet version + build.
-
-```text
-Command:  00 01 00 00 00
-Response: [version_major(1)] [version_minor(1)] [build(4)]  9000
-```
-
-### INS_GET_PUBKEY (`0x02`)
-
-Returns the on-card secp256k1 public key (compressed, 33 bytes). The host
-derives the Ethereum address from it: `keccak256(uncompressed_pubkey)[12:]`.
-
-```text
-Command:  00 02 00 00 01 [slot]  00
-Response: [pubkey_33_bytes]  9000
-```
-
-### INS_KEYGEN (`0x03`)
-
-Generates a new secp256k1 key pair on-card. Overwrites any existing key in
-the slot. Returns the compressed public key. The private key never leaves.
-
-```text
-Command:  00 03 00 00 01 [slot]  00
-Response: [pubkey_33_bytes]  9000
-```
-
-If the slot already has a key and overwrite is not allowed, returns
-`SW=6985` (conditions not satisfied). Set P1=1 to force overwrite:
-`00 03 01 00 01 [slot] 00`.
-
-### INS_SIGN (`0x04`)
-
-Signs a 32-byte hash with ECDSA. **Requires user presence** (card tap).
-
-```text
-Command:  00 04 00 00 21 [slot] [hash_32_bytes]  00
-          └── Lc=0x21 (33 bytes: 1 slot + 32 hash) ──┘
-
-Response: [r_32_bytes] [s_32_bytes] [v_1_byte]  9000
-          └── 65 bytes total ─────────────────────────┘
-
-v = 0 or 1 (EIP-155 compatible; host adds 27 for legacy, or uses as-is for EIP-155)
-```
-
-If user presence is not satisfied (no tap within timeout), returns
-`SW=6985` (conditions not satisfied).
-
-If the slot has no key, returns `SW=6A81` (function not supported).
-
-### INS_DERIVE_ADDRESS (`0x05`, optional)
-
-Returns the Ethereum address (20 bytes) computed on-card. This requires
-keccak256 on-card (see [Future: on-card keccak256](#future-on-card-keccak256)).
-If keccak is not available on-card, the host derives the address instead and
-this INS returns `SW=6D00` (INS not supported).
-
----
-
-## Security model
-
-| Property | How |
-|---|---|
-| Private key never leaves card | Generated on-card via `KeyPair.genKeyPair()`; no export APDU |
-| Every signature requires a tap | `INS_SIGN` checks user presence flag (same as FIDO2 UP) |
-| Nonce is random, never reused | TRNG generates k per sign; applet clears k immediately after use |
-| Key is sequestered from other applets | Separate AID from FIDO2 and MuSig2; applet isolation enforced by the card OS |
-| Host cannot extract key | The applet only accepts `INS_SIGN` (hash in, signature out) and `INS_GET_PUBKEY` (public only) |
-| Replay resistance | ECDSA nonce is random per signature; same hash → different signature each time (unlike HMAC which is deterministic) |
-
-### Nonce policy (critical)
-
-ECDSA is **far more sensitive to nonce reuse than MuSig2**. If the same `k` is
-ever used for two different hashes, the private key can be recovered
-algebraically. The applet MUST:
-
-1. Use the card's TRNG for `k` (not deterministic derivation).
-2. Clear `k` from RAM immediately after computing `(r, s)`.
-3. Reject a second `INS_SIGN` for the same session until a new nonce is
-   generated (one-shot per sign call — each call generates fresh `k`).
-4. Never accept a host-supplied nonce.
-
-This is the same one-shot pattern the MuSig2 applet uses (`PARTIAL_SIGN`
-consumes and clears the nonce).
-
----
-
-## Historical implementation plan (completed)
-
-### Phase 1: Applet (Java Card)
-
-1. **Write `NuriEcdsaSigner.java`** following the `card/totp/NuriOathTotp.java`
-   pattern:
-   - `install()` → register with AID `4E55524945544801`
-   - `process()` → dispatch on `OFFSET_INS`
-   - `INS_KEYGEN` → `KeyPair.genKeyPair()` on secp256k1, return compressed pubkey
-   - `INS_GET_PUBKEY` → return stored compressed pubkey
-   - `INS_SIGN` → ECDSA sign: generate `k` via TRNG, compute `r = (k·G).x mod n`,
-     `s = k⁻¹(z + r·d) mod n`, return `r || s || v`
-   - Modular inverse: extended GCD on byte arrays, or `javacardx.crypto.BigInteger`
-   - secp256k1 domain parameters: same constants as the MuSig2 applet uses
-
-2. **Build** with the portable `card/eth/build.xml` target:
-   ```xml
-   <javacard jckit="${jckit.path}">
-     <cap aid="4E555249455448" version="1.0" output="../dist/nuri-eth-signer.cap"
-          sources="." jca="3.0.4">
-       <applet class="com.nuri.eth.NuriEcdsaSigner" aid="4E55524945544801"/>
-     </cap>
-   </javacard>
-   ```
-
-3. **Install** on the card:
-   ```bash
-   npm run card:eth:install   # or: gp -install dist/nuri-eth-signer.cap
-   ```
-
-### Phase 2: Host bridge (Python + ethers.js)
-
-4. **Python helper** (`scripts/card-eth-sign.py`): PC/SC APDU bridge — same
-   pattern as `scripts/real-card-cosign-proof.py`. Sends `INS_SIGN`, parses
-   `r || s || v`.
-
-5. **ethers.js signer** (`src/eth/NuriCardSigner.ts`): the `ethers.Signer`
-   subclass above. Wraps the Python bridge or talks NFC directly on mobile.
-
-6. **Integration test**: generate a key on the card, derive the Ethereum
-   address, sign a transaction on a testnet, broadcast, verify on-chain.
-
-### Phase 3: Mobile (NFC)
-
-7. **Extend the mobile NFC probe** (`mobile/expo-nfc-prf-probe/`) to send
-   `INS_SIGN` over ISO-DEP. Same NFC path the PRF probe already uses.
-
-8. **Wallet UI**: a phone screen that shows the card's Ethereum address and
-   prompts "tap card to sign" for each transaction.
-
----
-
-## Testing
-
-### Unit tests (host-side, no card)
-
-```typescript
-// test/eth-signer.test.ts
-// 1. Mock transport returns deterministic (r, s, v)
-// 2. Verify ethers can parse the signature
-// 3. Verify ecrecover recovers the card's address
-```
-
-### Real-card tests
-
-```bash
-# 1. Install the applet
-npm run card:eth:install
-
-# 2. Generate a key on the card → get Ethereum address
-npm run card:eth:keygen   # prints: pubkey 0x..., address 0x...
-
-# 3. Sign a test hash and verify
-npm run card:eth:sign:test   # signs a known hash, verifies ecrecover
-
-# 4. Sign a real Sepolia testnet transaction and broadcast
-npm run card:eth:sign:tx -- --to=0x... --value=0.001 --network=sepolia
-
-# 5. Verify on Etherscan
-# → https://sepolia.etherscan.io/tx/...
-```
-
-### ECDSA nonce test (critical security check)
-
-```bash
-# Sign the same hash twice → MUST get different (r, s) each time
-# (proves nonce is random, not reused)
-npm run card:eth:nonce:test
-# Expected: r1 != r2 (random nonce each time)
-```
-
----
-
-## Future: on-card keccak256
-
-If the card later supports keccak256 (either via a Feitian vendor API or a
-pure-Java Keccak implementation), the applet can add `INS_DERIVE_ADDRESS` and
-`INS_SIGN_TX` (raw transaction in, signed tx out) so the card hashes
-internally. This would mean:
-
-- The card validates what it's signing (not just a blind hash).
-- The host never sees the pre-image (stronger privacy).
-- EIP-712 typed data could be verified on-card before signing.
-
-But this is **not required** for a working Ethereum hardware wallet. Every
-existing hardware wallet (Ledger, Trezor) hashes on the host and signs a
-pre-computed hash. The security trade-off is standard and acceptable: the
-card protects the *key*, the host computes the *hash*. If the host is
-compromised it could sign a malicious tx, but it can't steal the key — and
-the tap-to-sign requirement means the user must consciously approve each
-transaction.
-
----
-
-## Dependencies
-
-| Library | Already in repo? | Purpose |
-|---|---|---|
-| `@noble/curves` (secp256k1) | ✅ (`package.json`) | Public key handling, address derivation |
-| `@noble/hashes` (keccak256) | ✅ (transitive dep of `@noble/curves`) | Host-side transaction hashing |
-| `ethers` | ❌ — add as dev dep | Ethereum transaction encoding, signing interface |
-| `pyscard` / `fido2` | ✅ (in venv) | PC/SC transport |
-| Java Card SDK (JC 3.0.4) | ✅ pinned by the Card V1 builder | Applet compilation |
-
----
-
-## Provenance
-
-This specification is based on:
-
-- The MuSig2 applet's proven secp256k1 keygen + sign (confirmed on this card,
-  block `308802` Bitcoin signet transaction).
-- The OATH-TOTP applet's pattern (`card/totp/NuriOathTotp.java` — shows
-  the minimal Java Card applet structure).
-- The FIDO2 applet's user-presence mechanism (card tap = `UP=1`).
-- The existing `@noble/curves` secp256k1 and `@noble/hashes` keccak256
-  already in `package.json`.
+This runs simulator protocol checks, independent signature verification and fake/sim host tests, not hardware acceptance: [scripts/test-eth2-sim.sh:54-68](../scripts/test-eth2-sim.sh#L54-L68). V1 real-card acceptance is a separate, state-changing operation: its script signs a test digest and regenerates MuSig2 public nonces in its health check; it is not a read-only inventory command: [scripts/card-eth-test.py:41-68](../scripts/card-eth-test.py#L41-L68), [157-246](../scripts/card-eth-test.py#L157-L246).
