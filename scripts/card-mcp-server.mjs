@@ -23,6 +23,13 @@ import {
 } from './nuri-card-wallet.mjs';
 import { checkBind, guardRequest, loadOrCreateToken, createHelperServer, readJson } from './helper-auth.mjs';
 
+import { requireCardResult, requireCardSubprocess, tagSignerServer } from '../src/signer-policy.js';
+
+// This MCP endpoint is card-only; unknown simulation flags must not be ignored.
+for (const arg of process.argv.slice(2)) {
+  if (arg !== '--selftest') throw new Error(`unknown argument: ${arg}; MCP requires a physical card`);
+}
+
 const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
@@ -44,10 +51,11 @@ function redactPin(text) {
 // Never run two PC/SC commands at once: serialize all card access.
 let cardChain = Promise.resolve();
 function runPy(args) {
+  requireCardSubprocess(args);
   const job = cardChain.then(() => new Promise((res, rej) => {
     execFile(PY, args, { cwd: process.cwd(), timeout: 90000, maxBuffer: 1 << 20, env: { ...process.env } }, (err, out, errout) => {
       if (err) return rej(new Error(redactPin(`${err.message}\n${errout || out}`.trim())));
-      try { res(JSON.parse(out)); } catch (e) { rej(new Error(redactPin(`bad JSON from card script: ${e.message}\n${out}`))); }
+      try { res(requireCardResult(JSON.parse(out))); } catch (e) { rej(new Error(redactPin(`bad JSON from card script: ${e.message}\n${out}`))); }
     });
   }));
   cardChain = job.catch(() => {}); // keep the chain alive on failure
@@ -221,8 +229,8 @@ async function callTool(name, callArgs) {
   throw new Error(`unknown tool: ${name}`);
 }
 
-const ok = (id, result) => ({ jsonrpc: '2.0', id, result });
-const err = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
+const ok = (id, result) => ({ jsonrpc: '2.0', id, mode: 'card', result });
+const err = (id, code, message) => ({ jsonrpc: '2.0', id, mode: 'card', error: { code, message } });
 
 async function handleRpc(msg) {
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
@@ -255,7 +263,7 @@ async function handleRpc(msg) {
 
 
 function send(res, status, payload) {
-  const body = JSON.stringify(payload);
+  const body = JSON.stringify({ ...payload, mode: 'card' });
   // No CORS headers on purpose: browsers must not be able to read (or send) anything here.
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(body);
@@ -266,7 +274,7 @@ const host = process.env.HOST || '127.0.0.1';
 
 let auth = null; // { token, source } — set in main (not for --selftest)
 
-const server = createHelperServer(async (req, res) => {
+const server = tagSignerServer(createHelperServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     const denied = guardRequest(req, { port: server.address()?.port ?? port, token: auth?.token || '' });
@@ -282,7 +290,7 @@ const server = createHelperServer(async (req, res) => {
   } catch (e) {
     if (!res.writableEnded) send(res, e.status || 500, { error: e.status ? e.message : 'request failed' });
   }
-});
+}), 'card');
 
 // --selftest: exercise the JSON-RPC path + one real card sign (plain + tweaked), then exit.
 if (process.argv.includes('--selftest')) {

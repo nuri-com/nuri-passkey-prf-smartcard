@@ -15,7 +15,13 @@ import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosi
 import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
 import { checkBind, guardRequest, loadOrCreateToken, createHelperServer, readJson, PairingSessions, pairingPage } from './helper-auth.mjs';
 
-const card = createOnCardGeneratedCard();
+import { requireCardResult, requireCardSubprocess, tagSignerServer, warnSimulation, installSignerErrorHandler } from '../src/signer-policy.js';
+
+const requestedSim = process.argv.some((arg) => arg === '--sim' || arg === '--backend=simulated');
+installSignerErrorHandler(requestedSim ? 'sim' : 'card');
+if (requestedSim) warnSimulation();
+// No software key is created until simulation is explicitly selected.
+let card = null;
 const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
@@ -52,7 +58,9 @@ function sha256Hex(value) {
   return bytesToHex(sha256(utf8(value)));
 }
 
-const LOCAL_DEMO_ASP_SECRET32 = process.env.NURI_LOCAL_DEMO_ASP_SECRET32 || sha256Hex('nuri local demo arkade asp signer v1');
+// No public, deterministic ASP signer default: real-card proofs require an
+// explicitly configured counterparty. Simulation does not run hardware proofs.
+const LOCAL_DEMO_ASP_SECRET32 = process.env.NURI_LOCAL_DEMO_ASP_SECRET32 || null;
 
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -250,10 +258,11 @@ function parseArgs(argv) {
     host: '127.0.0.1',
     port: 8787,
     selftest: false,
-    backend: process.env.COSIGN_BACKEND || 'simulated',
+    backend: 'real-card',
   };
   for (const arg of argv) {
     if (arg === '--selftest') args.selftest = true;
+    else if (arg === '--sim') args.backend = 'simulated';
     else if (arg.startsWith('--host=')) args.host = arg.slice('--host='.length);
     else if (arg.startsWith('--port=')) args.port = Number(arg.slice('--port='.length));
     else if (arg.startsWith('--backend=')) args.backend = arg.slice('--backend='.length);
@@ -265,6 +274,13 @@ function parseArgs(argv) {
       throw new Error(`unknown argument: ${arg}`);
     }
   }
+  if (argv.filter((arg) => arg === '--sim' || arg.startsWith('--backend=')).length > 1) {
+    throw new Error('choose exactly one backend flag; simulation and physical card modes cannot be combined');
+  }
+  if (process.env.COSIGN_BACKEND && process.env.COSIGN_BACKEND !== 'real-card' &&
+      !argv.some((arg) => arg === '--sim' || arg === '--backend=simulated')) {
+    throw new Error('simulation requires an explicit --sim or --backend=simulated flag');
+  }
   if (!Number.isInteger(args.port) || args.port <= 0 || args.port > 65535) {
     throw new Error('port must be 1..65535');
   }
@@ -275,7 +291,7 @@ function parseArgs(argv) {
 }
 
 function json(res, status, payload) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = JSON.stringify({ ...payload, mode: args.backend === 'simulated' ? 'sim' : 'card' }, null, 2);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -340,6 +356,7 @@ function redactPins(text, pinEnv = {}) {
 }
 
 function execFileJson(file, fileArgs, { pinEnv } = {}) {
+  requireCardSubprocess([file, ...fileArgs]);
   return new Promise((resolvePromise, reject) => {
     execFile(file, fileArgs, {
       cwd: process.cwd(),
@@ -355,7 +372,7 @@ function execFileJson(file, fileArgs, { pinEnv } = {}) {
         return;
       }
       try {
-        resolvePromise(JSON.parse(rawStdout));
+        resolvePromise(requireCardResult(JSON.parse(rawStdout)));
       } catch (parseError) {
         reject(new Error(`could not parse JSON from real-card script: ${parseError.message}\n${stdout}\n${stderr}`.trim()));
       }
@@ -378,12 +395,11 @@ async function saveRealCardProfile(profile) {
 }
 
 function realCardArgs(body, profile) {
-  const out = [REAL_CARD_SCRIPT];
+  const out = [REAL_CARD_SCRIPT, '--use-existing-card-key'];
   if (body.msg32) out.push('--msg32', String(body.msg32));
   else out.push('--message', body.message ? String(body.message) : 'nuri real card browser cosign proof');
   if (profile?.client_secret_hex) out.push('--client-secret-hex', profile.client_secret_hex);
-  if (profile?.card_pk33) out.push('--use-existing-card-key');
-  else out.push('--include-demo-client-secret');
+  if (!profile?.card_pk33) out.push('--include-demo-client-secret');
   return out;
 }
 
@@ -492,6 +508,7 @@ function clientSeedFromPrf(prfHex) {
 // card's FIDO2 PRF directly over the PC/SC reader and run the SAME HKDF+BIP86
 // derivation — identical wallet to the browser path, just a reliable transport.
 function readerClientSeed() {
+  requireCardSubprocess([PRF_SCRIPT]);
   return new Promise((resolvePromise, reject) => {
     execFile(REAL_CARD_PYTHON, [PRF_SCRIPT, 'derive', '--profile', READER_PRF_PROFILE, '--salt', READER_PRF_SALT, '--raw'],
       { cwd: process.cwd(), timeout: 60000, maxBuffer: 1 << 20 }, (err, out, errout) => {
@@ -561,6 +578,7 @@ function assertArkadeProof(proof, msg32) {
 }
 
 async function runArkadeProof(msg32) {
+  if (!LOCAL_DEMO_ASP_SECRET32) throw Object.assign(new Error('set NURI_LOCAL_DEMO_ASP_SECRET32 explicitly for the local Arkade counterparty proof; no software signer default is configured'), { status: 503 });
   const proof = await execFileJson(REAL_CARD_PYTHON, [
     REAL_CARD_ARKADE_SCRIPT,
     '--case', 'all',
@@ -980,6 +998,7 @@ async function handleCardLightningInvoice(req, res) {
 }
 
 function spawnClaimRunner(cfg) {
+  requireCardSubprocess([CARD_CLAIM_RUNNER]);
   return new Promise((resolve, reject) => {
     const child = execFile(
       process.execPath,
@@ -988,8 +1007,12 @@ function spawnClaimRunner(cfg) {
       (err, stdout, stderr) => {
         let parsed = null;
         try { parsed = JSON.parse(stdout); } catch { /* fall through */ }
-        if (parsed) { resolve(parsed); return; }
-        reject(new Error(stderr || err?.message || 'claim runner produced no JSON output'));
+        if (err) { reject(new Error(redactPins(stderr || err.message))); return; }
+        if (parsed) {
+          try { resolve(requireCardResult(parsed)); } catch (error) { reject(error); }
+          return;
+        }
+        reject(new Error(redactPins(stderr || 'claim runner produced no JSON output')));
       },
     );
     child.stdin.end(JSON.stringify(cfg));
@@ -1386,6 +1409,10 @@ async function requestHandler(req, res) {
     if (req.method === 'GET' && url.pathname === '/helper-pair.js') {
       await serveStatic(res, resolve('web/helper-pair.js'), 'application/javascript; charset=utf-8'); return;
     }
+    if (args.backend === 'simulated' && url.pathname.startsWith('/api/') &&
+        !['/api/session', '/api/cosign/info', '/api/cosign/sign'].includes(url.pathname)) {
+      return json(res, 409, { error: 'endpoint unavailable in simulation mode; no physical card or live wallet accessed' });
+    }
     if (req.method === 'GET' && url.pathname === '/api/session') return json(res, 200, { paired: true });
     if (req.method === 'POST' && url.pathname === '/pair') {
       const body = await readJson(req);
@@ -1455,6 +1482,7 @@ async function requestHandler(req, res) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (args.backend === 'simulated') card = createOnCardGeneratedCard();
 
 let auth = null; // { token, source } — set before listen (not for --selftest)
 
@@ -1462,14 +1490,14 @@ if (args.selftest) {
   const result = args.backend === 'real-card'
     ? await handleRealCardSign({})
     : runCardCosignFlow({ card });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify({ ...result, mode: args.backend === 'simulated' ? 'sim' : 'card' }, null, 2));
   process.exit(0);
 }
 
 auth = loadOrCreateToken({ service: 'cosign' });
 checkBind(args.host, { tokenSource: auth.source });
 const sessions = new PairingSessions();
-const server = createHelperServer(requestHandler);
+const server = tagSignerServer(createHelperServer(requestHandler), args.backend === 'simulated' ? 'sim' : 'card');
 server.listen(args.port, args.host, () => {
   const bound = server.address()?.port ?? args.port;
   console.log(`Nuri card cosign demo server at http://${args.host}:${bound}/cosign-demo.html`);

@@ -56,13 +56,14 @@ export function createOnCardGeneratedCard() {
 }
 
 export function runCardCosignFlow({
-  card = createOnCardGeneratedCard(),
+  card,
   clientSecret = randomBytes(32),
   msg32,
   message,
   sessionId = makeSessionId(),
   backend = 'simulated-on-card-keygen',
 } = {}) {
+  if (!card) throw new Error('card signer is required; explicitly provide a simulator for simulation');
   const parsed = parseMsg32({ msg32, message });
   const clientSk = bytes(clientSecret, 'clientSecret');
   const clientPk = musig2.IndividualPubkey(clientSk);
@@ -97,6 +98,7 @@ export function runCardCosignFlow({
   if (!finalSignatureVerified) throw new Error('final aggregate signature verification failed');
 
   return {
+    mode: card instanceof SimulatedMuSig2Card ? 'sim' : 'card',
     status: 'NURI_CARD_COSIGN_FLOW_OK',
     backend,
     key_origin: 'card-generated-non-exportable-in-backend',

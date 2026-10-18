@@ -125,7 +125,7 @@ test('HTTP pairing: public pages leak no token/code; secret code required once, 
     assert.deepEqual(race.map(r => r.status).sort(), [200, 401], 'exactly one concurrent code exchange succeeds');
     const r = race.find(r => r.status === 200);
     const cookie = r.headers.get('set-cookie'); assert.match(cookie, /Path=\/api\/;.*HttpOnly; SameSite=Strict/);
-    assert.deepEqual(await r.json(), { paired: true }); assert.equal((await pair(code)).status, 401);
+    assert.deepEqual(await r.json(), { paired: true, mode: 'sim' }); assert.equal((await pair(code)).status, 401);
     const headers = { cookie: cookie.split(';')[0], 'sec-fetch-site': 'same-origin' };
     assert.equal((await fetch(base + '/api/cosign/info', { headers })).status, 200);
     assert.equal((await fetch(base + '/api/cosign/info', { headers: { cookie: headers.cookie } })).status, 401);

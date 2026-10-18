@@ -50,7 +50,8 @@ test('Arkade card client signer proof verifies ASP partial, card partial, and fi
   });
 
   assert.equal(result.status, 'ARKADE_CARD_CLIENT_SIGNER_PROOF_OK');
-  assert.equal(result.signer_kind, 'card');
+  assert.equal(result.signer_kind, 'simulated-card');
+  assert.equal(result.mode, 'sim');
   assert.equal(result.asp_partial_verified, true);
   assert.equal(result.client_partial_verified, true);
   assert.equal(result.final_signature_verified, true);

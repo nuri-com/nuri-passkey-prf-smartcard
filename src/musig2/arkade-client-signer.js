@@ -142,7 +142,8 @@ export class SoftwarePasskeyArkadeSigner {
 }
 
 export class SimulatedCardArkadeSigner {
-  kind = 'card';
+  kind = 'simulated-card';
+  mode = 'sim';
 
   constructor(card = new SimulatedMuSig2Card(), { proofDevOnly = true } = {}) {
     this.card = card;
@@ -191,8 +192,8 @@ export class SimulatedCardArkadeSigner {
 }
 
 export async function runArkadeClientSignerProof({
-  signer = new SimulatedCardArkadeSigner(new SimulatedMuSig2Card(new Uint8Array(32).fill(0x51))),
-  aspSecret = new Uint8Array(32).fill(0x72),
+  signer,
+  aspSecret,
   msg32,
   message,
   sessionId = makeArkadeSessionId(),
@@ -202,6 +203,8 @@ export async function runArkadeClientSignerProof({
   aspPubNonceOverride,
   sortedPubkeysOverride,
 } = {}) {
+  if (!signer) throw new Error('signer is required; no implicit software/card simulation fallback');
+  if (!aspSecret) throw new Error('aspSecret is required; no public software signer default');
   const parsed = parseMsg32({ msg32, message });
   const aspSk = bytes(aspSecret, 'aspSecret');
   const aspPk = musig2.IndividualPubkey(aspSk);
@@ -256,6 +259,7 @@ export async function runArkadeClientSignerProof({
   if (!finalSignatureVerified) throw new Error('final aggregate signature verification failed');
 
   return {
+    mode: signer.mode || 'software',
     status: 'ARKADE_CARD_CLIENT_SIGNER_PROOF_OK',
     signer_kind: signer.kind,
     proof_dev_only: signer.proofDevOnly === true,
@@ -283,7 +287,7 @@ export async function runArkadeClientSignerProof({
     model:
       'card is the Arkade client signer; ASP/server is the second MuSig2 signer and Lightning/payment infrastructure',
     caveat:
-      signer.kind === 'card'
+      signer.mode === 'sim'
         ? 'simulator/dev proof only until nonce/sign APDUs are PIN/UV-gated on-card'
         : undefined,
   };
@@ -301,9 +305,10 @@ export async function runArkadeClientSignerProofSuite(options = {}) {
     tweak32,
     ...sharedOptions
   } = options;
+  if (!signer && !signerFactory) throw new Error('signer or signerFactory is required; no implicit simulation fallback');
   const makeSigner = () => signerFactory
     ? signerFactory()
-    : signer || new SimulatedCardArkadeSigner(new SimulatedMuSig2Card(new Uint8Array(32).fill(0x51)));
+    : signer;
   const untweaked = await runArkadeClientSignerProof({
     ...sharedOptions,
     signer: makeSigner(),
@@ -319,6 +324,7 @@ export async function runArkadeClientSignerProofSuite(options = {}) {
     tweak32,
   });
   return {
+    mode: untweaked.mode,
     status: 'ARKADE_CARD_CLIENT_SIGNER_PROOF_SUITE_OK',
     cases: [untweaked, tweaked],
   };
