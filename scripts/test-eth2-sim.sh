@@ -55,7 +55,7 @@ fi
 rm -rf "$BUILD/classes"
 mkdir -p "$BUILD/classes"
 "$JAVAC" -nowarn -d "$BUILD/classes" -cp "$JCARDSIM_JAR" \
-  "$ROOT"/card/eth2/NuriEthSignerV2.java \
+  "$ROOT"/card/eth2/*.java \
   "$ROOT"/card/eth/*.java \
   "$ROOT"/test/eth2/Eth2SimTest.java
 

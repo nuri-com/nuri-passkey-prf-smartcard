@@ -24,11 +24,11 @@ import javacard.security.Signature;
  * signPreComputedHash (JC 3.0.4 API) on an ECPrivateKey carrying secp256k1
  * domain parameters. There is no bignum code in this package at all.
  *
- * Access control (audit A5): an optional OwnerPIN (5 tries, 4..16 bytes).
- * While no PIN is set the applet signs freely (same behaviour as v1). Once
- * SET_PIN has run, SIGN / KEYGEN / CHANGE_PIN require VERIFY_PIN in the
- * current session; deselect() resets the validation. An optional 16-byte PUK
- * (3 tries) can unblock the PIN.
+ * Access control: mandatory OwnerPIN by default (5 tries, 4..16 bytes).
+ * Only explicit installation data 01|00 enables an unconfigured public demo.
+ * SET_PIN does not validate: SIGN / KEYGEN require VERIFY_PIN in the current
+ * session. Reselection/deselection resets validation. An optional 16-byte PUK
+ * (3 tries) can unblock the PIN, without validating it.
  *
  * Output of SIGN is r(32) || s(32, low-S) || pubkey(65, uncompressed). The
  * recovery id v is NOT computed on-card: the host recovers it by trying
@@ -42,6 +42,9 @@ public class NuriEthSignerV2 extends Applet {
     private static final byte[] APPLET_VERSION = {(byte)0x02, (byte)0x00, (byte)0x00};
 
     private static final byte CLA_NURI = (byte)0x80;
+    private static final byte[] APPLET_AID = {
+        0x4e, 0x55, 0x52, 0x49, 0x45, 0x54, 0x48, 0x32, 0x01
+    };
 
     private static final byte INS_GET_VERSION = (byte)0x01;
     private static final byte INS_GET_PUBKEY  = (byte)0x02;
@@ -77,6 +80,7 @@ public class NuriEthSignerV2 extends Applet {
     private static final byte CAP_PIN_SET      = (byte)0x08;
     private static final byte CAP_KEYED        = (byte)0x10;
     private static final byte CAP_PUK_SET      = (byte)0x20;
+    private static final byte CAP_PIN_REQUIRED = (byte)0x40;
 
     // secp256k1: P(32) | A(32) | B(32) | N(32) | G(65 uncompressed)
     private static final byte[] SECP256K1 = {
@@ -129,6 +133,8 @@ public class NuriEthSignerV2 extends Applet {
     private final RandomData rng;
     private final OwnerPIN pin;
     private final OwnerPIN puk;
+    private final NuriAttestation attestation;
+    private boolean pinRequired;
     private final byte[] pubCache;        // 65 bytes, set at KEYGEN
     private final byte[] flags;           // [0]=keyed [1]=pinSet [2]=pukSet [3]=genKeyPairPath
     private static final byte F_KEYED = 0;
@@ -144,7 +150,9 @@ public class NuriEthSignerV2 extends Applet {
     private static final short SCR_TMP  = 112;  // 32
 
     public static void install(byte[] bArray, short bOffset, byte bLength) {
-        new NuriEthSignerV2().register();
+        NuriEthSignerV2 applet = new NuriEthSignerV2();
+        applet.personalize(bArray, bOffset, (short)(bLength & 0xff));
+        applet.register(APPLET_AID, (short)0, (byte)APPLET_AID.length);
     }
 
     protected NuriEthSignerV2() {
@@ -167,9 +175,48 @@ public class NuriEthSignerV2 extends Applet {
 
         pin = new OwnerPIN(PIN_TRIES, PIN_MAX);
         puk = new OwnerPIN(PUK_TRIES, PUK_LEN);
+        pinRequired = true;
+        attestation = new NuriAttestation(APPLET_AID);
         pubCache = new byte[65];
         flags = new byte[4];
         scratch = JCSystem.makeTransientByteArray(SCR_LEN, JCSystem.CLEAR_ON_DESELECT);
+    }
+
+    /** GP Li|instance AID|Lc|control|La|application data, with exact lengths.
+     * Empty application data is mandatory PIN, unconfigured. 00|len|PIN
+     * personalizes a mandatory PIN; only 01|00 opts into the public demo.
+     */
+    private void personalize(byte[] data, short off, short len) {
+        if (len == 0) return;
+        if (off < 0 || len < 0 || off > data.length || len > (short)(data.length - off))
+            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        short end = (short)(off + len);
+        short aidLen = (short)(data[off++] & 0xff);
+        if (aidLen > (short)(end - off)) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        if (aidLen != 0 && (aidLen != APPLET_AID.length ||
+                Util.arrayCompare(data, off, APPLET_AID, (short)0, aidLen) != 0))
+            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        off += aidLen;
+        if (off >= end) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        short controlLen = (short)(data[off++] & 0xff);
+        if (controlLen > (short)(end - off)) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        off += controlLen;
+        if (off >= end) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        short appLen = (short)(data[off++] & 0xff);
+        if (appLen != (short)(end - off)) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        if (appLen == 0) return;
+        if (appLen < 2) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        byte mode = data[off++];
+        short pinLen = (short)(data[off++] & 0xff);
+        if ((short)(pinLen + 2) != appLen) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        if (mode == 1 && pinLen == 0) {
+            pinRequired = false;
+        } else if (mode == 0 && pinLen >= PIN_MIN && pinLen <= PIN_MAX) {
+            pin.update(data, off, (byte)pinLen);
+            flags[F_PIN_SET] = (byte)1;
+        } else {
+            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        }
     }
 
     private static void setCurve(javacard.security.ECKey key) {
@@ -182,37 +229,89 @@ public class NuriEthSignerV2 extends Applet {
     }
 
     public boolean select() {
+        pin.reset();
+        puk.reset();
+        clearScratch();
         return true;
     }
 
     public void deselect() {
         pin.reset();
         puk.reset();
+        clearScratch();
     }
 
     public void process(APDU apdu) {
-        if (selectingApplet()) return;
         byte[] buffer = apdu.getBuffer();
-        if (buffer[ISO7816.OFFSET_CLA] != CLA_NURI) ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
-        switch (buffer[ISO7816.OFFSET_INS]) {
-            case INS_GET_VERSION: getVersion(apdu); break;
-            case INS_GET_CAPS:    getCaps(apdu); break;
-            case INS_GET_PUBKEY:  getPublicKey(apdu); break;
-            case INS_KEYGEN:      keygen(apdu); break;
-            case INS_SIGN:        sign(apdu); break;
-            case INS_VERIFY_PIN:  verifyPin(apdu); break;
-            case INS_SET_PIN:     setPin(apdu); break;
-            case INS_CHANGE_PIN:  changePin(apdu); break;
-            case INS_UNBLOCK_PIN: unblockPin(apdu); break;
-            default: ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+        byte ins = buffer[ISO7816.OFFSET_INS];
+        try {
+            if (selectingApplet()) return;
+            if (buffer[ISO7816.OFFSET_CLA] != CLA_NURI)
+                ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
+            // Basic channel only; only GET_PUBKEY accepts P1=01 (compressed).
+            if (buffer[ISO7816.OFFSET_P2] != 0 ||
+                    (buffer[ISO7816.OFFSET_P1] != 0 &&
+                    !((ins == INS_GET_PUBKEY || ins == (byte)0x72) && buffer[ISO7816.OFFSET_P1] == 1)))
+                ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
+            if (attestation.handles(ins)) {
+                short pubLen = 0;
+                if (flags[F_KEYED] != 0) {
+                    compressPublic(pubCache, scratch, (short)0);
+                    pubLen = 33;
+                }
+                attestation.process(apdu, scratch, (short)0, pubLen, pinState());
+                return;
+            }
+            switch (ins) {
+                case INS_GET_VERSION: getVersion(apdu); break;
+                case INS_GET_CAPS:    getCaps(apdu); break;
+                case INS_GET_PUBKEY:  getPublicKey(apdu); break;
+                case INS_KEYGEN:      keygen(apdu); break;
+                case INS_SIGN:        sign(apdu); break;
+                case INS_VERIFY_PIN:  verifyPin(apdu); break;
+                case INS_SET_PIN:     setPin(apdu); break;
+                case INS_CHANGE_PIN:  changePin(apdu); break;
+                case INS_UNBLOCK_PIN: unblockPin(apdu); break;
+                default: ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+            }
+        } catch (RuntimeException error) {
+            if (JCSystem.getTransactionDepth() != 0) JCSystem.abortTransaction();
+            if (ins == INS_KEYGEN && flags[F_KEYED] == 0) {
+                priv.clearKey();
+                pub.clearKey();
+            }
+            throw error;
+        } finally {
+            clearScratch();
         }
+    }
+
+    private byte pinState() {
+        byte state = pinRequired ? (byte)1 : (byte)0;
+        if (flags[F_PIN_SET] != 0) {
+            state |= (byte)2;
+            if (pin.isValidated()) state |= (byte)4;
+            if (pin.getTriesRemaining() == 0) state |= (byte)8;
+        }
+        return state;
+    }
+
+    private static void compressPublic(byte[] uncompressed, byte[] out, short off) {
+        out[off] = (byte)(0x02 | (uncompressed[64] & 1));
+        Util.arrayCopyNonAtomic(uncompressed, (short)1, out, (short)(off + 1), (short)32);
+    }
+
+    private void clearScratch() {
+        Util.arrayFillNonAtomic(scratch, (short)0, SCR_LEN, (byte)0);
+        attestation.clearScratch();
     }
 
     // --- gates -------------------------------------------------------------
 
-    /** PIN optional: no PIN set = open; PIN set = must be validated this session. */
+    /** Mandatory installs fail closed before personalization as well as validation. */
     private void requirePin() {
-        if (flags[F_PIN_SET] != 0 && !pin.isValidated()) {
+        if ((pinRequired || flags[F_PIN_SET] != 0) &&
+                (flags[F_PIN_SET] == 0 || !pin.isValidated())) {
             ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
         }
     }
@@ -223,7 +322,7 @@ public class NuriEthSignerV2 extends Applet {
 
     // --- info --------------------------------------------------------------
 
-    /** 02 00 00 'E' 'T' 'H' '2' state triesLeft  (state: b0 keyed, b1 pinSet). */
+    /** 02 00 00 'E' 'T' 'H' '2' state triesLeft (b0 keyed, b1 PIN set, b2 mandatory). */
     private void getVersion(APDU apdu) {
         byte[] buffer = apdu.getBuffer();
         Util.arrayCopyNonAtomic(APPLET_VERSION, (short)0, buffer, (short)0, (short)3);
@@ -231,7 +330,7 @@ public class NuriEthSignerV2 extends Applet {
         buffer[4] = (byte)0x54; // 'T'
         buffer[5] = (byte)0x48; // 'H'
         buffer[6] = (byte)0x32; // '2'
-        buffer[7] = (byte)((flags[F_KEYED] != 0 ? 0x01 : 0x00) | (flags[F_PIN_SET] != 0 ? 0x02 : 0x00));
+        buffer[7] = (byte)((flags[F_KEYED] != 0 ? 0x01 : 0x00) | (flags[F_PIN_SET] != 0 ? 0x02 : 0x00) | (pinRequired ? 0x04 : 0x00));
         buffer[8] = flags[F_PIN_SET] != 0 ? pin.getTriesRemaining() : PIN_TRIES;
         apdu.setOutgoingAndSend((short)0, (short)9);
     }
@@ -244,6 +343,7 @@ public class NuriEthSignerV2 extends Applet {
         if (flags[F_PIN_SET] != 0) caps |= CAP_PIN_SET;
         if (flags[F_KEYED] != 0) caps |= CAP_KEYED;
         if (flags[F_PUK_SET] != 0) caps |= CAP_PUK_SET;
+        if (pinRequired) caps |= CAP_PIN_REQUIRED;
         buffer[0] = caps;
         apdu.setOutgoingAndSend((short)0, (short)1);
     }
@@ -280,6 +380,9 @@ public class NuriEthSignerV2 extends Applet {
         byte[] buffer = apdu.getBuffer();
 
         boolean generated = false;
+        // A failed prior candidate is cleared; restore parameters before retrying.
+        setCurve(priv);
+        setCurve(pub);
         try {
             kp.genKeyPair();
             short wLen = pub.getW(scratch, (short)0);
@@ -305,8 +408,12 @@ public class NuriEthSignerV2 extends Applet {
             }
         }
 
+        // Attest only the candidate public key, before publishing any keyed state.
+        compressPublic(scratch, scratch, (short)65);
+        attestation.prepareBinding(scratch, (short)65, (short)33);
         JCSystem.beginTransaction();
         Util.arrayCopy(scratch, (short)0, pubCache, (short)0, (short)65);
+        attestation.commitBinding();
         flags[F_GENKEYPAIR] = generated ? (byte)1 : (byte)0;
         flags[F_KEYED] = (byte)1;
         JCSystem.commitTransaction();
@@ -320,8 +427,8 @@ public class NuriEthSignerV2 extends Applet {
 
     /** Lc=32 hash -> r(32) || s(32, low-S) || pubkey(65). */
     private void sign(APDU apdu) {
-        requireKeyed();
         requirePin();
+        requireKeyed();
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
         if (dataLen != 32) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
@@ -427,7 +534,7 @@ public class NuriEthSignerV2 extends Applet {
 
     /**
      * Data: Lp PIN [Lk PUK]. Once only (6985 if a PIN is already set). PUK optional,
-     * must be exactly 16 bytes when present. Validates the new PIN for this session.
+     * must be exactly 16 bytes when present. A separate VERIFY is required.
      */
     private void setPin(APDU apdu) {
         if (flags[F_PIN_SET] != 0) ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -455,7 +562,7 @@ public class NuriEthSignerV2 extends Applet {
         flags[F_PUK_SET] = (kLen != 0) ? (byte)1 : (byte)0;
         flags[F_PIN_SET] = (byte)1;
         JCSystem.commitTransaction();
-        pin.check(buffer, pOff, (byte)pLen);   // validate this session
+        pin.reset();   // SET_PIN is provisioning, not session authorization
     }
 
     /** Data: Lo oldPIN Ln newPIN. Requires PIN (checks old inline, decrements on mismatch). */

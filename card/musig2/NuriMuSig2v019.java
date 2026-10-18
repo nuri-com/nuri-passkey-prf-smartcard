@@ -28,6 +28,10 @@ public class NuriMuSig2v019 extends Applet {
 
     // Version 1.14: incompatible nonce/finalize frames; see docs/musig2-pin-and-hardening.md
     private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0E};
+    private static final byte[] APPLET_AID = {
+        (byte)0x4E, (byte)0x55, (byte)0x52, (byte)0x49,
+        (byte)0x4D, (byte)0x55, (byte)0x47, (byte)0x01
+    };
 
     // Commands
     private static final byte INS_GET_VERSION = (byte)0x01;
@@ -110,6 +114,7 @@ public class NuriMuSig2v019 extends Applet {
     // Persistent (EEPROM): once true, KEYGEN is locked forever.
     private boolean keyGenerated;
     private OwnerPIN pin;
+    private NuriAttestation attestation;
     private boolean pinRequired;
     private boolean pinSet;
     private byte[] sessionCounter; // reset-transient, random seed on selection
@@ -131,7 +136,7 @@ public class NuriMuSig2v019 extends Applet {
     public static void install(byte[] bArray, short bOffset, byte bLength) {
         NuriMuSig2v019 applet = new NuriMuSig2v019();
         applet.personalize(bArray, bOffset, (short)(bLength & 0xff));
-        applet.register();
+        applet.register(APPLET_AID, (short)0, (byte)APPLET_AID.length);
     }
 
     protected NuriMuSig2v019() {
@@ -199,6 +204,7 @@ public class NuriMuSig2v019 extends Applet {
         maskedKey = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
         checkResult = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
         result = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
+        attestation = new NuriAttestation(APPLET_AID);
     }
 
     /** Strict GP install layout: Li|AID|Lc|control|La|application data.
@@ -207,12 +213,17 @@ public class NuriMuSig2v019 extends Applet {
      */
     private void personalize(byte[] data, short off, short len) {
         if (len == 0) return;
+        if (off < 0 || len < 0 || off > data.length || len > (short)(data.length - off))
+            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
         short end = (short)(off + len);
         for (short field = 0; field < 2; field++) {
             if (off >= end) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             short count = (short)(data[off++] & 0xff);
+            if (count > (short)(end - off)) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            if (field == 0 && count != 0 && (count != APPLET_AID.length ||
+                    Util.arrayCompare(data, off, APPLET_AID, (short)0, count) != 0))
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             off = (short)(off + count);
-            if (off > end) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
         }
         if (off >= end) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
         short appLen = (short)(data[off++] & 0xff);
@@ -249,14 +260,20 @@ public class NuriMuSig2v019 extends Applet {
     }
 
     public void process(APDU apdu) {
-        if (selectingApplet()) return;
         byte[] buffer = apdu.getBuffer();
         byte ins = buffer[ISO7816.OFFSET_INS];
         try {
+            if (selectingApplet()) return;
             // Basic logical channel only: no cross-channel shared validation.
             if (buffer[ISO7816.OFFSET_CLA] != 0) ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
-            if (buffer[ISO7816.OFFSET_P1] != 0 || buffer[ISO7816.OFFSET_P2] != 0)
+            if (buffer[ISO7816.OFFSET_P2] != 0 || (buffer[ISO7816.OFFSET_P1] != 0 &&
+                    !(ins == (byte)0x72 && buffer[ISO7816.OFFSET_P1] == 1)))
                 ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
+            if (attestation.handles(ins)) {
+                attestation.process(apdu, masterPublicKey, (short)0,
+                    keyGenerated ? (short)33 : (short)0, attestationPinState());
+                return;
+            }
             switch (buffer[ISO7816.OFFSET_INS]) {
                 case INS_GET_VERSION: getVersion(apdu); break;
                 case INS_GET_PUBKEY: getPublicKey(apdu); break;
@@ -292,6 +309,11 @@ public class NuriMuSig2v019 extends Applet {
             // VERIFY/SET_PIN carry secrets and neither sends response data.
             if (eraseInput) Util.arrayFillNonAtomic(buffer, (short)0, (short)buffer.length, (byte)0);
         }
+    }
+
+    private byte attestationPinState() {
+        return (byte)((pinRequired ? 1 : 0) | (pinSet ? 2 : 0)
+            | (pin.isValidated() ? 4 : 0) | (pin.getTriesRemaining() == 0 ? 8 : 0));
     }
 
     private void requirePin() {
@@ -410,9 +432,11 @@ public class NuriMuSig2v019 extends Applet {
         // BEFORE atomically publishing the cached public key and keyed flag.
         // An interrupted uncommitted scalar is never advertised or usable.
         compress(tempBuffer, apdu.getBuffer(), (short)0);
+        attestation.prepareBinding(apdu.getBuffer(), (short)0, (short)33);
         JCSystem.beginTransaction();
         masterKey.setS(scratch32_1, (short)0, (short)32);
         Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);
+        attestation.commitBinding();
         keyGenerated = true;
         JCSystem.commitTransaction();
         apdu.setOutgoingAndSend((short)0, (short)33);
@@ -572,6 +596,11 @@ public class NuriMuSig2v019 extends Applet {
     }
 
     private void clearScratch() {
+        try { clearMuSigScratch(); }
+        finally { attestation.clearScratch(); }
+    }
+
+    private void clearMuSigScratch() {
         // clearKey first is deliberately not used: a key-provider error must not
         // prevent the byte-array cleanup in the finally block.
         try { tempPrivKey.clearKey(); }

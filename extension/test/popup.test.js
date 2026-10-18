@@ -48,6 +48,58 @@ test('toolbar renders SIM badge, ETH balance and full basescan hash link', async
   vm.runInNewContext(fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8'), { chrome, document: page.document });
   assert.match(page.element('out').innerHTML, /class="sim"/); assert.match(page.element('out').innerHTML, /1.23 ETH/); assert.ok(page.element('out').innerHTML.includes('https://basescan.org/tx/' + hash));
 });
+test('toolbar authenticity badge requires exact boolean true from card mode', () => {
+  const source = fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8');
+  for (const attestation of [undefined, null, {}, { verified: false }, { verified: 'true' },
+    { verified: 'false' }, { verified: 1 }, { verified: 0 }, { verified: [] }, { verified: {} },
+    { verified: null }, { verified: new Boolean(true) }, { reason: 'verified' }]) {
+    const page = dom();
+    const chrome = { runtime: { sendMessage(_msg, cb) { cb({ info: { mode: 'card', attestation } }); } } };
+    vm.runInNewContext(source, { chrome, document: page.document });
+    const rendered = page.element('out').innerHTML;
+    assert.doesNotMatch(rendered, /genuine Nuri card/, JSON.stringify(attestation));
+    assert.match(rendered, /Card authenticity unverified/);
+    assert.match(rendered, /class="attestation unverified"/);
+  }
+  const page = dom();
+  const chrome = { runtime: { sendMessage(_msg, cb) { cb({ info: { mode: 'card', attestation: { verified: true, reason: 'verified' } } }); } } };
+  vm.runInNewContext(source, { chrome, document: page.document });
+  assert.match(page.element('out').innerHTML, /class="attestation verified">genuine Nuri card<\/div>/);
+  assert.doesNotMatch(page.element('out').innerHTML, /Card authenticity unverified/);
+});
+test('toolbar SIM cannot claim genuineness even with a true flag, and refresh removes an old badge', () => {
+  const page = dom();
+  let info = { mode: 'card', attestation: { verified: true } };
+  const chrome = { runtime: { sendMessage(_msg, cb) { cb({ info }); } } };
+  vm.runInNewContext(fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8'), { chrome, document: page.document });
+  assert.match(page.element('out').innerHTML, /genuine Nuri card/);
+  info = { mode: 'sim', attestation: { verified: true } };
+  page.element('refresh').onclick();
+  assert.doesNotMatch(page.element('out').innerHTML, /genuine Nuri card/);
+  assert.match(page.element('out').innerHTML, /SIM — PUBLIC SOFTWARE KEY/);
+  assert.match(page.element('out').innerHTML, /Card authenticity unverified/);
+  info = { mode: 'card', attestation: { verified: false, reason: '<script>genuine Nuri card</script>' } };
+  page.element('refresh').onclick();
+  assert.doesNotMatch(page.element('out').innerHTML, /genuine Nuri card|<script>/);
+  assert.match(page.element('out').innerHTML, /Card authenticity unverified/);
+  info = null;
+  page.element('refresh').onclick();
+  assert.doesNotMatch(page.element('out').innerHTML, /genuine Nuri card/);
+});
+test('toolbar receives native attestation unchanged through background info', async (t) => {
+  for (const verified of [true, false, 'true', undefined]) {
+    const h = createHarness({ nativeHandler(msg, info) {
+      assert.equal(msg.method, 'info');
+      return { result: { ...info, attestation: { verified, reason: 'fixture' } } };
+    }, fetch: async () => '0x0' });
+    t.after(h.dispose);
+    const response = await h.toolbar(), page = dom();
+    const chrome = { runtime: { sendMessage(_msg, cb) { cb(response); } } };
+    vm.runInNewContext(fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8'), { chrome, document: page.document });
+    assert.equal(page.element('out').innerHTML.includes('genuine Nuri card'), verified === true);
+    assert.equal(page.element('out').innerHTML.includes('Card authenticity unverified'), verified !== true);
+  }
+});
 test('stage Send 0 ETH button requests Base self-send and exposes a basescan link', async () => {
   const html = fs.readFileSync(path.join(EXT, 'test-dapp.html'), 'utf8'); const inline = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const page = dom(), callbacks = {}, calls = [], address = E.ZeroAddress, hash = '0x' + 'cd'.repeat(32);

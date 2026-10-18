@@ -19,6 +19,6 @@ fi
 actual="$(shasum -a 256 "$JAR")"
 [[ "${actual%% *}" == "$SHA256" ]] || { printf 'jcardsim hash mismatch: %s\n' "$actual" >&2; exit 1; }
 javac -nowarn -d "$BUILD/classes" -cp "$JAR" \
-  "$ROOT/card/vault/NuriVault.java" "$ROOT/test/vault/NuriVaultSimTest.java" \
+  "$ROOT"/card/vault/*.java "$ROOT/test/vault/NuriVaultSimTest.java" \
   "$ROOT/test/vault/VaultApduBridge.java"
 java -cp "$BUILD/classes:$JAR" test.vault.NuriVaultSimTest

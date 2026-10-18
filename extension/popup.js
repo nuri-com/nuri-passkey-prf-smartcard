@@ -8,6 +8,11 @@ function render({ info, state, error, balance, lastTx }) {
     rows.push(`<div class="row">Address: <code>${esc(info.address)}</code></div>`);
     rows.push(`<div class="row">${esc(info.applet)} v${esc(info.applet_version)} · ${esc(info.reader)} · ${esc(info.mode)}</div>`);
     rows.push(`<div class="row">${info.pin_set ? "PIN protected" : "No PIN (demo/legacy)"}</div>`);
+    if (info.mode === "card" && info.attestation?.verified === true) {
+      rows.push('<div class="attestation verified">genuine Nuri card</div>');
+    } else {
+      rows.push('<div class="attestation unverified">Card authenticity unverified</div>');
+    }
   }
   if (state) {
     rows.push(`<div class="row">Chain: ${esc(state.chainId)}</div>`);
