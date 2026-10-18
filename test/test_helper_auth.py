@@ -144,6 +144,7 @@ class DashboardServer(unittest.TestCase):
     def setUpClass(cls):
         cls.mod = load_dashboard()
         cls.mod.nuri_pcsc = nuri_pcsc
+        cls._orig_open_applet = nuri_pcsc.open_applet
         nuri_pcsc.open_applet = lambda aid: FakeApplet()
         cls.mod._applet = None
         cls.srv = HTTPServer(("127.0.0.1", 0), cls.mod.Handler)
@@ -156,6 +157,7 @@ class DashboardServer(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.shutdown()
         cls.srv.server_close()
+        nuri_pcsc.open_applet = cls._orig_open_applet
 
     def req(self, method, path, body=None, headers=None, host=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
