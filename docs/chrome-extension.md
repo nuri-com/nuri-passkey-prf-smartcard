@@ -51,8 +51,10 @@ succeed on the **same host process** before any sign operation. `info` returns
 `pin_tries_left` ([host/nuri_card_host.py](../host/nuri_card_host.py#L399-L518)).
 
 - No-PIN path: `sign_hash` with `params: {hash}`. ETH1 remains supported for the
-  existing demo card; ETH2 is preferred and fallback to ETH1 happens only on
-  `NO_APPLET`, never on PIN or engine errors.
+  existing demo card only when the launcher exports `NURI_ALLOW_ETH1_DEMO=1`
+  (install with `--eth1-demo`); ETH2 is preferred and fallback to ETH1 happens only
+  after every reader with a card confirms ETH2 absence (`6A82`), never on PIN or
+  engine errors. Without the opt-in an ETH1-only card returns `ETH1_DEMO_DISABLED`.
 - Protected path: `verify_pin` with `params: {pin, hash, address}`. `address` is the
   EIP-55 identity previously read; `hash` is exactly `0x` plus 64 hex characters.
   This method **verifies and signs atomically on the same selected applet
@@ -118,6 +120,7 @@ path, so do not delete/move it afterward.
 ```sh
 ROOT="$PWD"
 # NO --sim. Installs the physical host and performs an info-only reader smoke check.
+# Add --eth1-demo only for the public ETH1 demo card (PIN-less legacy applet).
 bash "$ROOT/host/install-macos.sh" --python "${PYTHON_BIN:-python3}"
 # Keep this terminal running; serves the dApp, not a signing HTTP backend.
 "${PYTHON_BIN:-python3}" -m http.server 8787 --bind 127.0.0.1 --directory "$ROOT/extension"

@@ -223,6 +223,16 @@ Report new findings using [SECURITY.md](../SECURITY.md).
   dispatch, labels, helper errors, unknown-mode rejection, ETH2 preference and
   no downgrade using fakes. The rebuilt artifact is pinned in `dist/SHA256SUMS`.
   No physical reader was used for W28.
+- **Physical-card acceptance (2026-10-18, parent, `9c227c7`):** on the ETH1-only
+  demo card in a HID OMNIKEY 5422: `pkcs11-tool -L` without the demo opt-in was
+  refused; with `NURI_ALLOW_ETH1_DEMO=1`, `scripts/test-pkcs11-e2e.py` printed
+  `ALL TESTS PASSED` and `scripts/hsm-openssl-selftest.sh --card` printed
+  `HSM_OPENSSL_SELFTEST_OK mode=card`. The run found one fail-closed bug that the
+  fakes missed: the reader's idle contactless slot ("no card" on every protocol)
+  blocked the confirmed 6A82 from the contact slot, so the demo card was refused
+  even with the opt-in. `9c227c7` treats a slot with no card as holding no applet;
+  no card answering anywhere still refuses (regressions in
+  `scripts/test-pkcs11-failclosed.py` and `host/test_host.py`).
 - **Status:** The PKCS#11 default-simulator item is **fixed in source and rebuilt
   artifact**. This closes that specific R8 item, not every OpenSSL/TLS/PIN
   integration concern described by R8.
