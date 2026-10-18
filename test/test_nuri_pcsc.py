@@ -768,16 +768,63 @@ class CardEthFailClosedTests(PcscTestCase):
         self.assertNotIn(exc.code, (None, 0))
         self._assert_all_disconnected(self, rdr)
 
-    def test_string_sysexit_yields_nonzero_process_status(self):
-        """The script raises SystemExit(<message>); CPython turns that into exit 1."""
+    def test_out_of_range_scalars_fail_closed(self):
+        # For s=0, recovery used to accept Q=(-z/r)G as the reported card key.
+        point = _point_mul(self._K, _G)
+        assert point is not None
+        r = point[0] % _N
+        d = (-self._Z * pow(r, -1, _N)) % _N
+        for r_value, s_value in ((r, 0), (0, 1), (_N, 1), (r, _N), (r, _N + 1)):
+            with self.subTest(r=r_value, s=s_value):
+                sig = r_value.to_bytes(32, "big") + s_value.to_bytes(32, "big") + bytes([0])
+                rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(d), sig))
+                self.assertNotIn(exc.code, (None, 0))
+                self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+                self._assert_all_disconnected(self, rdr)
+
+    def test_recovery_point_at_infinity_fails_closed(self):
+        point = _point_mul(self._Z, _G)
+        assert point is not None
+        sig = point[0].to_bytes(32, "big") + (1).to_bytes(32, "big") + bytes([point[1] & 1])
+        rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(2), sig))
+        self.assertIn("point at infinity", str(exc.code))
+        self.assertNotIn(exc.code, (None, 0))
+        self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+        self._assert_all_disconnected(self, rdr)
+
+    def test_real_script_process_exit_status(self):
+        """Run the real __main__ with fake readers, not a standalone SystemExit."""
         import subprocess
 
-        proc = subprocess.run(
-            [sys.executable, "-c", "raise SystemExit('ETH1 failure')"],
-            capture_output=True, text=True,
-        )
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("ETH1 failure", proc.stderr)
+        code = """
+import runpy, sys
+fakes = runpy.run_path('test/test_nuri_pcsc.py', run_name='fake_helpers')
+fixture = fakes['CardEthFailClosedTests']()
+fixture.setUp()
+case = sys.argv[1]
+sig = fixture._keygen_sig(fixture._Z, 2, fixture._K)
+if case == 'malformed':
+    sig = sig[:64]
+pubkey = fakes['_eth1_pubkey'](3 if case == 'mismatch' else 2)
+(reader,) = fixture.use(fakes['omnikey'](card=fixture._card(pubkey, sig)))
+sys.argv = ['scripts/card-eth-test.py']
+try:
+    runpy.run_path('scripts/card-eth-test.py', run_name='__main__')
+finally:
+    closed = bool(reader.connections) and all(not c.connected for c in reader.connections)
+    print('FAKE_CONNECTION_CLOSED=' + str(closed), file=sys.stderr)
+    fixture.tearDown()
+    fixture.doCleanups()
+"""
+        for case, expected in (("valid", 0), ("mismatch", 1), ("malformed", 1)):
+            with self.subTest(case=case):
+                proc = subprocess.run(
+                    [sys.executable, "-c", code, case], cwd=ROOT,
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
+                self.assertEqual("REAL_CARD_ETH_SIGN_FLOW_OK" in proc.stdout, expected == 0)
+                self.assertIn("FAKE_CONNECTION_CLOSED=True", proc.stderr)
 
 
 # secp256k1 helpers (pure stdlib) for the W30 fail-closed ETH1 fakes above.
