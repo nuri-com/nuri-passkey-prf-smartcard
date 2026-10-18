@@ -48,9 +48,13 @@ def musig2_rng_health_check(conn):
     except RuntimeError:
         print("MuSig2 applet not present; skipping RNG health check")
         return
-    _, sw = raw_sw(conn, bytes([0x00, 0x02, 0x00, 0x00, 0x20]) + bytes(32))
-    if sw == 0x9000:
-        raise SystemExit("INS_INIT accepted — old applet with host seed import. Flash 1.11 before production.")
+    # NEVER probe INS_INIT (0x02): on applets < 1.11 it is accepted and REPLACES the
+    # master key with sha256(data). Probing it with 32 zero bytes overwrote a real
+    # card's MuSig2 key with a publicly known key on 2026-10-18. Decide by version.
+    ver = transmit(conn, bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
+    if (ver[0], ver[1]) < (1, 11):
+        raise SystemExit(f"MuSig2 applet {ver[0]}.{ver[1]} < 1.11 still has host seed import (INS_INIT). "
+                         "Do not use it for funds; install 1.12+ on a new card.")
     seen = set()
     for _ in range(2):
         resp = transmit(conn, bytes([0x00, 0x40, 0x00, 0x00, 0x00]))
