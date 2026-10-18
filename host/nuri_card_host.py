@@ -694,6 +694,16 @@ def _read_exact(stream, fd: int | None, n: int, deadline: float | None) -> bytes
 EOF = object()  # distinct from a JSON `null` body, which is a (bad) request, not end of stream
 
 
+MAX_INT_DIGITS = 4300  # CPython 3.11+ int_max_str_digits default; enforced here for 3.9/3.10 too
+
+
+def _bounded_int(text: str) -> int:
+    # JSON ints longer than this are a CPU DoS on old Pythons; ValueError -> FramingError below.
+    if len(text.lstrip("-")) > MAX_INT_DIGITS:
+        raise ValueError("integer literal too long")
+    return int(text)
+
+
 def read_message(stream, frame_timeout: float | None = None) -> Any:
     """Return the decoded JSON value, or EOF on clean end of stream between frames.
 
@@ -719,7 +729,7 @@ def read_message(stream, frame_timeout: float | None = None) -> Any:
     if len(body) < length:
         raise FramingError(f"truncated body: {len(body)}/{length} bytes")
     try:
-        return json.loads(body.decode("utf-8"))
+        return json.loads(body.decode("utf-8"), parse_int=_bounded_int)
     except UnicodeDecodeError:
         raise FramingError("message is not valid UTF-8") from None
     except RecursionError:
