@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nuri_pcsc
 
 APPLET_AID = bytes.fromhex("4E55524945544801")
-MUSIG2_AID = bytes.fromhex("4E5552494D53554701")
+MUSIG2_AID = bytes.fromhex("4E5552494D554701")  # was a 9-byte typo, the RNG check silently skipped
 
 def transmit(conn, apdu_bytes):
     data, sw = conn.transmit(bytes(apdu_bytes))
