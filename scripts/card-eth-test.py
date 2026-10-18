@@ -108,13 +108,16 @@ def main():
             raise SystemExit(
                 f"No existing ETH key. Run once with --regenerate on a blank card: {error}"
             ) from error
-        # Applet 1.4: KEYGEN is one-shot. A keyed card must answer 6989.
-        _, sw = raw_sw(conn, bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
-        if sw == 0x9000:
-            raise SystemExit("KEYGEN succeeded on a keyed card — one-shot guard missing. Flash eth applet 1.4.")
-        if sw != 0x6989:
-            raise SystemExit(f"KEYGEN on keyed card returned SW={sw:04X}, expected 6989")
-        print("One-shot KEYGEN guard: OK (SW=6989)")
+        # Applet 1.4+: KEYGEN is one-shot (6989 once keyed). Probing it is DESTRUCTIVE on
+        # applets < 1.4: KEYGEN succeeds and silently replaces the key (this rotated a real
+        # card's ETH key on 2026-10-18). Only probe when the applet reports >= 1.4.
+        if (ver[0], ver[1]) >= (1, 4):
+            _, sw = raw_sw(conn, bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
+            if sw != 0x6989:
+                raise SystemExit(f"KEYGEN on keyed card returned SW={sw:04X}, expected 6989")
+            print("One-shot KEYGEN guard: OK (SW=6989)")
+        else:
+            print(f"One-shot KEYGEN guard: SKIPPED (applet {ver[0]}.{ver[1]} < 1.4 has no guard; probing would replace the key)")
     print(f"Compressed pubkey: {pubkey33.hex()}")
 
     # Derive Ethereum address (host-side keccak256)
