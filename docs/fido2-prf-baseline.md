@@ -1,68 +1,34 @@
-# FIDO2 PRF Baseline
+# FIDO2 PRF baseline
 
-## Viable Source
+```mermaid
+flowchart LR
+  A["Vendored source + patches<br/>scripts/prepare-fido2-baseline.sh:5-17"] --> B["Simulator checks<br/>scripts/run-fido2-prf-sim-tests.sh:62-67"]
+  A --> C["FIDO2-up CAP build<br/>scripts/build-card-v1-release.sh:45-64"]
+```
 
-The viable source is the Bryan Jacobs FIDO2Applet lineage. It already implements CTAP2.1, Java Card builds, jCardSim support, and CTAP2 `hmac-secret`.
+## Source and patch boundary
 
-Card V1 vendors the exact clean Nuri-fork base at commit
-`4f318197cc08f316ce784a89bdf29dc73cca7fcf` under
-`third_party/fido2-applet/`. Its parent is upstream FIDO2Applet v2.0.5 commit
-`0194107d9648577379058b59843504924b546514`. The Nuri PRF and user-presence
-changes remain separate under `patches/`.
+The preparation script copies `third_party/fido2-applet/` into `.build/fido2-applet/` by default, then applies every `patches/*.patch`; `FIDO2_SOURCE` and `FIDO2_DEST` override those locations. It uses `rsync --delete`, so the destination is a disposable build tree. [scripts/prepare-fido2-baseline.sh:4-18](../scripts/prepare-fido2-baseline.sh#L4-L18)
 
-## Why Not A CTAP `prf` Extension
+- Patch 0001 changes the initial `hmacSecretEnabled` value from false to true; an explicit extension value can still override it. [patches/0001-prf-on-by-default.patch:9-12](../patches/0001-prf-on-by-default.patch#L9-L12), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:700](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L700)
+- Patch 0002 changes the advertised `up` option to true, not the assertion logic. See [user presence](fido2-user-presence.md). [patches/0002-advertise-user-presence.patch:1-17](../patches/0002-advertise-user-presence.patch#L1-L17)
+- The release script builds `FIDO2.cap` with patch 0001 only and `FIDO2-up.cap` with both patches; the FIDO2 installer defaults to `dist/FIDO2-up.cap`. The two variants are not interchangeable descriptions of UP advertising. [scripts/build-card-v1-release.sh:61-64](../scripts/build-card-v1-release.sh#L61-L64), [scripts/install-fido2-card.sh:4-5](../scripts/install-fido2-card.sh#L4-L5)
 
-WebAuthn `prf` is a browser/client extension. The authenticator-side primitive is CTAP2 `hmac-secret`.
+## Simulator workflow
 
-For a browser PRF flow:
-
-1. The RP asks WebAuthn for `extensions.prf`.
-2. The browser hashes PRF inputs as specified by WebAuthn.
-3. The browser talks to the authenticator with CTAP2 `hmac-secret`.
-4. The browser maps the returned hmac-secret output back into `clientExtensionResults.prf`.
-
-So the applet should pass `hmac-secret` tests and should not add a separate GetInfo `"prf"` string unless a specific client requires it.
-
-## Local Simulator Workflow
-
-Prepare the isolated patched build tree:
+These are the preparation and simulator entry points, not hardware acceptance commands. [scripts/prepare-fido2-baseline.sh:5-18](../scripts/prepare-fido2-baseline.sh#L5-L18), [scripts/run-fido2-prf-sim-tests.sh:62-67](../scripts/run-fido2-prf-sim-tests.sh#L62-L67)
 
 ```bash
 scripts/prepare-fido2-baseline.sh
-```
-
-Run PRF primitive tests:
-
-```bash
 scripts/run-fido2-prf-sim-tests.sh
 ```
 
-The test script:
+The runner prepares the baseline only if its directory is absent: rerun preparation after source or patch changes. It selects a Java Card SDK, manages a Python environment and may install dependencies; do not treat this as a guaranteed offline command. [scripts/run-fido2-prf-sim-tests.sh:9-19](../scripts/run-fido2-prf-sim-tests.sh#L9-L19), [scripts/run-fido2-prf-sim-tests.sh:39-60](../scripts/run-fido2-prf-sim-tests.sh#L39-L60)
 
-- uses Java 17 when available,
-- creates a temporary Python venv,
-- installs the vendored baseline's `requirements.txt`,
-- builds `jar` and `testJar`,
-- runs `python_tests.ctap.test_hmac_secret.HMACSecretTestCase`,
-- runs this repo's `test/fido2_prf_e2e.py` browser-PRF mapping test.
+The runner builds `jar`, `testJar` and Java tests, runs the vendored `HMACSecretTestCase`, then this repository's mapping test; only after those commands succeed does it print `FIDO2_JCARDSIM_PRF_OK`. [scripts/run-fido2-prf-sim-tests.sh:62-67](../scripts/run-fido2-prf-sim-tests.sh#L62-L67)
 
-## Card Requirements
+## PRF evidence boundary
 
-The target card must support the primitives needed by FIDO2Applet:
+The applet advertises CTAP `hmac-secret`. The mapping test hashes inputs as `SHA-256("WebAuthn PRF\0" || input)`, supplies them through `hmacGetSecret`, verifies the assertion signature, and checks 32-byte, repeatable, input-dependent outputs. It is not a real browser interoperability test. [third_party/fido2-applet/src/main/java/us/q3q/fido2/CannedCBOR.java:63-77](../third_party/fido2-applet/src/main/java/us/q3q/fido2/CannedCBOR.java#L63-L77), [test/fido2_prf_e2e.py:23-24](../test/fido2_prf_e2e.py#L23-L24), [test/fido2_prf_e2e.py:74-123](../test/fido2_prf_e2e.py#L74-L123)
 
-- Java Card Classic 3.0.4-ish or a vendor profile with equivalent algorithms.
-- P-256 key generation and ECDSA SHA-256.
-- ECDH plain output plus SHA-256.
-- AES-256 CBC no padding.
-- SHA-256 and secure random.
-- enough transient RAM and persistent storage for resident credentials.
-
-Good first targets are NXP JCOP3/JCOP4 cards such as J3H145 or J3R180-class cards. See `docs/hardware-manufacturer-spec.md` for the manufacturer checklist.
-
-## Browser Caveat
-
-A PC/SC smartcard reader is not automatically a browser WebAuthn roaming authenticator on every OS/browser. Desktop Chrome/Firefox commonly expect CTAP HID for roaming keys. For browser E2E we need one of:
-
-- a real NFC path accepted by the browser/OS,
-- a USB HID bridge to PC/SC,
-- a platform/browser combination that can speak to the card as a FIDO authenticator.
+**UNVERIFIED:** fresh hardware results, supported card models, OS/browser PRF compatibility and certification. This page makes no new hardware-verification claim.
