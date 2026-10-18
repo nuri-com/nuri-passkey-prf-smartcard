@@ -1,10 +1,10 @@
 // Hashing / encoding helpers for the Nuri Card extension.
-// All keccak256, RLP and EIP-712 work is delegated to ethers v6 (vendor/ethers.umd.min.js).
+// All keccak256, RLP and EIP-712 work is delegated to ethers v6 (third_party/ethers.umd.min.js).
 // Loadable both in the MV3 service worker (importScripts) and in node (tests):
 //   - browser: expects globalThis.ethers (loaded first via importScripts)
 //   - node:    module.exports, expects globalThis.ethers set by the test before require
 (function (root, factory) {
-  const ethers = root.ethers || (typeof require === "function" ? require("../vendor/ethers.umd.min.js") : null);
+  const ethers = root.ethers || (typeof require === "function" ? require("../third_party/ethers.umd.min.js") : null);
   const api = factory(ethers);
   if (typeof module === "object" && module.exports) module.exports = api;
   root.NuriHashing = api;

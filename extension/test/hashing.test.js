@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-globalThis.ethers = require(path.join(__dirname, "..", "vendor", "ethers.umd.min.js"));
+globalThis.ethers = require(path.join(__dirname, "..", "third_party", "ethers.umd.min.js"));
 const H = require(path.join(__dirname, "..", "lib", "hashing.js"));
 
 test("keccak256 empty string (NIST/Ethereum vector)", () => {
