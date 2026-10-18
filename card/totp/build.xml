@@ -11,7 +11,7 @@
     <target name="build">
         <mkdir dir="../dist"/>
         <javacard jckit="${jckit.path}">
-            <cap aid="4E555249544F50" version="1.0" output="${cap.output}" sources="." jca="3.0.4">
+            <cap aid="4E555249544F50" version="1.1" output="${cap.output}" sources="." jca="3.0.4">
                 <applet class="com.nuri.oath.NuriOathTotp" aid="4E555249544F5450"/>
             </cap>
         </javacard>

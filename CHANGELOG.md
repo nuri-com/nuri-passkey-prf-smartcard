@@ -3,6 +3,30 @@
 Running release log. For narrative session notes (Q&A, card states, next steps)
 see [`docs/logbook.md`](docs/logbook.md).
 
+## 2026-10-18 — TOTP applet 1.1: software HMAC-SHA1 fallback, PIN-gated PUT
+
+- `card/totp/NuriOathTotp.java`: the constructor now tries the native
+  `TYPE_HMAC`/`ALG_HMAC_SHA1` pair inside `try/catch (CryptoException)` and
+  falls back to RFC 2104 HMAC-SHA1 over `MessageDigest.ALG_SHA`. JCAlgTest
+  reports native HMAC as unsupported on NXP JCOP4 J3R180/J3R200 and Infineon
+  SECORA, where applet 1.0 would have failed at INSTALL (audit finding A10).
+- `INS_PUT` is now `[pinLen][pin 4..16][secret]`. The first PUT chooses an
+  `OwnerPIN` (5 tries); later PUTs must present it, so a borrowed card can no
+  longer have its 2FA secret overwritten. `INS_CALC` wire format unchanged.
+  New `INS_STATUS` reports provisioned / engine / PIN tries left.
+- `scripts/card-totp.py put` prompts for the PIN (`NURI_TOTP_PIN` to skip);
+  `status` shows the engine. `--selfcheck` now covers all six RFC 6238 SHA-1
+  vectors.
+- `scripts/test-totp-sim.sh` + `test/totp/NuriOathTotpSimTest.java`: jCardSim
+  run of the RFC 6238 vectors on both engines plus PUT/PIN protection
+  (`npm run card:totp:test:sim`, wired into `npm run test:virtual`).
+- `dist/nuri-oath-totp.cap` rebuilt (CAP version 1.1, sha256
+  `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0`);
+  `scripts/verify-card-v1-release.sh` compares only the CAP lines of
+  `dist/SHA256SUMS` now that it also lists `pkcs11-nuri.so`.
+- Docs: `docs/totp-applet.md`. Real-card install on a J3R180 is UNVERIFIED;
+  sim only.
+
 ## 2026-07-29 — SSH multi-card backup hardened (N independent cards)
 
 - Provisioned and **live-verified a third independent backup card** with the
