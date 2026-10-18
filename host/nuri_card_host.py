@@ -31,12 +31,19 @@ returned; an unverifiable signature is reported as VERIFY_FAILED.
 
 Modes
   card (default): lazily imports scripts/nuri_pcsc.py (contract C1) and talks
-       to the ETH applet. Prefers ETH v2 (AID 4E5552494554483201, C4), falls
-       back to ETH v1 (AID 4E55524945544801, C3).
+       to the ETH applet. Prefers ETH v2 (AID 4E5552494554483201, C4). W28: the
+       legacy PIN-less ETH v1 (AID 4E55524945544801, C3) is used ONLY when env
+       NURI_ALLOW_ETH1_DEMO is exactly "1" (else ETH1_DEMO_DISABLED) AND every
+       reader positively answers SELECT ETH2 with 6A82 (else DOWNGRADE_REFUSED:
+       nuri_pcsc's NO_APPLET also covers SELECT transport faults). Transport and
+       PIN failures on ETH2 never downgrade. ETH1 use warns on stderr and in info.
   sim: only when env NURI_CARD_SIM is exactly "1" -> PUBLIC software key
        d = int(sha256(b"nuri-card-sim-v1")) mod n. Signing additionally needs a
        successful info(mode=sim) in this process. --sim alone authorizes nothing;
        any other NURI_CARD_SIM value is CONFIG_ERROR (no fallback either way).
+  Every response (ok and error, including framing errors) carries a top-level
+  "mode": "card" | "sim" | "invalid" (NURI_CARD_SIM/--sim misconfigured).
+  Startup prints a stderr warning in sim mode and when the ETH1 demo is enabled.
 
 Dependencies: python-ecdsa (verify / recovery), pycryptodome (keccak256 for the
 EIP-55 address; same choice as scripts/card-dashboard-server.py), pyscard only
@@ -62,6 +69,25 @@ AID_ETH_V1 = "4E55524945544801"
 AID_ETH_V2 = os.environ.get("NURI_ETH2_AID", "4E5552494554483201")  # _launch/CONTRACTS.md C4
 
 SIM_SEED = b"nuri-card-sim-v1"
+
+ETH1_DEMO_ENV = "NURI_ALLOW_ETH1_DEMO"
+SW_FILE_NOT_FOUND = 0x6A82
+ETH1_WARNING = ("WARNING: ETH1 DEMO (NURI_ALLOW_ETH1_DEMO=1): the legacy ETH1 applet has NO PIN; "
+                "any local process can sign with it. Demo only, never fund its address.")
+SIM_WARNING = ("WARNING: SIM MODE (NURI_CARD_SIM=1): signing with a PUBLIC software key "
+               "(sha256(b'nuri-card-sim-v1')); anyone can derive it. Never fund its address.")
+
+
+def eth1_demo_allowed() -> bool:
+    return os.environ.get(ETH1_DEMO_ENV) == "1"
+
+
+def _warn(text: str) -> None:
+    """stderr only: stdout carries native-messaging frames."""
+    try:
+        print(text, file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 APDU_VERSION = bytes.fromhex("8001000000")
 APDU_PUBKEY = bytes.fromhex("8002000000")
@@ -308,13 +334,64 @@ class CardSigner:
             self.applet = "eth2"
         except CardError as exc:
             if getattr(exc, "code", "") != "NO_APPLET":
-                raise HostError(code_of(exc), str(exc))
+                raise HostError(code_of(exc), str(exc))  # no reader/card/transport: never downgrade
+            if not eth1_demo_allowed():
+                raise HostError("ETH1_DEMO_DISABLED",
+                                "PIN-gated ETH2 applet not found; the legacy ETH1 applet has no PIN and needs "
+                                f"{ETH1_DEMO_ENV}=1 exactly (demo only)")
+            self._confirm_eth2_absent()
             try:
                 self._applet = self._pcsc.open_applet(AID_ETH_V1, reader=self._reader_hint)
                 self.applet = "eth1"
             except CardError as exc2:
                 raise HostError(code_of(exc2), str(exc2))
+            _warn_eth1_once()
         self.reader = getattr(self._applet, "reader_name", "")
+
+    def _confirm_eth2_absent(self) -> None:
+        """Re-probe every candidate reader; only SW 6A82 on all of them allows ETH1.
+
+        nuri_pcsc.open_applet reports NO_APPLET both for 6A82 and for a SELECT whose
+        transmit raised, so its NO_APPLET alone is never trusted for a downgrade.
+        Same pattern as scripts/pkcs11-helper.py require_eth2_absent (inline: the
+        installed host is a fixed file snapshot).
+        """
+        pcsc = self._pcsc
+        try:
+            candidates = pcsc._select_readers(pcsc._list_readers(), self._reader_hint)
+            select = pcsc.select_apdu(AID_ETH_V2)
+        except Exception as exc:
+            raise HostError("DOWNGRADE_REFUSED", f"cannot confirm ETH2 absence ({type(exc).__name__}); refusing ETH1")
+        if not candidates:
+            raise HostError("DOWNGRADE_REFUSED", "cannot confirm ETH2 absence: no reader; refusing ETH1")
+        faults = []
+        for rdr in candidates:
+            conn = rdr.createConnection()
+            absent = False
+
+            def probe(raw):
+                nonlocal absent
+                try:
+                    _, sw = pcsc.transmit_raw(raw, select)
+                except Exception:
+                    faults.append("ETH2 SELECT transport failure")
+                    raise
+                if sw == SW_FILE_NOT_FOUND:
+                    absent = True
+                    return True  # absence positively known; stop the protocol ladder
+                faults.append(f"ETH2 absence not confirmed (SW {sw:04X})")
+                return False
+
+            try:
+                pcsc.connect_ladder(conn, probe)
+            except Exception:
+                faults.append("ETH2 reader/protocol failure")
+            finally:
+                pcsc._disconnect(conn)
+            if not absent:
+                faults.append("ETH2 absence not confirmed for reader")
+        if faults:
+            raise HostError("DOWNGRADE_REFUSED", "refusing ETH1 downgrade: " + "; ".join(faults))
 
     def _tx(self, apdu: Any, what: str) -> bytes:
         data, sw = self._applet.transmit(apdu)
@@ -451,6 +528,16 @@ class CardSigner:
             self.close()
 
 
+_ETH1_WARNED = False
+
+
+def _warn_eth1_once() -> None:
+    global _ETH1_WARNED
+    if not _ETH1_WARNED:
+        _ETH1_WARNED = True
+        _warn(ETH1_WARNING)
+
+
 # Process-local session state. Nothing here is a secret; the PIN is never stored.
 _SIGNER = None
 _INFO: dict | None = None      # identity returned by the last successful info
@@ -566,7 +653,8 @@ def _do_info(req_id: Any) -> dict[str, Any]:
     address = pubkey_to_address(signer.pubkey)
     _INFO = {"mode": signer.mode, "applet": signer.applet, "pubkey": signer.pubkey, "address": address}
     _SIM_ACK = signer.mode == "sim"
-    return ok_response(req_id, {
+    extra = {"warning": ETH1_WARNING} if signer.mode == "card" and signer.applet == "eth1" else {}
+    return ok_response(req_id, {**extra,
         "applet": signer.applet,
         "applet_version": signer.applet_version,
         "pubkey": "0x" + signer.pubkey.hex(),
@@ -629,15 +717,37 @@ def handle(request: Any) -> dict[str, Any]:
             params.pop("pin", None)
 
 
+def response_mode() -> str:
+    """Mode label carried on EVERY response: card | sim | invalid (misconfigured sim env/flag)."""
+    try:
+        return resolve_mode()
+    except HostError:
+        return "invalid"
+
+
 def ok_response(req_id: Any, result: dict[str, Any]) -> dict[str, Any]:
-    return {"id": req_id, "ok": True, "result": result}
+    return {"id": req_id, "ok": True, "mode": response_mode(), "result": result}
 
 
 def error_response(req_id: Any, code: str, message: str, extra: dict | None = None) -> dict[str, Any]:
     err = {"code": code, "message": message}
     if extra:
         err.update(extra)
-    return {"id": req_id, "ok": False, "error": err}
+    return {"id": req_id, "ok": False, "mode": response_mode(), "error": err}
+
+
+def startup_warnings() -> list[str]:
+    """Warnings printed on stderr at startup (sim key, ETH1 demo, misconfiguration)."""
+    out = []
+    mode = response_mode()
+    if mode == "sim":
+        out.append(SIM_WARNING)
+    elif mode == "invalid":
+        out.append("WARNING: NURI_CARD_SIM/--sim misconfigured (need NURI_CARD_SIM=1 exactly for sim, or unset/0 "
+                   "without --sim for card); every request fails CONFIG_ERROR")
+    if eth1_demo_allowed():
+        out.append(ETH1_WARNING + " (enabled only if the card has no ETH2 applet)")
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -797,6 +907,8 @@ def main(argv: list[str]) -> int:
     # --sim only declares intent; it never authorizes sim. Without NURI_CARD_SIM=1
     # every request fails CONFIG_ERROR (no silent card or sim fallback).
     _SIM_FLAG = "--sim" in argv
+    for text in startup_warnings():
+        _warn(text)
     # Chrome passes the extension origin (chrome-extension://<id>/) as argv[1]; nothing to do with it.
     return serve()
 

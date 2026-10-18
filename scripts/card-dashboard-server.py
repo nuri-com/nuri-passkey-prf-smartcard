@@ -31,7 +31,16 @@ Framing before auth: Content-Length must be a plain non-negative integer <= 1 Mi
 Transfer-Encoding is refused (501), and the whole request (headers + body) must arrive
 within an absolute REQUEST_DEADLINE_S (408). Error responses close the connection.
 Env: NURI_DASHBOARD_TOKEN, NURI_DASHBOARD_TOKEN_FILE, NURI_CARD_PORT (default 8788),
-NURI_CARD_HOST (loopback names only), NURI_ALLOW_KEYGEN=1.
+NURI_CARD_HOST (loopback names only), NURI_ALLOW_KEYGEN=1, NURI_ALLOW_ETH1_DEMO=1.
+
+ETH applet policy (W28, scripts/nuri_eth_policy.py): every /api/eth/* and
+/api/btc/sign request first SELECTs the PIN-gated ETH2 applet. If ETH2 answers,
+the request fails closed (409 ETH2_PIN_UNSUPPORTED): this dashboard has no PIN
+flow and never bypasses one. Only a genuine SW 6A82 (ETH2 not installed) may
+fall back to the PIN-less legacy ETH1 demo applet, and only when env
+NURI_ALLOW_ETH1_DEMO is exactly "1" (else 403 ETH1_DEMO_DISABLED); a warning is
+printed on stderr and carried in the response. Any other status word or a
+transport error refuses the downgrade (503 DOWNGRADE_REFUSED / 500).
 
 Host-side crypto uses PROVEN LIBRARIES, not hand-rolled code:
   - ecdsa (python-ecdsa): ecrecover + signature verification (independent
@@ -61,6 +70,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nuri_pcsc
 import nuri_helper_auth
+import nuri_eth_policy
 
 from ecdsa import VerifyingKey, SECP256k1
 from ecdsa.util import sigdecode_string
@@ -70,7 +80,8 @@ import base58
 AID_FIDO2   = bytes.fromhex("A0000006472F0001")
 AID_MUSIG2  = bytes.fromhex("4E5552494D554701")
 AID_TOTP    = bytes.fromhex("4E555249544F5450")
-AID_ETH     = bytes.fromhex("4E55524945544801")
+AID_ETH     = bytes.fromhex(nuri_eth_policy.ETH1_AID)   # legacy PIN-less ETH1 demo applet
+AID_ETH2    = bytes.fromhex(nuri_eth_policy.ETH2_AID)   # PIN-gated ETH2 signer
 
 # secp256k1 field prime (only for decompression; ecrecover/verify go through ecdsa lib)
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -136,21 +147,37 @@ def ecdsa_ecrecover(pub33: bytes, sig_rs: bytes, msg_hash: bytes) -> bool:
 
 _applet = None
 
+def _connection_aids():
+    """AIDs used only to find a reader+card. ETH1 is never SELECTed here unless the demo
+    env allows it (W28): even a SELECT counts as talking to the PIN-less applet."""
+    aids = [AID_ETH2, AID_MUSIG2, AID_TOTP, AID_FIDO2]
+    if nuri_eth_policy.eth1_demo_allowed():
+        aids.append(AID_ETH)
+    return aids
+
+
 def get_connection():
-    """Cached nuri_pcsc.Applet (ETH applet selected); reconnects if the card went away."""
+    """Cached nuri_pcsc.Applet on the first reader with a Nuri applet; reconnects if the
+    card went away. Callers SELECT the applet they need (ETH via select_eth())."""
     global _applet
     if _applet is not None:
         try:
-            _applet.transmit(bytes([0x00, 0xA4, 0x04, 0x00, len(AID_ETH)]) + AID_ETH)
+            # Liveness only: any status word is fine, a transport exception is not.
+            _applet.transmit(bytes([0x00, 0xA4, 0x04, 0x00, len(AID_ETH2)]) + AID_ETH2)
             return _applet
         except Exception:
             _applet.close()
             _applet = None
-    try:
-        _applet = nuri_pcsc.open_applet(AID_ETH.hex())
-    except nuri_pcsc.CardError as e:
-        raise RuntimeError(f"no card found in any reader ({e})") from e
-    return _applet
+    last = None
+    for aid in _connection_aids():
+        try:
+            _applet = nuri_pcsc.open_applet(aid.hex())
+            return _applet
+        except nuri_pcsc.CardError as e:
+            last = e
+            if e.code != "NO_APPLET":
+                break  # no reader/card/transport: trying another AID will not help
+    raise RuntimeError(f"no card found in any reader ({last})") from last
 
 def transmit(apdu):
     return get_connection().transmit(bytes(apdu))
@@ -176,10 +203,40 @@ class RequestDeadline(Exception):
 
 
 class HTTPError(Exception):
-    def __init__(self, status, message):
+    def __init__(self, status, message, code=None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code
+
+
+_eth1_warned = False
+
+
+def select_eth():
+    """SELECT the ETH applet under the W28 policy; returns extra response fields.
+
+    ETH2 present -> 409 ETH2_PIN_UNSUPPORTED (no PIN flow here; never bypassed).
+    ETH2 SW 6A82 -> ETH1 demo only with NURI_ALLOW_ETH1_DEMO=1 exactly (warns).
+    Any other SW -> 503 DOWNGRADE_REFUSED; transport errors propagate (no downgrade).
+    """
+    global _eth1_warned
+    _, sw = select_aid(AID_ETH2)
+    if sw == 0x9000 or (sw >> 8) == 0x61:
+        raise HTTPError(409, "the PIN-gated ETH2 applet is installed; this dashboard has no PIN flow and "
+                             "fails closed (use the native host / wallet for ETH2 signing)", "ETH2_PIN_UNSUPPORTED")
+    if sw != nuri_eth_policy.SW_FILE_NOT_FOUND:
+        raise HTTPError(503, f"ETH2 SELECT returned SW={sw:04X}, not 6A82; refusing ETH1 downgrade", "DOWNGRADE_REFUSED")
+    if not nuri_eth_policy.eth1_demo_allowed():
+        raise HTTPError(403, "ETH2 applet not installed and the legacy ETH1 applet has no PIN: start the server "
+                             "with NURI_ALLOW_ETH1_DEMO=1 (exactly) for the demo", "ETH1_DEMO_DISABLED")
+    _, sw = select_aid(AID_ETH)
+    if sw != 0x9000 and (sw >> 8) != 0x61:
+        raise HTTPError(404, f"no ETH applet on the card (ETH2 6A82, ETH1 SW={sw:04X})", "NO_APPLET")
+    if not _eth1_warned:
+        nuri_eth_policy.warn_eth1()
+        _eth1_warned = True
+    return {"eth_applet": "eth1-demo", "warning": nuri_eth_policy.ETH1_WARNING}
 
 
 class _DeadlineReader(io.RawIOBase):
@@ -276,8 +333,8 @@ guard = begin
 
 
 def eth_applet_version():
-    """(major, minor) of the selected ETH applet via INS 0x01."""
-    select_aid(AID_ETH)
+    """(major, minor) of the ETH1 demo applet via INS 0x01 (select_eth() policy applies)."""
+    select_eth()
     data, sw = transmit(bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
     if sw != 0x9000 or len(data) < 2:
         raise RuntimeError(f"ETH version failed: sw={sw:04X}")
@@ -342,7 +399,7 @@ class Handler(BaseHTTPRequestHandler):
         except RequestDeadline:
             raise
         except HTTPError as e:
-            json_resp(self, e.status, {"error": e.message})
+            json_resp(self, e.status, {"error": e.message, **({"code": e.code} if e.code else {})})
         except Exception as e:
             json_resp(self, 500, {"error": str(e)})
 
@@ -397,13 +454,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/card/status":
             self.card_status()
         elif path == "/api/eth/version":
-            select_aid(AID_ETH)
+            extra = select_eth()
             data, sw = transmit(bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
-            json_resp(self, 200, {"sw": f"{sw:04X}", "major": data[0], "minor": data[1], "build": data[3:7].decode("ascii", "replace")})
+            json_resp(self, 200, {"sw": f"{sw:04X}", "major": data[0], "minor": data[1], "build": data[3:7].decode("ascii", "replace"), **extra})
         elif path == "/api/eth/pubkey":
-            select_aid(AID_ETH)
+            extra = select_eth()
             data, sw = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
-            json_resp(self, 200, {
+            json_resp(self, 200, {**extra,
                 "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
                 "eth_address": eth_address(data),
                 "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
@@ -413,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
             # Regression guard: cross-check on-card modInverse (INS 0x06) against
             # python pow(a, -1, n) for 10 random values. Catches on-card bignum
             # breakage immediately, so we don't debug a wrong signature for hours.
-            select_aid(AID_ETH)
+            extra = select_eth()
             N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
             import secrets
             passed, failed = 0, 0
@@ -427,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
                 host_inv = pow(a, -1, N)
                 if card_inv == host_inv: passed += 1
                 else: failed += 1
-            json_resp(self, 200, {"modinv_passed": passed, "modinv_failed": failed, "ok": failed == 0})
+            json_resp(self, 200, {"modinv_passed": passed, "modinv_failed": failed, "ok": failed == 0, **extra})
         elif path == "/api/musig2/version":
             select_aid(AID_MUSIG2)
             data, sw = transmit(bytes([0x80, 0x01, 0x00, 0x00, 0x00]))
@@ -452,9 +509,9 @@ class Handler(BaseHTTPRequestHandler):
             if (major, minor) < (1, 4):
                 json_resp(self, 403, {"error": f"keygen refused: ETH applet {major}.{minor} < 1.4 replaces the existing key"})
                 return
-            select_aid(AID_ETH)
+            extra = select_eth()
             data, sw = transmit(bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
-            json_resp(self, 200, {
+            json_resp(self, 200, {**extra,
                 "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
                 "eth_address": eth_address(data),
                 "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
@@ -469,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(hx, str) or not re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", hx):
                 raise HTTPError(400, "hash must be exactly 32 bytes of hex")
             h = bytes.fromhex(hx[2:] if hx.startswith("0x") else hx)
-            select_aid(AID_ETH)
+            extra = select_eth()
             pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
             sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + h)
             r = int.from_bytes(sig[:32], "big")
@@ -485,6 +542,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ecdsa_verify": verified_verify,
                 "ecdsa_ecrecover": verified_recover,
                 "verifier": "python-ecdsa (independent of host code)",
+                **extra,
             })
         elif path == "/api/btc/sign":
             # Bitcoin message signing: sign double-SHA256(message). The same
@@ -494,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise HTTPError(400, "message must be a string")
             msg = body["message"].encode()
             z = hashlib.sha256(hashlib.sha256(msg).digest()).digest()
-            select_aid(AID_ETH)
+            extra = select_eth()
             pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
             sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + z)
             r = int.from_bytes(sig[:32], "big")
@@ -513,6 +571,7 @@ class Handler(BaseHTTPRequestHandler):
                 "z_hash": z.hex(),
                 "btc_p2pkh_address": btc_p2pkh_address(pub, "mainnet"),
                 "hash160_hex": hash160(pub).hex(),
+                **extra,
             })
         else:
             json_resp(self, 404, {"error": "not found"})
@@ -526,7 +585,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             atr = f"error: {e}"
         applets = {}
-        for name, aid in [("fido2", AID_FIDO2), ("musig2", AID_MUSIG2), ("totp", AID_TOTP), ("eth", AID_ETH)]:
+        probes = [("fido2", AID_FIDO2), ("musig2", AID_MUSIG2), ("totp", AID_TOTP), ("eth2", AID_ETH2)]
+        if nuri_eth_policy.eth1_demo_allowed():
+            probes.append(("eth", AID_ETH))
+        else:  # W28: not even a SELECT of the PIN-less ETH1 applet without the demo env
+            applets["eth"] = {"sw": None, "present": False, "skipped": "NURI_ALLOW_ETH1_DEMO is not 1"}
+        for name, aid in probes:
             try:
                 _, sw = select_aid(aid)
                 applets[name] = {"sw": f"{sw:04X}", "present": sw == 0x9000}
@@ -593,6 +657,13 @@ def main():
     print(f"CLI API auth: Authorization: Bearer <dashboard token> ({'NURI_DASHBOARD_TOKEN' if source == 'env' else source}); "
           f"Host must be 127.0.0.1:{port} or localhost:{port}; no CORS.")
     print(f"/api/eth/keygen: {'ENABLED (NURI_ALLOW_KEYGEN=1, applet >= 1.4 only)' if os.environ.get('NURI_ALLOW_KEYGEN') == '1' else 'disabled'}")
+    if nuri_eth_policy.eth1_demo_allowed():
+        nuri_eth_policy.warn_eth1()
+        print("ETH: PIN-gated ETH2 preferred (fails closed: no PIN flow here); "
+              "ETH1 DEMO fallback ENABLED only when ETH2 is absent (SW 6A82)")
+    else:
+        print("ETH: PIN-gated ETH2 preferred (fails closed: no PIN flow here); ETH1 demo disabled "
+              "(NURI_ALLOW_ETH1_DEMO=1 to enable)")
     print("Card signs, python-ecdsa + pycryptodome verify (no hand-rolled host crypto).")
     print("Reader must have the card inserted (protocol ladder: default, T=0, T=1; see docs/reader-compatibility.md).")
     family = socket.AF_INET6 if ":" in host else socket.AF_INET

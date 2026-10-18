@@ -44,17 +44,34 @@ TOKEN_ENV = ("NURI_DASHBOARD_TOKEN", "NURI_DASHBOARD_TOKEN_FILE", "NURI_CARD_TOK
              "NURI_ALLOW_REMOTE")
 
 
+ETH1_AID = bytes.fromhex("4E55524945544801")
+ETH2_AID = bytes.fromhex("4E5552494554483201")
+
+
 class FakeApplet:
-    """Answers SELECT (INS A4) and VERSION (INS 01) only. Everything else = test failure."""
+    """Answers SELECT (INS A4) and VERSION (INS 01) only. Everything else = test failure.
+
+    SELECT: 9000 for an AID in `present`, 6A82 otherwise; `eth2_sw` overrides the ETH2
+    answer (int) or makes it raise ("transport"). Default card: ETH1 demo only, no ETH2.
+    """
     version = (1, 3)
     calls: list[bytes] = []
+    present = {ETH1_AID}
+    eth2_sw = None
 
     def transmit(self, apdu):
         apdu = bytes(apdu)
         FakeApplet.calls.append(apdu)
         ins = apdu[1]
         if ins == 0xA4:
-            return b"", 0x9000
+            aid = apdu[5:5 + apdu[4]]
+            if aid == ETH2_AID and FakeApplet.eth2_sw is not None:
+                if FakeApplet.eth2_sw == "transport":
+                    raise OSError("reader went away")
+                return b"", FakeApplet.eth2_sw
+            if aid in FakeApplet.present or aid not in (ETH1_AID, ETH2_AID):
+                return b"", 0x9000
+            return b"", 0x6A82
         if ins == 0x01:
             return bytes(FakeApplet.version) + b"\x00test", 0x9000
         raise AssertionError(f"card must not be touched: INS {ins:02X}")
@@ -433,6 +450,9 @@ class DashboardServer(unittest.TestCase):
         cls._orig_open_applet = nuri_pcsc.open_applet
         nuri_pcsc.open_applet = lambda aid: FakeApplet()
         cls.mod._applet = None
+        # Existing ETH tests run against the ETH1 demo applet: opt in explicitly (W28).
+        cls._saved_demo = os.environ.get("NURI_ALLOW_ETH1_DEMO")
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
         cls.web = tempfile.mkdtemp(prefix="nuri-web-")
         shutil.copy(ROOT / "web" / "dashboard.html", cls.web)
         with open(os.path.join(cls.web, "helper-pair.js"), "w") as fh:
@@ -452,6 +472,9 @@ class DashboardServer(unittest.TestCase):
         cls.srv.shutdown()
         cls.srv.server_close()
         nuri_pcsc.open_applet = cls._orig_open_applet
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        if cls._saved_demo is not None:
+            os.environ["NURI_ALLOW_ETH1_DEMO"] = cls._saved_demo
         shutil.rmtree(cls.web, ignore_errors=True)
 
     @property
@@ -642,6 +665,81 @@ class DashboardServer(unittest.TestCase):
             self.assertFalse(any(a[1] == 0x03 for a in FakeApplet.calls), "KEYGEN INS never sent")
         finally:
             os.environ.pop("NURI_ALLOW_KEYGEN", None)
+
+    # --- W28 ETH policy ---
+
+    def _eth_case(self, demo="1", present=None, eth2_sw=None):
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        if demo is not None:
+            os.environ["NURI_ALLOW_ETH1_DEMO"] = demo
+        FakeApplet.present = {ETH1_AID} if present is None else present
+        FakeApplet.eth2_sw = eth2_sw
+        self.addCleanup(self._eth_reset)
+        before = len(FakeApplet.calls)
+        status, _, body = self.req("GET", "/api/eth/version", headers=self.good())
+        sent = FakeApplet.calls[before:]
+        eth1_selects = [a for a in sent if a[1] == 0xA4 and a[5:5 + a[4]] == ETH1_AID]
+        return status, json.loads(body), eth1_selects, sent
+
+    def _eth_reset(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        FakeApplet.present = {ETH1_AID}
+        FakeApplet.eth2_sw = None
+
+    def test_eth1_refused_unless_demo_env_exactly_1(self):
+        for demo in (None, "", "0", "true", "yes", "1 ", "01"):
+            with self.subTest(demo=demo):
+                status, d, eth1, _ = self._eth_case(demo=demo)
+                self.assertEqual(status, 403)
+                self.assertEqual(d["code"], "ETH1_DEMO_DISABLED")
+                self.assertEqual(eth1, [], "ETH1 never selected")
+
+    def test_eth1_demo_allowed_carries_warning(self):
+        status, d, eth1, _ = self._eth_case(demo="1")
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["eth_applet"], "eth1-demo")
+        self.assertIn("NO PIN", d["warning"])
+        self.assertTrue(eth1)
+
+    def test_eth2_installed_fails_closed_pin_unsupported(self):
+        status, d, eth1, sent = self._eth_case(demo="1", present={ETH1_AID, ETH2_AID})
+        self.assertEqual(status, 409)
+        self.assertEqual(d["code"], "ETH2_PIN_UNSUPPORTED")
+        self.assertEqual(eth1, [], "never bypass ETH2 via ETH1")
+        self.assertFalse(any(a[1] in (0x01, 0x02, 0x04) for a in sent), "no ETH2 command without PIN flow")
+
+    def test_eth2_ambiguous_status_or_transport_never_downgrades(self):
+        status, d, eth1, _ = self._eth_case(demo="1", eth2_sw=0x6999)
+        self.assertEqual((status, d["code"]), (503, "DOWNGRADE_REFUSED"))
+        self.assertEqual(eth1, [])
+        status, d, eth1, _ = self._eth_case(demo="1", eth2_sw="transport")
+        self.assertEqual(status, 500)
+        self.assertEqual(eth1, [])
+
+    def test_sign_endpoints_follow_policy(self):
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        self.addCleanup(self._eth_reset)
+        before = len(FakeApplet.calls)
+        for path, body in (("/api/eth/sign", json.dumps({"hash": "11" * 32})), ("/api/btc/sign", '{"message": "x"}'),
+                           ("/api/eth/keygen", "{}")):
+            os.environ["NURI_ALLOW_KEYGEN"] = "1"
+            try:
+                status, _, raw = self.req("POST", path, body=body, headers=self.good())
+            finally:
+                os.environ.pop("NURI_ALLOW_KEYGEN", None)
+            self.assertEqual((status, json.loads(raw)["code"]), (403, "ETH1_DEMO_DISABLED"), path)
+        self.assertFalse(any(a[1] in (0x02, 0x03, 0x04) for a in FakeApplet.calls[before:]))
+
+    def test_card_status_skips_eth1_without_demo_env(self):
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        self.addCleanup(self._eth_reset)
+        before = len(FakeApplet.calls)
+        status, _, body = self.req("GET", "/api/card/status", headers=self.good())
+        self.assertEqual(status, 200, body)
+        d = json.loads(body)
+        self.assertIn("skipped", d["applets"]["eth"])
+        self.assertEqual(d["applets"]["eth2"]["present"], False)
+        self.assertFalse(any(a[1] == 0xA4 and a[5:5 + a[4]] == ETH1_AID for a in FakeApplet.calls[before:]))
 
     # --- framing / DoS ---
 

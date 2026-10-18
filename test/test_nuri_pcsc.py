@@ -16,6 +16,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -35,7 +36,7 @@ PUBKEY = [0x80, 0x02, 0x00, 0x00, 0x00]
 SIGN = [0x80, 0x04, 0x00, 0x00, 0x20] + [0x11] * 32
 VERSION_RESP = [0x01, 0x03, 0x01] + list(b"ETH1")
 PUBKEY_RESP = list(bytes.fromhex("031f0f76cf2da4d2c679130f1accfb1e3b149c20ea15291a49b643e350cc63c4b1"))
-SIG_RESP = list(range(65))
+SIG_RESP = list(range(64)) + [1]  # r||s||v, v in {0,1} (pkcs11-helper rejects anything else)
 
 
 class ConnectError(Exception):
@@ -492,6 +493,9 @@ class CallSiteTests(PcscTestCase):
 
     def test_pkcs11_helper_card_init_on_realtek(self):
         self.use(realtek())
+        # W28: this card image has only the PIN-less ETH1 demo applet; opt in explicitly.
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        self.addCleanup(os.environ.pop, "NURI_ALLOW_ETH1_DEMO", None)
         helper = load_script("pkcs11-helper")
         conn = helper.card_init()
         self.assertEqual(conn.protocol, "T0")
@@ -528,6 +532,131 @@ class CallSiteTests(PcscTestCase):
         self.assertEqual(eth.raw_sw(applet, bytes([0x80, 0x7F, 0x00, 0x00, 0x00])), (b"", 0x6D00))
         with self.assertRaises(RuntimeError):
             eth.transmit(applet, bytes([0x80, 0x7F, 0x00, 0x00, 0x00]))
+
+
+ETH2_AID = "4E5552494554483201"
+
+
+class Eth2TransportFailCard(FakeCard):
+    """SELECT ETH2 raises (reader hiccup): nuri_pcsc reports that as NO_APPLET too."""
+
+    def answer(self, apdu, protocol):
+        if apdu[:4] == [0x00, 0xA4, 0x04, 0x00] and bytes(apdu[5:5 + apdu[4]]).hex().upper() == ETH2_AID:
+            raise ConnectError("transmit failed", 0x80100016)
+        return super().answer(apdu, protocol)
+
+
+class EthPolicyTests(PcscTestCase):
+    """W28 scripts/nuri_eth_policy.py + card-eth-test.py gate on fake readers (no card)."""
+
+    def setUp(self):
+        super().setUp()
+        self._demo = os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        import nuri_eth_policy
+        self.policy = nuri_eth_policy
+        self.warned = []
+
+    def tearDown(self):
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        if self._demo is not None:
+            os.environ["NURI_ALLOW_ETH1_DEMO"] = self._demo
+        super().tearDown()
+
+    @staticmethod
+    def eth1_selects(*readers):
+        return [a for r in readers for c in r.connections for a in c.log if a == SELECT_ETH]
+
+    def warn(self):
+        self.warned.append(1)
+
+    def test_eth2_preferred_even_with_demo_env(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        (rdr,) = self.use(realtek(card=FakeCard(aids=(ETH_AID, ETH2_AID))))
+        applet, which = self.policy.open_eth(nuri_pcsc, warn=self.warn)
+        self.assertEqual((which, applet.aid_hex), ("eth2", ETH2_AID))
+        self.assertEqual(self.eth1_selects(rdr), [])
+        self.assertEqual(self.warned, [])
+
+    def test_eth1_refused_without_exact_env(self):
+        for value in (None, "", "0", "true", "yes", "1 ", "01"):
+            with self.subTest(value=value):
+                os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+                if value is not None:
+                    os.environ["NURI_ALLOW_ETH1_DEMO"] = value
+                (rdr,) = self.use(realtek())
+                with self.assertRaises(self.policy.EthPolicyError) as ctx:
+                    self.policy.open_eth(nuri_pcsc, warn=self.warn)
+                self.assertEqual(ctx.exception.code, "ETH1_DEMO_DISABLED")
+                with self.assertRaises(self.policy.EthPolicyError) as ctx:
+                    self.policy.open_eth1_demo(nuri_pcsc, warn=self.warn)
+                self.assertEqual(ctx.exception.code, "ETH1_DEMO_DISABLED")
+                self.assertEqual(self.eth1_selects(rdr), [])
+                self.assertEqual(self.warned, [])
+
+    def test_confirmed_6a82_allows_eth1_with_warning(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        (rdr,) = self.use(realtek())
+        applet, which = self.policy.open_eth(nuri_pcsc, warn=self.warn)
+        self.assertEqual((which, applet.aid_hex, applet.protocol), ("eth1", ETH_AID, "T0"))
+        self.assertEqual(self.warned, [1])
+
+    def test_ambiguous_no_applet_from_transport_refuses_downgrade(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        (rdr,) = self.use(realtek(card=Eth2TransportFailCard()))
+        with self.assertRaises(nuri_pcsc.CardError) as ctx:
+            nuri_pcsc.open_applet(ETH2_AID)
+        self.assertEqual(ctx.exception.code, "NO_APPLET")  # the conflation the policy guards against
+        for opener in (self.policy.open_eth, self.policy.open_eth1_demo):
+            with self.subTest(opener=opener.__name__):
+                with self.assertRaises(self.policy.EthPolicyError) as ctx:
+                    opener(nuri_pcsc, warn=self.warn)
+                self.assertEqual(ctx.exception.code, "DOWNGRADE_REFUSED")
+        self.assertEqual(self.eth1_selects(rdr), [])
+        self.assertEqual(self.warned, [])
+
+    def test_absence_needed_on_every_reader(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        good, bad = self.use(realtek(), omnikey(card=Eth2TransportFailCard(), name="Second Reader"))
+        with self.assertRaises(self.policy.EthPolicyError) as ctx:
+            self.policy.open_eth(nuri_pcsc, warn=self.warn)
+        self.assertEqual(ctx.exception.code, "DOWNGRADE_REFUSED")
+        self.assertIn("Second Reader", ctx.exception.message)
+        self.assertEqual(self.eth1_selects(good, bad), [])
+
+    def test_no_reader_never_downgrades(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        self.use()
+        with self.assertRaises(nuri_pcsc.CardError) as ctx:
+            self.policy.open_eth(nuri_pcsc, warn=self.warn)
+        self.assertEqual(ctx.exception.code, "NO_READER")
+        with self.assertRaises(self.policy.EthPolicyError) as ctx:
+            self.policy.open_eth1_demo(nuri_pcsc, warn=self.warn)
+        self.assertEqual(ctx.exception.code, "DOWNGRADE_REFUSED")
+
+    def test_eth1_only_tool_refuses_when_eth2_installed(self):
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        (rdr,) = self.use(realtek(card=FakeCard(aids=(ETH_AID, ETH2_AID))))
+        with self.assertRaises(self.policy.EthPolicyError) as ctx:
+            self.policy.open_eth1_demo(nuri_pcsc, warn=self.warn)
+        self.assertEqual(ctx.exception.code, "ETH2_PRESENT")
+        self.assertEqual(self.eth1_selects(rdr), [])
+
+    def test_card_eth_test_main_gated(self):
+        eth = load_script("card-eth-test")
+        (rdr,) = self.use(realtek())
+        with mock.patch.object(sys, "argv", ["card-eth-test.py"]):
+            with self.assertRaises(SystemExit) as ctx:
+                eth.main()
+        self.assertIn("ETH1_DEMO_DISABLED", str(ctx.exception.code))
+        self.assertEqual(rdr.connections, [], "env gate before any card I/O")
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        (rdr,) = self.use(realtek(card=FakeCard(aids=(ETH_AID, ETH2_AID))))
+        with mock.patch.object(sys, "argv", ["card-eth-test.py", "--regenerate"]):
+            with self.assertRaises(SystemExit) as ctx:
+                eth.main()
+        self.assertIn("ETH2_PRESENT", str(ctx.exception.code))
+        self.assertEqual(self.eth1_selects(rdr), [])
+        self.assertFalse(any(a[1] == 0x03 for c in rdr.connections for a in c.log), "KEYGEN never sent")
 
 
 class ScriptImportTests(unittest.TestCase):

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Test the NuriEcdsaSigner applet on the real card.
+"""Test the legacy NuriEcdsaSigner (ETH1) demo applet on the real card.
+
+W28: ETH1 has no PIN, so this tool refuses unless env NURI_ALLOW_ETH1_DEMO is
+exactly "1" (checked before any card I/O), refuses when the PIN-gated ETH2
+applet is installed (or its absence cannot be confirmed as SW 6A82), and warns
+on stderr when it does talk to ETH1.
 
 Flow:
 1. SELECT the NURIETH1 applet
@@ -14,9 +19,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nuri_eth_policy
 import nuri_pcsc
 
-APPLET_AID = bytes.fromhex("4E55524945544801")
+APPLET_AID = bytes.fromhex(nuri_eth_policy.ETH1_AID)
 MUSIG2_AID = bytes.fromhex("4E5552494D554701")  # was a 9-byte typo, the RNG check silently skipped
 
 def transmit(conn, apdu_bytes):
@@ -87,11 +93,13 @@ def main():
     )
     args = parser.parse_args()
 
-    # Find the reader (and protocol) whose inserted card actually exposes the ETH applet.
+    # ETH1 demo gate (env, ETH2 preferred, confirmed 6A82 only) before keygen/sign.
     try:
-        conn = nuri_pcsc.open_applet(APPLET_AID.hex())
+        conn = nuri_eth_policy.open_eth1_demo(nuri_pcsc)
+    except nuri_eth_policy.EthPolicyError as error:
+        raise SystemExit(f"Refusing ETH1 demo test: {error}") from error
     except nuri_pcsc.CardError as error:
-        raise SystemExit(f"Nuri ETH applet not found on any reader ({error})") from error
+        raise SystemExit(f"Nuri ETH1 applet not found on any reader ({error})") from error
     print(f"Reader: {conn.reader_name} (protocol {conn.protocol})")
 
     print("\n=== SELECT NURIETH1 ===")

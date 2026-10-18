@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stderr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -110,6 +111,7 @@ def reset_host():
     host._INFO = None
     host._SIM_ACK = False
     host._SIM_FLAG = False
+    host._ETH1_WARNED = False
 
 
 class SimSignTests(unittest.TestCase):
@@ -229,7 +231,8 @@ class FakePcscCardTests(unittest.TestCase):
         from ecdsa.util import sigencode_string, sigencode_der
         calls = []
         card = types.SimpleNamespace(key=sim_key, echo=eth2_echo_key, pin=pin, tries=tries,
-                                     applets=set(applets), opened=[], fail_transmit=None, attestation=None)
+                                     applets=set(applets), opened=[], fail_transmit=None, attestation=None,
+                                     eth2_probe=None, probes=[])
         self.card = card
 
         class CardError(Exception):
@@ -305,10 +308,42 @@ class FakePcscCardTests(unittest.TestCase):
             card.opened.append(a)
             return a
 
+        # W28 ETH2-absence re-probe surface (C1 shape). eth2_probe: None = derive from applets
+        # (9000 / 6A82), "transport" = SELECT raises, int = that status word.
+        class Reader:
+            def createConnection(self):
+                return types.SimpleNamespace()
+
+            def __str__(self):
+                return "Fake Reader 00 00"
+
+        def transmit_raw(conn, apdu):
+            card.probes.append(bytes(apdu).hex().upper())
+            if card.eth2_probe == "transport":
+                raise OSError("reader went away mid-SELECT")
+            if card.eth2_probe is not None:
+                return b"", card.eth2_probe
+            return b"", (0x9000 if host.AID_ETH_V2 in card.applets else 0x6A82)
+
+        def connect_ladder(conn, probe, protocols=None):
+            try:
+                ok = probe(conn)
+            except Exception as exc:
+                raise CardError("NO_APPLET", f"probe raised {exc}")
+            if not ok:
+                raise CardError("NO_APPLET", "probe failed")
+            return "T0"
+
         mod = types.ModuleType("nuri_pcsc")
         mod.CardError = CardError
         mod.Applet = Applet
         mod.open_applet = open_applet
+        mod._list_readers = lambda: [Reader()]
+        mod._select_readers = lambda readers, hint: list(readers)
+        mod.select_apdu = lambda aid: bytes([0, 0xA4, 4, 0, len(aid) // 2]) + bytes.fromhex(aid)
+        mod.transmit_raw = transmit_raw
+        mod.connect_ladder = connect_ladder
+        mod._disconnect = lambda conn: None
         sys.modules["nuri_pcsc"] = mod
         return calls
 
@@ -321,9 +356,19 @@ class FakePcscCardTests(unittest.TestCase):
         self.key = SigningKey.from_secret_exponent(0x1234567, curve=SECP256k1)
         self.saved_env = os.environ.pop("NURI_CARD_SIM", None)
         self.saved_ca = os.environ.pop("NURI_CARD_CA_PUBKEY", None)
+        # Existing ETH1 fake-card tests opt in explicitly (W28); W28 tests below pop/override it.
+        self.saved_demo = os.environ.get("NURI_ALLOW_ETH1_DEMO")
+        os.environ["NURI_ALLOW_ETH1_DEMO"] = "1"
+        self._stderr = io.StringIO()
+        self._redirect = redirect_stderr(self._stderr)
+        self._redirect.__enter__()
         reset_host()
 
     def tearDown(self):
+        self._redirect.__exit__(None, None, None)
+        os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+        if self.saved_demo is not None:
+            os.environ["NURI_ALLOW_ETH1_DEMO"] = self.saved_demo
         sys.modules.pop("nuri_pcsc", None)
         reset_host()
         os.environ.pop("NURI_CARD_CA_PUBKEY", None)
@@ -525,7 +570,8 @@ finally:
             with self.subTest(scenario=scenario):
                 proc = subprocess.run([sys.executable, "-c", bootstrap, HERE, scenario],
                                       input=frame({"id": 1, "method": "info"}) + frame({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "33" * 32}}),
-                                      capture_output=True, env=dict(os.environ, NURI_CARD_HOST_LOG=""), timeout=30)
+                                      capture_output=True, env={k: v for k, v in dict(os.environ, NURI_CARD_HOST_LOG="").items()
+                                                                if k != "NURI_ALLOW_ETH1_DEMO"}, timeout=30)
                 self.assertEqual(proc.returncode, 0, proc.stderr.decode())
                 self.assertEqual(proc.stderr, b"")
                 responses = unframe_all(proc.stdout)
@@ -791,6 +837,168 @@ finally:
         self.assertIsNone(host._INFO)
 
 
+class Eth1DemoPolicyTests(FakePcscCardTests):
+    """W28: ETH1 (no PIN) needs NURI_ALLOW_ETH1_DEMO=1 exactly and a confirmed 6A82 ETH2
+    absence; ETH2 transport/PIN failures never downgrade. Fake nuri_pcsc only.
+    Reuses FakePcscCardTests fixtures; inherited test_* are not re-run here."""
+
+    def _eth1_opened(self):
+        return [a for a in self.card.opened if a.aid == host.AID_ETH_V1]
+
+    def test_eth1_refused_without_demo_env(self):
+        for value in (None, "", "0", "true", "yes", "1 ", " 1", "01", "2"):
+            with self.subTest(value=value):
+                reset_host()
+                if value is None:
+                    os.environ.pop("NURI_ALLOW_ETH1_DEMO", None)
+                else:
+                    os.environ["NURI_ALLOW_ETH1_DEMO"] = value
+                self._install_fake({host.AID_ETH_V1}, self.key)
+                resp = host.handle({"id": 1, "method": "info"})
+                self.assertFalse(resp["ok"])
+                self.assertEqual(resp["error"]["code"], "ETH1_DEMO_DISABLED")
+                self.assertEqual(resp["mode"], "card")
+                self.assertEqual(self._eth1_opened(), [], "ETH1 never selected")
+                self.assertEqual(self.card.probes, [])
+                self.assertIsNone(host._INFO)
+
+    def test_eth1_demo_warns_once_and_in_info(self):
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["applet"], "eth1")
+        self.assertEqual(info["result"]["warning"], host.ETH1_WARNING)
+        self.assertEqual(self.card.probes, ["00A40400" + "09" + host.AID_ETH_V2])  # 6A82 confirmed first
+        host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "09" * 32}})
+        self.assertEqual(self._stderr.getvalue().count("ETH1 DEMO"), 1)
+
+    def test_eth2_info_has_no_eth1_warning(self):
+        self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key, eth2_format="rspub")
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertEqual(info["result"]["applet"], "eth2")
+        self.assertNotIn("warning", info["result"])
+        self.assertEqual(self._eth1_opened(), [])
+        self.assertEqual(self._stderr.getvalue(), "")
+
+    def test_ambiguous_no_applet_transport_refuses_downgrade(self):
+        # nuri_pcsc reports NO_APPLET for a raising SELECT too; the re-probe must not trust it.
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        self.card.eth2_probe = "transport"
+        resp = host.handle({"id": 1, "method": "info"})
+        self.assertEqual(resp["error"]["code"], "DOWNGRADE_REFUSED")
+        self.assertEqual(resp["mode"], "card")
+        self.assertEqual(self._eth1_opened(), [])
+
+    def test_unexpected_eth2_status_refuses_downgrade(self):
+        for sw in (0x6999, 0x6A86, 0x6F00, 0x6985):
+            with self.subTest(sw=f"{sw:04X}"):
+                reset_host()
+                self._install_fake({host.AID_ETH_V1}, self.key)
+                self.card.eth2_probe = sw
+                resp = host.handle({"id": 1, "method": "info"})
+                self.assertEqual(resp["error"]["code"], "DOWNGRADE_REFUSED")
+                self.assertEqual(self._eth1_opened(), [])
+
+    def test_eth2_transport_or_reader_errors_never_downgrade(self):
+        for code in ("TRANSPORT", "NO_CARD", "NO_READER"):
+            with self.subTest(code=code):
+                reset_host()
+                self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key)
+                mod = sys.modules["nuri_pcsc"]
+                seen = []
+
+                def failing(aid_hex, reader=None, _code=code):
+                    seen.append(aid_hex)
+                    raise mod.CardError(_code, "bus error")
+                mod.open_applet = failing
+                resp = host.handle({"id": 1, "method": "info"})
+                self.assertFalse(resp["ok"])
+                self.assertNotIn(resp["error"]["code"], ("ETH1_DEMO_DISABLED",))
+                self.assertEqual(seen, [host.AID_ETH_V2], "ETH1 never tried after a non-NO_APPLET failure")
+                self.assertEqual(resp["mode"], "card")
+
+    def test_eth2_pin_failure_never_downgrades(self):
+        self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key, eth2_format="rspub", pin=b"123456")
+        info = host.handle({"id": 1, "method": "info"})["result"]
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "0a" * 32}})
+        self.assertEqual(resp["error"]["code"], "PIN_REQUIRED")
+        self.assertEqual(resp["mode"], "card")
+        resp = host.handle({"id": 3, "method": "verify_pin",
+                            "params": {"pin": "000000", "hash": "0x" + "0a" * 32, "address": info["address"]}})
+        self.assertEqual(resp["error"]["code"], "PIN_WRONG")
+        self.assertEqual(self._eth1_opened(), [], "PIN failures on ETH2 never reach ETH1")
+        self.assertEqual(self.card.probes, [])
+
+
+for _name in [n for n in dir(FakePcscCardTests) if n.startswith("test_")]:
+    if _name not in Eth1DemoPolicyTests.__dict__:
+        setattr(Eth1DemoPolicyTests, _name, None)  # unittest skips non-callable attrs
+del _name
+
+
+class ModeOnEveryResponseTests(unittest.TestCase):
+    """W28: top-level mode on ok and error responses (card | sim | invalid)."""
+
+    def setUp(self):
+        self.saved = {k: os.environ.pop(k, None) for k in ("NURI_CARD_SIM", "NURI_ALLOW_ETH1_DEMO")}
+        reset_host()
+
+    def tearDown(self):
+        reset_host()
+        for k, v in self.saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+    def test_sim_ok_and_error(self):
+        os.environ["NURI_CARD_SIM"] = "1"
+        self.assertEqual(host.handle({"id": 1, "method": "info"})["mode"], "sim")
+        self.assertEqual(host.handle({"id": 2, "method": "nope"})["mode"], "sim")
+        self.assertEqual(host.handle([1])["mode"], "sim")
+
+    def test_card_error_and_invalid_config(self):
+        sys.modules["nuri_pcsc"] = None  # card import fails: CARD_ERROR, still labelled card
+        try:
+            resp = host.handle({"id": 1, "method": "info"})
+        finally:
+            sys.modules.pop("nuri_pcsc", None)
+        self.assertEqual((resp["ok"], resp["mode"]), (False, "card"))
+        os.environ["NURI_CARD_SIM"] = "true"
+        resp = host.handle({"id": 2, "method": "info"})
+        self.assertEqual((resp["error"]["code"], resp["mode"]), ("CONFIG_ERROR", "invalid"))
+        os.environ.pop("NURI_CARD_SIM")
+        host._SIM_FLAG = True
+        self.assertEqual(host.handle({"id": 3, "method": "info"})["mode"], "invalid")
+
+    def _run(self, env_extra, argv=(), stdin=b""):
+        env = {k: v for k, v in os.environ.items() if k not in ("NURI_CARD_SIM", "NURI_ALLOW_ETH1_DEMO", "NURI_CARD_HOST_LOG")}
+        env.update(env_extra)
+        return subprocess.run([sys.executable, os.path.join(HERE, "nuri_card_host.py"), *argv, "chrome-extension://test/"],
+                              input=stdin, capture_output=True, env=env, timeout=30)
+
+    def test_startup_warnings_on_stderr_only(self):
+        proc = self._run({})
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, b"", b""))
+        proc = self._run({"NURI_CARD_SIM": "1"})
+        self.assertIn(b"WARNING: SIM MODE", proc.stderr)
+        self.assertEqual(proc.stdout, b"")
+        proc = self._run({"NURI_ALLOW_ETH1_DEMO": "1"})  # no request: no card I/O
+        self.assertIn(b"WARNING: ETH1 DEMO", proc.stderr)
+        self.assertEqual(proc.stdout, b"")
+        proc = self._run({"NURI_ALLOW_ETH1_DEMO": "true"})
+        self.assertEqual(proc.stderr, b"")
+        proc = self._run({}, argv=("--sim",), stdin=frame({"id": 1, "method": "info"}))
+        self.assertIn(b"misconfigured", proc.stderr)
+        msgs = unframe_all(proc.stdout)
+        self.assertEqual([(m["error"]["code"], m["mode"]) for m in msgs], [("CONFIG_ERROR", "invalid")])
+
+    def test_framing_error_carries_mode(self):
+        proc = self._run({"NURI_CARD_SIM": "1"}, stdin=struct.pack("<I", 0))
+        msgs = unframe_all(proc.stdout)
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0]["mode"], "sim")
+
+
 class SimGateTests(unittest.TestCase):
     """Sim must be explicit: env exactly "1" AND a successful sim info in this process."""
 
@@ -1003,6 +1211,7 @@ class FramingTests(unittest.TestCase):
     def _spawn(self, timeout="0.5"):
         env = dict(os.environ, NURI_CARD_SIM="1", NURI_CARD_HOST_FRAME_TIMEOUT=timeout)
         env.pop("NURI_CARD_HOST_LOG", None)
+        env.pop("NURI_ALLOW_ETH1_DEMO", None)
         return subprocess.Popen(
             [sys.executable, os.path.join(HERE, "nuri_card_host.py"), "chrome-extension://test/"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
@@ -1015,7 +1224,8 @@ class FramingTests(unittest.TestCase):
         msgs = unframe_all(out)
         self.assertEqual(len(msgs), 1)
         self.assertIn("too large", msgs[0]["error"]["message"])
-        self.assertEqual(err, b"")  # no traceback
+        self.assertEqual(msgs[0]["mode"], "sim")
+        self.assertEqual(err, (host.SIM_WARNING + "\n").encode())  # startup warning only, no traceback
 
     def test_subprocess_deep_nesting_exits_1_no_traceback(self):
         bad = b"[" * 300000 + b"]" * 300000
@@ -1023,7 +1233,7 @@ class FramingTests(unittest.TestCase):
         out, err = proc.communicate(struct.pack("<I", len(bad)) + bad + self.TRAILER, timeout=30)
         self.assertEqual(proc.returncode, 1, err.decode())
         self.assertEqual(len(unframe_all(out)), 1)
-        self.assertEqual(err, b"")
+        self.assertEqual(err, (host.SIM_WARNING + "\n").encode())
 
     def test_subprocess_stalled_frame_hits_deadline(self):
         for partial in (b"\x10", frame({"id": 1, "method": "info"})[:-3]):
