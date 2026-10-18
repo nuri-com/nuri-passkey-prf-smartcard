@@ -623,7 +623,7 @@ class PersonalizationTests(unittest.TestCase):
         pin = Path(self.tmp.name) / "pub.pem"
         evidence = Path(self.tmp.name) / "response.bin"
         pin.write_bytes(self.e.ca.verifying_key.to_pem())
-        command = [sys.executable, str(ROOT / "scripts/attest-card.py")]
+        command = [sys.executable, str(ROOT / "scripts/nuri_attest.py")]
         issued = subprocess.run(command + ["challenge", "--state", str(state),
                                 "--expected-aid", self.e.info["aid"].hex(),
                                 "--expected-signing-pub", self.e.pub.hex(), "--out", str(raw_challenge)],
@@ -637,6 +637,320 @@ class PersonalizationTests(unittest.TestCase):
         replay = subprocess.run(args, capture_output=True, text=True)
         self.assertEqual(replay.returncode, 1)
         self.assertIn("already consumed", replay.stderr)
+
+
+class InitCard:
+    """Stateful fake with genuine signatures; never imports PC/SC or hardware."""
+    def __init__(self, aid=att.ETH2_AID, initial_state=1, keyed=False, fault=None):
+        self.e = Evidence(aid)
+        self.e.info.update(sealed=False, cert=b"")
+        self.state, self.keyed, self.fault = initial_state, keyed, fault
+        self.calls, self.secret_buffers = [], []
+        self.closed, self.logged_out = False, False
+        self.attest_reads = 0
+        self.raw_pub = self.e.wallet.verifying_key.to_string(
+            "compressed" if aid == att.MUSIG2_AID else "uncompressed")
+        self.binding = sign(self.e.device, att.BINDING_DOMAIN + aid + self.e.pub)
+        if fault == "binding":
+            # Keep 74 and later attestation mutually consistent: only NHWV1
+            # verification (not a second readback inequality) can reject this.
+            self.binding = sign(self.e.device, b"wrong binding")
+        if fault == "invalid_public":
+            self.raw_pub = (b"\x02" + b"\x00" * 32 if aid == att.MUSIG2_AID
+                            else b"\x04" + b"\x00" * 64)
+        elif fault == "public_encoding":
+            self.raw_pub = self.e.wallet.verifying_key.to_string(
+                "uncompressed" if aid == att.MUSIG2_AID else "compressed")
+        elif fault == "public_length":
+            self.raw_pub = self.raw_pub[:-1]
+
+    def transmit(self, apdu):
+        assert not self.closed
+        raw = bytes(apdu)
+        self.calls.append(raw)
+        aid = self.e.info["aid"]
+        cla = 0 if aid == att.MUSIG2_AID else 0x80
+        if raw[1] == 0xA4:
+            assert raw == bytes([0, 0xA4, 4, 0, len(aid)]) + aid
+            self.logged_out = True
+            self.state &= ~4
+            if self.fault == "logout":
+                return b"", 0x6985
+            return b"", 0x9000
+        assert raw[0] == cla and raw[3] == 0
+        ins = raw[1]
+        if ins == 0x72:
+            assert len(raw) == 38 and raw[2] in (0, 1)
+            assert raw[4] == 32 and raw[-1] == 0
+            if raw[2] == 0:
+                self.attest_reads += 1
+            info = dict(self.e.info)
+            if self.attest_reads == 2 and self.fault == "identity":
+                info["card_id"] = b"x" * 16
+            pub = self.e.pub if self.keyed else b""
+            state = self.state
+            binding = self.binding if self.keyed else b""
+            if self.attest_reads == 2:
+                if self.fault == "readback_pub":
+                    pub = SigningKey.generate(curve=self.e.wallet.curve).verifying_key.to_string(
+                        "uncompressed" if aid == att.VAULT_AID else "compressed")
+                elif self.fault == "readback_state":
+                    state = 3
+                elif self.fault == "readback_binding":
+                    binding = sign(self.e.device, b"wrong binding")
+            response_sig = None
+            if self.fault == "before_signature" or (self.attest_reads == 2 and self.fault == "after_signature"):
+                response_sig = sign(self.e.device, b"wrong challenge")
+            logical = self.e.response(challenge=raw[5:37], info=info, pub=pub,
+                                      pin_state=state, binding=binding, response_sig=response_sig)
+            split = len(encode_info(info))
+            return (logical[:split] if raw[2] == 0 else logical[split:]), 0x9000
+        assert raw[2] == 0 and len(raw) == 5 + raw[4]
+        if ins == (0x10 if aid == att.VAULT_AID else 0x21):
+            self.secret_buffers.append(apdu)
+            assert self.state == 1 and not self.keyed
+            if self.fault == "set_pin":
+                return b"", 0x6985
+            self.pin = raw[6:6 + raw[5]] if aid == att.ETH2_AID else raw[5:]
+            self.state = 3
+            return b"", 0x9000
+        if ins == 0x20:
+            self.secret_buffers.append(apdu)
+            assert raw[5:] == self.pin
+            if self.fault == "transport_secret":
+                raise RuntimeError("secret APDU " + raw.hex() + " " + self.pin.decode())
+            if self.fault == "verify":
+                return b"", 0x63C2
+            self.state = 7
+            return b"", 0x9000
+        if ins == (0x04 if aid == att.MUSIG2_AID else 0x03):
+            assert self.state == 7 and not self.keyed
+            self.keyed = True
+            return self.raw_pub, 0x9000
+        if ins == (0x03 if aid == att.MUSIG2_AID else 0x02):
+            assert self.keyed
+            if self.fault == "public":
+                return b"\x04" + b"x" * 64, 0x9000
+            return self.raw_pub, 0x9000
+        if ins == 0x74:
+            assert self.keyed
+            return self.binding, 0x9000
+        raise AssertionError("unexpected instruction")
+
+    def close(self):
+        assert self.logged_out, "must explicitly select/logout before disconnect"
+        self.closed = True
+
+
+class InitKeyTests(unittest.TestCase):
+    def invoke(self, card, execute=True, puk=False, answers=None):
+        args = ["init-key", "--aid", card.e.info["aid"].hex()]
+        if execute:
+            args += ["--execute"]
+        if puk:
+            args += ["--with-puk"]
+        terminal = mock.MagicMock()
+        terminal.__enter__.return_value.isatty.return_value = True
+        answers = answers if answers is not None else ["2468", "2468"] + (["abcdefghijklmnop"] * 2 if puk else [])
+        with (mock.patch.object(cli, "open_card", return_value=card) as opened,
+              mock.patch("builtins.open", return_value=terminal) as tty,
+              mock.patch.object(cli.getpass, "getpass", side_effect=answers) as prompt,
+              contextlib.redirect_stdout(io.StringIO()) as output,
+              contextlib.redirect_stderr(io.StringIO()) as error):
+            status = cli.main(args)
+        return status, output.getvalue(), error.getvalue(), opened, prompt, tty
+
+    def test_all_applets_precise_order_apdus_canonical_public_and_wiping(self):
+        for aid in (att.ETH2_AID, att.MUSIG2_AID, att.VAULT_AID):
+            with self.subTest(aid=aid.hex()):
+                card = InitCard(aid)
+                code, output, error, opened, prompt, tty = self.invoke(card)
+                self.assertEqual((code, error), (0, ""))
+                self.assertEqual(json.loads(output), {"signing_pub": card.e.pub.hex()})
+                opened.assert_called_once()
+                self.assertEqual(prompt.call_count, 2)
+                tty.assert_called_once_with("/dev/tty", "w")
+                cla = 0 if aid == att.MUSIG2_AID else 0x80
+                setup_ins = 0x10 if aid == att.VAULT_AID else 0x21
+                kg, gp = (4, 3) if aid == att.MUSIG2_AID else (3, 2)
+                self.assertEqual([c[1] for c in card.calls], [0x72, 0x72, setup_ins, 0x20, kg, gp, 0x74, 0x72, 0x72, 0xA4])
+                payload = b"\x04" + b"2468" if aid == att.ETH2_AID else b"2468"
+                self.assertEqual(card.calls[2], bytes([cla, setup_ins, 0, 0, len(payload)]) + payload)
+                self.assertEqual(card.calls[3], bytes([cla, 0x20, 0, 0, 4]) + b"2468")
+                for call, ins in zip(card.calls[4:7], (kg, gp, 0x74)):
+                    self.assertEqual(call, bytes([cla, ins, 0, 0, 0]))
+                self.assertEqual(card.calls[0][5:37], card.calls[1][5:37])
+                self.assertEqual(card.calls[7][5:37], card.calls[8][5:37])
+                self.assertNotEqual(card.calls[0][5:37], card.calls[7][5:37])
+                self.assertTrue(card.closed and card.logged_out)
+                self.assertTrue(all(not any(buf) for buf in card.secret_buffers))
+
+    def test_dry_run_no_reader_no_tty_no_prompt(self):
+        for aid in (att.ETH2_AID, att.MUSIG2_AID, att.VAULT_AID):
+            code, out, err, opened, prompt, tty = self.invoke(InitCard(aid), execute=False)
+            self.assertEqual((code, err), (0, ""))
+            self.assertTrue(json.loads(out)["dry_run"])
+            self.assertFalse(json.loads(out)["ca_verified"])
+            opened.assert_not_called()
+            prompt.assert_not_called()
+            tty.assert_not_called()
+
+    def test_nonblank_demo_blocked_configured_keyed_refused_before_prompt(self):
+        for aid in (att.ETH2_AID, att.MUSIG2_AID, att.VAULT_AID):
+            for state, keyed, configured in ((0, False, False), (3, False, False), (9, False, False),
+                                             (5, False, False), (1, True, False), (1, False, True)):
+                with self.subTest(aid=aid.hex(), state=state, keyed=keyed, configured=configured):
+                    card = InitCard(aid, state, keyed)
+                    if configured:
+                        card.e.info["cert"] = sign(card.e.ca, att.ca_message(card.e.info))
+                    code, out, _, _, prompt, tty = self.invoke(card)
+                    self.assertEqual((code, out), (1, ""))
+                    prompt.assert_not_called()
+                    tty.assert_not_called()
+                    self.assertEqual([c[1] for c in card.calls], [0x72, 0x72, 0xA4])
+                    self.assertTrue(card.closed)
+
+    def test_wrong_verify_never_retries_or_generates_key_and_wipes(self):
+        for fault, expected in (("set_pin", [0x72, 0x72, 0x21, 0xA4]),
+                                ("verify", [0x72, 0x72, 0x21, 0x20, 0xA4]),
+                                ("transport_secret", [0x72, 0x72, 0x21, 0x20, 0xA4])):
+            card = InitCard(fault=fault)
+            code, out, err, _, prompt, _ = self.invoke(card)
+            self.assertEqual((code, out), (1, ""))
+            self.assertEqual([c[1] for c in card.calls], expected)
+            self.assertIn("no retry", err)
+            self.assertNotIn("2468", err)
+            self.assertNotIn(b"2468".hex(), err)
+            self.assertTrue(card.closed)
+            self.assertTrue(all(not any(buf) for buf in card.secret_buffers))
+            self.assertEqual(prompt.call_count, 2)
+
+    def test_public_binding_identity_state_signature_readback_failures(self):
+        for fault in ("public", "binding", "identity", "readback_pub", "readback_state",
+                      "readback_binding", "before_signature", "after_signature", "logout"):
+            with self.subTest(fault=fault):
+                card = InitCard(fault=fault)
+                code, out, _, _, prompt, _ = self.invoke(card)
+                self.assertEqual((code, out), (1, ""))
+                self.assertTrue(card.closed and card.logged_out)
+                if fault == "before_signature":
+                    prompt.assert_not_called()
+                self.assertLessEqual([c[1] for c in card.calls].count(0x20), 1)
+
+    def test_eth2_optional_puk_exact_payload_and_other_applets_rejected(self):
+        card = InitCard()
+        code, _, error, _, prompt, _ = self.invoke(card, puk=True)
+        self.assertEqual((code, error), (0, ""))
+        payload = b"\x04" + b"2468" + b"\x10" + b"abcdefghijklmnop"
+        self.assertEqual(card.calls[2], bytes([0x80, 0x21, 0, 0, len(payload)]) + payload)
+        self.assertEqual(prompt.call_count, 4)
+        self.assertTrue(all(not any(buf) for buf in card.secret_buffers))
+        for aid in (att.MUSIG2_AID, att.VAULT_AID):
+            code, _, _, opened, prompt, _ = self.invoke(InitCard(aid), puk=True)
+            self.assertEqual(code, 1)
+            opened.assert_not_called()
+            prompt.assert_not_called()
+
+    def test_secret_formats_confirmation_utf8_and_no_writes_on_bad_input(self):
+        cases = [(att.ETH2_AID, "abc", "abc"), (att.ETH2_AID, "x" * 17, "x" * 17),
+                 (att.VAULT_AID, "é" * 9, "é" * 9), (att.VAULT_AID, "abcd", "abce"),
+                 (att.MUSIG2_AID, "12a4", "12a4"), (att.MUSIG2_AID, "１２３４", "１２３４"),
+                 (att.MUSIG2_AID, "1" * 13, "1" * 13)]
+        for aid, first, second in cases:
+            card = InitCard(aid)
+            code, out, err, _, prompt, _ = self.invoke(card, answers=[first, second])
+            self.assertEqual((code, out), (1, ""))
+            self.assertEqual([c[1] for c in card.calls], [0x72, 0x72, 0xA4])
+            self.assertEqual(prompt.call_count, 2)
+            self.assertNotIn(first, err)
+        for aid, secret in ((att.ETH2_AID, "éé"), (att.VAULT_AID, "é" * 8),
+                            (att.MUSIG2_AID, "1" * 12)):
+            card = InitCard(aid)
+            self.assertEqual(self.invoke(card, answers=[secret, secret])[0], 0)
+        card = InitCard()
+        code, _, _, _, prompt, _ = self.invoke(card, puk=True, answers=["2468", "2468", "short", "short"])
+        self.assertEqual(code, 1)
+        self.assertEqual(prompt.call_count, 4)
+        self.assertEqual([c[1] for c in card.calls], [0x72, 0x72, 0xA4])
+
+    def test_terminal_failure_and_getpass_fallback_fail_closed(self):
+        args = ["init-key", "--aid", att.ETH2_AID.hex(), "--execute"]
+        for failure in (OSError("private secret"), cli.getpass.GetPassWarning("private secret")):
+            card = InitCard()
+            with (mock.patch.object(cli, "open_card", return_value=card),
+                  mock.patch("builtins.open", side_effect=failure),
+                  mock.patch.object(cli.getpass, "getpass") as prompt,
+                  contextlib.redirect_stdout(io.StringIO()) as out,
+                  contextlib.redirect_stderr(io.StringIO()) as err):
+                self.assertEqual(cli.main(args), 1)
+            prompt.assert_not_called()
+            self.assertEqual(out.getvalue(), "")
+            self.assertNotIn("private secret", err.getvalue())
+            self.assertTrue(card.closed)
+        card = InitCard()
+        terminal = mock.MagicMock()
+        terminal.__enter__.return_value.isatty.return_value = True
+        def fallback(*args, **kwargs):
+            import warnings
+            warnings.warn("echo unavailable", cli.getpass.GetPassWarning)
+            raise AssertionError("fallback must not read stdin")
+        with (mock.patch.object(cli, "open_card", return_value=card),
+              mock.patch("builtins.open", return_value=terminal),
+              mock.patch.object(cli.getpass, "getpass", side_effect=fallback),
+              contextlib.redirect_stderr(io.StringIO())):
+            self.assertEqual(cli.main(args), 1)
+        self.assertEqual([c[1] for c in card.calls], [0x72, 0x72, 0xA4])
+
+    def test_identical_malformed_keygen_and_readback_keys_rejected(self):
+        for aid in (att.ETH2_AID, att.MUSIG2_AID, att.VAULT_AID):
+            for fault in ("invalid_public", "public_encoding", "public_length"):
+                with self.subTest(aid=aid.hex(), fault=fault):
+                    card = InitCard(aid, fault=fault)
+                    code, out, _, _, _, _ = self.invoke(card)
+                    self.assertEqual((code, out), (1, ""))
+                    self.assertNotIn(0x74, [c[1] for c in card.calls])
+                    self.assertTrue(card.closed)
+
+    def test_underlying_pcsc_never_replays_6c_provisioning_commands(self):
+        from nuri_pcsc import Applet
+        for aid in (att.ETH2_AID, att.MUSIG2_AID, att.VAULT_AID):
+            cla = 0 if aid == att.MUSIG2_AID else 0x80
+            for ins in (0x10 if aid == att.VAULT_AID else 0x21, 0x20,
+                        0x04 if aid == att.MUSIG2_AID else 0x03):
+                conn = mock.Mock()
+                conn.transmit.return_value = ([], 0x6C, 0x41)
+                transport = cli.ProvisioningTransport(Applet(conn, "fake", "T0", aid.hex()))
+                command_refs = []
+                def raw_send(command):
+                    command_refs.append(command)
+                    return [], 0x6C, 0x41
+                conn.transmit.side_effect = raw_send
+                if ins in (0x10, 0x21, 0x20):
+                    with self.assertRaises(att.VerificationError):
+                        cli.secret_command(transport, cla, ins, bytearray(b"2468"))
+                else:
+                    with self.assertRaises(att.VerificationError):
+                        cli.card_command(transport, cla, ins)
+                self.assertEqual(conn.transmit.call_count, 1)
+                self.assertTrue(all(not any(command) for command in command_refs))
+
+    def test_underlying_pcsc_drains_61_without_resending_original(self):
+        from nuri_pcsc import Applet
+        conn = mock.Mock()
+        sent = []
+        replies = iter([([1], 0x61, 2), ([2, 3], 0x90, 0)])
+        def raw_send(command):
+            sent.append(bytes(command))
+            return next(replies)
+        conn.transmit.side_effect = raw_send
+        transport = cli.ProvisioningTransport(Applet(conn, "fake", "T0", att.ETH2_AID.hex()))
+        self.assertEqual(cli.card_command(transport, 0x80, 3), b"\x01\x02\x03")
+        self.assertEqual(sent, [b"\x80\x03\x00\x00\x00", b"\x00\xc0\x00\x00\x02"])
+
+    def test_only_canonical_aids_accepted(self):
+        for aid in ("4E55524945544801", "eth2", "00", "garbage"):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                cli.parser().parse_args(["init-key", "--aid", aid])
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ flowchart LR
 
 ## Identity and boundary
 
-Package AID `4E55524945544832`, canonical applet AID `4E5552494554483201`, CAP `dist/nuri-eth2-signer.cap` ([build definition](../card/eth2/build.xml)). The applet registers the canonical instance AID and rejects a different nonempty instance AID in GP install parameters ([`install` and `personalize`](../card/eth2/NuriEthSignerV2.java)). Attestation identifies this applet instance, **not** a manufacturer chip serial.
+App version **2.1.0**, package version **2.1**. Package AID `4E55524945544832`, canonical applet AID `4E5552494554483201`, CAP `dist/nuri-eth2-signer.cap` ([build definition](../card/eth2/build.xml)). The applet registers the canonical instance AID and rejects a different nonempty instance AID in GP install parameters ([`install` and `personalize`](../card/eth2/NuriEthSignerV2.java)). Attestation identifies this applet instance, **not** a manufacturer chip serial.
 
 The secp256k1 signing key is generated on-card, one-shot (`6989` once keyed). Native `genKeyPair` is tried first; the fallback rejection-samples a scalar, calls `setS`, and derives the public point with XY ECDH. The fallback temporarily holds the scalar in transient scratch. No key-import or private-key-export command is dispatched. Public-key export, signatures and attestation use the committed public cache, never a candidate key ([`keygen`, `process`, `getPublicKey`, `sign`](../card/eth2/NuriEthSignerV2.java)).
 
@@ -39,11 +39,11 @@ The PIN has five attempts; the optional 16-byte PUK has three. Validation is ses
 
 ## Command contract
 
-CLA is exactly `80` (basic channel). Other CLAs return `6E00`. P1/P2 must be `0000`, except PUBKEY permits P1=`01` for compressed output; invalid parameters return `6A86` before helper dispatch. Unknown INS returns `6D00` ([`process`](../card/eth2/NuriEthSignerV2.java)).
+CLA is exactly `80` (basic channel). Other CLAs return `6E00`. P1/P2 must be `0000`, except PUBKEY permits P1=`01` for compressed output and GET_ATTESTATION permits P1=`01` for its signed-tail page; invalid parameters return `6A86` before helper dispatch. Unknown INS returns `6D00` ([`process`](../card/eth2/NuriEthSignerV2.java)).
 
 | INS | Data / result |
 |---|---|
-| `01` VERSION | `02 00 00 45 54 48 32 state tries`; state bits 0 keyed, 1 PIN configured, 2 mandatory policy |
+| `01` VERSION | `02 01 00 45 54 48 32 state tries`; state bits 0 keyed, 1 PIN configured, 2 mandatory policy |
 | `05` CAPS | Bits 0 native ECDSA, 1 successful native keygen path, 2 XY ECDH available, 3 PIN configured, 4 keyed, 5 PUK configured, 6 mandatory policy |
 | `02` PUBKEY | P1=`00`: uncompressed65; P1=`01`: compressed33; unkeyed `6986` |
 | `03` KEYGEN | Returns pubkey65; one-shot `6989` even without PIN validation once keyed; PIN gate `6982`; unsupported generation path `6A81` |
@@ -54,7 +54,7 @@ CLA is exactly `80` (basic channel). Other CLAs return `6E00`. P1/P2 must be `00
 | `23` UNBLOCK_PIN | `PUK16 || newLength || NEW`; does not validate replacement |
 | `70` GET_ATTESTATION_INFO | Empty → INFO below |
 | `71` STORE_ATTESTATION_CERT | CA signature DER, 8–72 bytes; write-once, refused once stored or sealed |
-| `72` GET_ATTESTATION | Challenge32 → INFO plus signing key, PIN state, response signature and binding |
+| `72` GET_ATTESTATION | Challenge32; P1=0 → INFO, P1=1 → signing key, PIN state, response signature and binding; concatenate pages |
 | `73` SEAL_ATTESTATION | Empty; requires a stored certificate; irreversible |
 | `74` GET_KEY_BINDING | Empty → stored NHWV1 DER signature; requires a committed signing key |
 
@@ -74,7 +74,7 @@ Each install creates a random `cardId16` and a native non-exportable NIST P-256 
 
 The applet prepares the candidate NHWV1 signature **before** the key-publication transaction and commits it in the same transaction as the public cache and keyed flag. GET_KEY_BINDING returns that same signature across reset, rather than making a new signature. Failed uncommitted KEYGEN candidates are cleared; once the keyed flag is committed no later KEYGEN can rotate the key, even if response transport fails. Applet and helper scratch are cleared on command success and exception exits ([`process`, `keygen`, `clearScratch`](../card/eth2/NuriEthSignerV2.java)).
 
-A self-signed challenge alone is **not manufacturer authentication**. The host must authenticate the stored certificate against a separately trusted P-256 Nuri CA public key and verify the exact AID, signing key, challenge and PIN state. A missing/untrusted CA is unverified, never verified by default. The applet's write-once certificate and seal are personalization controls, not independent proof that the card was manufactured by a particular vendor. Full responses can exceed 256 bytes; transports must handle PC/SC procedure responses as specified in the [helper contract](../test/attestation-contract.txt).
+A self-signed challenge alone is **not manufacturer authentication**. The host must authenticate the stored certificate against a separately trusted P-256 Nuri CA public key and verify the exact AID, signing key, challenge and PIN state. A missing/untrusted CA is unverified, never verified by default. The applet's write-once certificate and seal are personalization controls, not independent proof that the card was manufactured by a particular vendor. Logical evidence exceeds 256 bytes, but GET_ATTESTATION is collected over two short-APDU pages as specified in [attestation.md](attestation.md#wire-protocol); each wire response fits in 256 bytes. The seal flag itself is not covered by the specified signatures, so remote verification cannot prove irreversible sealing.
 
 ## Installation and verification boundary
 

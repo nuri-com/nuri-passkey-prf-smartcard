@@ -19,7 +19,7 @@ MUTATIONS = [
     ("session token", "if (!equalCT(buffer, (short)(off + 97), nonceSession, (short)0, (short)4)\n            || !equalCT(nonceSession, (short)0, sessionCounter, (short)0, (short)4))", "if (false)", "expected 6984 got"),
     ("double-computation compare", "if (!equalCT(result, (short)0, checkResult, (short)0, (short)32))", "if (false)", "expected 6988 got"),
     ("curve equation", "if (!equalCT(scratch32_4, (short)0, scratch32_5, (short)0, (short)32))", "if (false)", "expected 6a80 got"),
-    ("keygen atomicity", "JCSystem.beginTransaction();\n        masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        keyGenerated = true;\n        JCSystem.commitTransaction();", "masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        keyGenerated = true;", "persistent key set runs inside transaction"),
+    ("keygen atomicity", "JCSystem.beginTransaction();\n        masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        attestation.commitBinding();\n        keyGenerated = true;\n        JCSystem.commitTransaction();", "masterKey.setS(scratch32_1, (short)0, (short)32);\n        Util.arrayCopy(apdu.getBuffer(), (short)0, masterPublicKey, (short)0, (short)33);\n        keyGenerated = true;", "persistent key set runs inside transaction"),
 ]
 
 
@@ -28,9 +28,10 @@ def exercise(name, source):
     work.mkdir(parents=True, exist_ok=True)
     (work / APPLET.name).write_text(source)
     shutil.copy2(ROOT / "card/musig2/Scalar256.java", work / "Scalar256.java")
+    shutil.copy2(ROOT / "card/musig2/NuriAttestation.java", work / "NuriAttestation.java")
     classes = work / "classes"
     classes.mkdir(exist_ok=True)
-    compile_run = subprocess.run([str(JAVA / "javac"), "-nowarn", "-source", "8", "-target", "8", "-cp", str(JAR), "-d", str(classes), str(work / APPLET.name), str(work / "Scalar256.java"), str(TEST)], capture_output=True, text=True)
+    compile_run = subprocess.run([str(JAVA / "javac"), "-nowarn", "-source", "8", "-target", "8", "-cp", str(JAR), "-d", str(classes), str(work / APPLET.name), str(work / "Scalar256.java"), str(work / "NuriAttestation.java"), str(TEST)], capture_output=True, text=True)
     (work / "compile.log").write_text(compile_run.stdout + compile_run.stderr)
     if compile_run.returncode:
         raise RuntimeError(f"{name}: compile failure is not a valid negative control: {compile_run.stderr}")

@@ -67,7 +67,7 @@ public final class Eth2SimTest {
         expectSW(r, 0x9000, "GET_VERSION");
         byte[] ver = r.getData();
         check(ver.length == 9, "version length 9, got " + ver.length);
-        check(ver[0] == 2 && ver[1] == 0 && ver[2] == 0, "version 2.0.0");
+        check(ver[0] == 2 && ver[1] == 1 && ver[2] == 0, "version 2.1.0");
         check(new String(ver, 3, 4).equals("ETH2"), "tag ETH2");
         check(ver[7] == 0, "state blank");
         check(ver[8] == 5, "5 PIN tries while unset");

@@ -9,7 +9,18 @@ not a manufacturer endorsement; a valid cert is not a card-model/chip proof.
 from __future__ import annotations
 
 import argparse
+import getpass
+import hashlib
+import hmac
 import json
+import secrets
+import warnings
+
+from ecdsa import NIST256p, SECP256k1, VerifyingKey
+from ecdsa.util import sigdecode_der
+
+import nuri_attest as attest
+
 import os
 from pathlib import Path
 import sys
@@ -51,9 +62,177 @@ def open_card(args):
     return nuri_pcsc.open_applet(args.aid.hex(), reader=args.reader)
 
 
+def wipe(buffer):
+    """Best effort only: Python/getpass/PCSC may retain immutable secret copies."""
+    buffer[:] = b"\x00" * len(buffer)
+
+
+def prompt_secret(label, aid, puk=False):
+    """No stdin/env/argv fallback, no echo, no automatic re-prompt on failure."""
+    first, second = bytearray(), bytearray()
+    try:
+        with open("/dev/tty", "w") as terminal, warnings.catch_warnings():
+            if not terminal.isatty():
+                raise VerificationError("controlling terminal required")
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            first.extend(getpass.getpass(label + ": ", stream=terminal).encode("utf-8"))
+            second.extend(getpass.getpass("Confirm " + label + ": ", stream=terminal).encode("utf-8"))
+        if not hmac.compare_digest(first, second):
+            raise VerificationError("confirmation mismatch")
+        if puk:
+            valid = len(first) == 16
+        elif aid == MUSIG2_AID:
+            valid = 4 <= len(first) <= 12 and all(48 <= c <= 57 for c in first)
+        else:
+            valid = 4 <= len(first) <= 16
+        if not valid:
+            raise VerificationError("invalid secret length or format")
+        result = first
+        first = bytearray()  # ownership transfers to the caller for wiping
+        return result
+    finally:
+        wipe(first)
+        wipe(second)
+
+
+def secret_command(applet, cla, ins, payload):
+    """Wipe the locally owned APDU, including failed or uncertain transmissions."""
+    apdu = bytearray([cla, ins, 0, 0, len(payload)])
+    try:
+        apdu.extend(payload)
+        response, sw = applet.transmit(apdu)
+        if sw != 0x9000 or response:
+            raise VerificationError("PIN command failed; no retry attempted")
+    finally:
+        wipe(apdu)
+
+
+def identity_signature(public, signature, message):
+    """Self-consistency only, NOT CA/manufacturer verification."""
+    key = VerifyingKey.from_string(public, curve=NIST256p,
+                                   valid_encodings={"uncompressed"})
+    if not key.verify(signature, message, hashfunc=hashlib.sha256, sigdecode=sigdecode_der):
+        raise VerificationError("identity signature mismatch")
+
+
+def provisioning_response(applet, cla, aid, public=None):
+    challenge = secrets.token_bytes(32)
+    parsed = attest.parse_response(read_attestation(applet, cla, challenge))
+    if parsed["aid"] != aid:
+        raise VerificationError("AID mismatch")
+    identity_signature(public or parsed["attestation_pub"], parsed["response_sig"],
+                       attest.RESPONSE_DOMAIN + challenge + parsed["signing_pub"]
+                       + bytes([parsed["pin_state"]]))
+    return parsed
+
+
+class ProvisioningTransport:
+    """No 6C command replay, even for a lost/uncertain provisioning response.
+
+    Keep the shared PC/SC helper unchanged. GET RESPONSE drains 61xx only;
+    unlike a 6C resend, it never re-executes SET_PIN, VERIFY or KEYGEN.
+    """
+    def __init__(self, applet):
+        self.applet = applet
+
+    def transmit(self, apdu):
+        conn = getattr(self.applet, "conn", None)
+        if conn is None:  # injectable fake transport, with the same no-retry contract
+            return self.applet.transmit(apdu)
+        command = list(apdu)
+        try:
+            data, sw1, sw2 = conn.transmit(command)
+        finally:
+            command[:] = [0] * len(command)
+        response = bytearray(data)
+        for _ in range(64):
+            if sw1 != 0x61:
+                return bytes(response), (sw1 << 8) | sw2
+            data, sw1, sw2 = conn.transmit([0, 0xC0, 0, 0, sw2])
+            response.extend(data)
+        raise VerificationError("GET RESPONSE limit exceeded; no command replay")
+
+    def close(self):
+        self.applet.close()
+
+
+def init_key(args):
+    """First-use provisioning of a physically trusted blank spare, CA UNVERIFIED.
+
+    No certificate or seal is created/verified here. Authenticate the card later
+    with a separately pinned CA. A failed/uncertain write is never retried.
+    """
+    if args.with_puk and args.aid != ETH2_AID:
+        raise VerificationError("--with-puk is only supported by ETH2")
+    if not args.execute:
+        return dict(dry_run=True, hardware_accessed=False, ca_verified=False,
+                    action="unverified first-use provisioning of a trusted blank spare")
+    applet = None
+    pin, puk, payload = bytearray(), bytearray(), bytearray()
+    cla = 0 if args.aid == MUSIG2_AID else 0x80
+    try:
+        applet = ProvisioningTransport(open_card(args))
+        before = provisioning_response(applet, cla, args.aid)
+        # Exactly required=1, unset/unvalidated/unblocked; no configured/demo keys.
+        if (before["pin_state"] != 1 or before["signing_pub"] or before["binding_sig"]
+                or before["sealed"] or before["cert"]):
+            raise VerificationError("not a mandatory-PIN blank spare; refusing provisioning")
+        pin = prompt_secret("New PIN (MuSig2: 4..12 digits; ETH2/vault: 4..16 UTF-8 bytes)", args.aid)
+        if args.with_puk:
+            puk = prompt_secret("New PUK (exactly 16 UTF-8 bytes)", args.aid, puk=True)
+        if args.aid == ETH2_AID:
+            payload.append(len(pin))
+        payload.extend(pin)
+        if args.with_puk:
+            payload.append(len(puk))
+            payload.extend(puk)
+        secret_command(applet, cla, 0x10 if args.aid == VAULT_AID else 0x21, payload)
+        wipe(payload)
+        secret_command(applet, cla, 0x20, pin)
+        wipe(pin)
+        wipe(puk)
+        generated = card_command(applet, cla, 0x04 if args.aid == MUSIG2_AID else 0x03)
+        public = card_command(applet, cla, 0x03 if args.aid == MUSIG2_AID else 0x02)
+        if generated != public:
+            raise VerificationError("keygen/public readback mismatch")
+        curve = NIST256p if args.aid == VAULT_AID else SECP256k1
+        encoding = "compressed" if args.aid == MUSIG2_AID else "uncompressed"
+        key = VerifyingKey.from_string(public, curve=curve, valid_encodings={encoding})
+        canonical = key.to_string("uncompressed" if args.aid == VAULT_AID else "compressed")
+        binding = card_command(applet, cla, 0x74)
+        identity_signature(before["attestation_pub"], binding,
+                           attest.BINDING_DOMAIN + args.aid + canonical)
+        after = provisioning_response(applet, cla, args.aid, before["attestation_pub"])
+        for field in ("version", "card_id", "aid", "attestation_pub", "sealed", "cert"):
+            if after[field] != before[field]:
+                raise VerificationError("attestation identity readback mismatch")
+        if (after["pin_state"] != 7 or after["signing_pub"] != canonical
+                or after["binding_sig"] != binding):
+            raise VerificationError("keyed attestation readback mismatch")
+        return {"signing_pub": canonical.hex()}
+    finally:
+        wipe(pin)
+        wipe(puk)
+        wipe(payload)
+        if applet is not None:
+            try:
+                # Explicit re-SELECT clears applet PIN authorization; disconnect
+                # alone does not prove logout. Even error paths attempt this.
+                _, sw = applet.transmit(bytes([0, 0xA4, 4, 0, len(args.aid)]) + args.aid)
+                if sw != 0x9000:
+                    raise VerificationError("logout unconfirmed; remove card")
+            finally:
+                applet.close()
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
+    init = commands.add_parser("init-key", help="trusted blank spare only; CA-unverified provisioning, dry-run by default")
+    init.add_argument("--aid", type=aid_bytes, required=True)
+    init.add_argument("--reader")
+    init.add_argument("--execute", action="store_true", help="required to connect and set PIN/generate a key")
+    init.add_argument("--with-puk", action="store_true", help="ETH2 only: also prompt twice for a 16-byte PUK")
     info = commands.add_parser("info", help="explicitly capture public INFO from a card")
     info.add_argument("--aid", type=aid_bytes, required=True)
     info.add_argument("--reader")
@@ -102,6 +281,16 @@ def write_new(path, data):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == "init-key":
+        try:
+            print(json.dumps(init_key(args), sort_keys=True))
+            return 0
+        except (Exception, KeyboardInterrupt):
+            # Transport exceptions may include complete secret APDUs. Never
+            # interpolate exception text or emit a traceback on this path.
+            print("init-key failed; no retry attempted; state may have changed. "
+                  "Remove the card if logout was not confirmed.", file=sys.stderr)
+            return 1
     try:
         if args.command == "challenge":
             challenge = issue_challenge(args.state, args.expected_aid,

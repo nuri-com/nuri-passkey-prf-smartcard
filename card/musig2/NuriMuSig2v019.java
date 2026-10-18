@@ -5,7 +5,7 @@ import javacard.security.*;
 import javacardx.crypto.*;
 
 /**
- * NuriMuSig2 v1.14 - PIN, session binding and blinded double computation.
+ * NuriMuSig2 v1.15 - attestation plus PIN, session binding and blinded double computation.
  * Scalar256 normalizes all host scalars and supports aliased outputs.
  *
  * Hardening v1.11 (Coldcard Mk3 entropy advisory, 2026-07):
@@ -27,7 +27,7 @@ import javacardx.crypto.*;
 public class NuriMuSig2v019 extends Applet {
 
     // Version 1.14: incompatible nonce/finalize frames; see docs/musig2-pin-and-hardening.md
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0E};
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0F};
     private static final byte[] APPLET_AID = {
         (byte)0x4E, (byte)0x55, (byte)0x52, (byte)0x49,
         (byte)0x4D, (byte)0x55, (byte)0x47, (byte)0x01

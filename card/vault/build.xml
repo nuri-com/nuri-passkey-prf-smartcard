@@ -7,7 +7,7 @@
     <property name="cap.output" location="../../dist/nuri-vault.cap"/>
     <target name="build">
         <javacard jckit="${jckit.path}">
-            <cap aid="4E555249564C54" version="1.0" output="${cap.output}" sources="." jca="3.0.4">
+            <cap aid="4E555249564C54" version="1.1" output="${cap.output}" sources="." jca="3.0.4">
                 <applet class="com.nuri.vault.NuriVault" aid="4E555249564C5401"/>
             </cap>
         </javacard>

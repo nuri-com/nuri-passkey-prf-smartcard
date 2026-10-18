@@ -39,7 +39,7 @@ import javacard.security.Signature;
  */
 public class NuriEthSignerV2 extends Applet {
 
-    private static final byte[] APPLET_VERSION = {(byte)0x02, (byte)0x00, (byte)0x00};
+    private static final byte[] APPLET_VERSION = {(byte)0x02, (byte)0x01, (byte)0x00};
 
     private static final byte CLA_NURI = (byte)0x80;
     private static final byte[] APPLET_AID = {

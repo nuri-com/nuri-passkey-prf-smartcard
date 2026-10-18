@@ -420,3 +420,24 @@ def personalize(applet, expected_info, certificate, seal=False):
         after = parse_info(card_command(applet, cla, 0x70))
         _require(after == dict(wanted, sealed=True), "seal readback mismatch; write state uncertain")
     return after
+
+
+def main(argv=None):
+    """Verifier CLI entry point; share challenge/state policy with attest-card."""
+    import runpy
+    import sys
+    from pathlib import Path
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0] in ("-h", "--help"):
+        print("usage: nuri_attest.py {challenge,verify} ...\n"
+              "Host-issued consume-once challenge and pinned-CA offline verifier.\n"
+              "Use 'challenge --help' or 'verify --help' for options.")
+        return 0
+    if argv[0] not in ("challenge", "verify"):
+        raise SystemExit("nuri_attest.py supports challenge/verify; use attest-card.py for personalization")
+    command = runpy.run_path(str(Path(__file__).with_name("attest-card.py")))
+    return command["main"](argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
