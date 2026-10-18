@@ -15,8 +15,8 @@ returned; an unverifiable signature is reported as VERIFY_FAILED.
 
 Modes
   card (default): lazily imports scripts/nuri_pcsc.py (contract C1) and talks
-       to the ETH applet. Prefers ETH v2 (AID 4E55524945544802), falls back to
-       ETH v1 (AID 4E55524945544801).
+       to the ETH applet. Prefers ETH v2 (AID 4E5552494554483201, C4), falls
+       back to ETH v1 (AID 4E55524945544801, C3).
   sim: env NURI_CARD_SIM=1 or --sim -> software key
        d = int(sha256(b"nuri-card-sim-v1")) mod n. Tests use sim only.
 
@@ -38,7 +38,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 
 AID_ETH_V1 = "4E55524945544801"
-AID_ETH_V2 = "4E55524945544802"
+AID_ETH_V2 = os.environ.get("NURI_ETH2_AID", "4E5552494554483201")  # _launch/CONTRACTS.md C4
 
 SIM_SEED = b"nuri-card-sim-v1"
 

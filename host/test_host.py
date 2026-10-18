@@ -138,6 +138,112 @@ class SimSignTests(unittest.TestCase):
                          host.handle({"id": 1, "method": "info"})["result"]["address"])
 
 
+class FakePcscCardTests(unittest.TestCase):
+    """Card mode against a fake nuri_pcsc module (C1 shape). No reader, no card."""
+
+    def _install_fake(self, applets: set, sim_key):
+        import types
+        from ecdsa.util import sigencode_string, sigencode_der
+        calls = []
+
+        class CardError(Exception):
+            def __init__(self, code, msg=""):
+                super().__init__(msg or code)
+                self.code = code
+
+        class Applet:
+            def __init__(self, aid):
+                self.aid = aid
+                self.reader_name = "Fake Reader 00 00"
+                self.protocol = "T0"
+                self.closed = False
+
+            def transmit(self, apdu):
+                calls.append(bytes(apdu).hex())
+                ins = apdu[1]
+                if ins == 0x01:
+                    return (b"\x01\x03\x01ETH1" if self.aid == host.AID_ETH_V1 else b"\x02\x00\x00ETH2"), 0x9000
+                if ins == 0x02:
+                    vk = sim_key.get_verifying_key()
+                    return (vk.to_string("compressed") if self.aid == host.AID_ETH_V1 else vk.to_string("uncompressed")), 0x9000
+                if ins == 0x04:
+                    digest = bytes(apdu[5:37])
+                    if self.aid == host.AID_ETH_V1:
+                        sig = sim_key.sign_digest_deterministic(digest, sigencode=sigencode_string)
+                        return sig + b"\x00", 0x9000  # v byte is deliberately wrong; host must recover it
+                    return sim_key.sign_digest_deterministic(digest, sigencode=sigencode_der), 0x9000
+                return b"", 0x6D00
+
+            def close(self):
+                self.closed = True
+
+        def open_applet(aid_hex, reader=None):
+            if aid_hex not in applets:
+                raise CardError("NO_APPLET", f"SELECT {aid_hex} failed")
+            return Applet(aid_hex)
+
+        mod = types.ModuleType("nuri_pcsc")
+        mod.CardError = CardError
+        mod.Applet = Applet
+        mod.open_applet = open_applet
+        sys.modules["nuri_pcsc"] = mod
+        return calls
+
+    def setUp(self):
+        from ecdsa import SigningKey, SECP256k1
+        self.key = SigningKey.from_secret_exponent(0x1234567, curve=SECP256k1)
+        self.saved_env = os.environ.pop("NURI_CARD_SIM", None)
+        host._SIGNER = None
+
+    def tearDown(self):
+        sys.modules.pop("nuri_pcsc", None)
+        host._SIGNER = None
+        if self.saved_env is not None:
+            os.environ["NURI_CARD_SIM"] = self.saved_env
+
+    def test_eth1_fallback_signs_and_recovers(self):
+        calls = self._install_fake({host.AID_ETH_V1}, self.key)
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["applet"], "eth1")
+        self.assertEqual(info["result"]["applet_version"], "1.3.1")
+        self.assertEqual(info["result"]["mode"], "card")
+        self.assertEqual(info["result"]["reader"], "Fake Reader 00 00")
+        self.assertEqual(info["result"]["pubkey"], "0x" + self.key.get_verifying_key().to_string("compressed").hex())
+        digest = b"\x77" * 32
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})
+        self.assertTrue(resp["ok"], resp)
+        res = resp["result"]
+        self.assertEqual(recover_address(digest, int(res["r"], 16), int(res["s"], 16), res["yParity"]), info["result"]["address"])
+        self.assertIn("8004000020" + digest.hex(), calls)
+        self.assertIn("8001000000", calls)
+        self.assertIn("8002000000", calls)
+
+    def test_eth2_preferred_der_signature(self):
+        self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key)
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertEqual(info["result"]["applet"], "eth2")
+        self.assertEqual(info["result"]["applet_version"], "2.0.0")
+        digest = hashlib.sha256(b"eth2").digest()
+        res = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})["result"]
+        self.assertEqual(recover_address(digest, int(res["r"], 16), int(res["s"], 16), res["yParity"]), info["result"]["address"])
+
+    def test_no_applet_error_code(self):
+        self._install_fake(set(), self.key)
+        resp = host.handle({"id": 1, "method": "info"})
+        self.assertFalse(resp["ok"])
+        self.assertEqual(resp["error"]["code"], "NO_APPLET")
+
+    def test_missing_nuri_pcsc_is_card_error(self):
+        sys.modules.pop("nuri_pcsc", None)
+        if os.path.exists(os.path.join(os.path.dirname(HERE), "scripts", "nuri_pcsc.py")):
+            self.skipTest("nuri_pcsc.py present on this branch")
+        resp = host.handle({"id": 1, "method": "info"})
+        self.assertFalse(resp["ok"])
+        self.assertEqual(resp["error"]["code"], "CARD_ERROR")
+        self.assertIn("nuri_pcsc", resp["error"]["message"])
+
+
 class FramingTests(unittest.TestCase):
     def test_serve_in_process(self):
         host._SIGNER = None
