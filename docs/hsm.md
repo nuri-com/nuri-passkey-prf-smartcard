@@ -85,6 +85,22 @@ SELECT exception, not just an absent applet. The helper now independently
 confirms absence before permitting a demo downgrade. All controls used fakes or
 throwaway mutated libraries; the shipped source/artifact remained unchanged.
 
+## Physical-card run 2026-10-18
+
+The launch operator ran the OpenSSL selftest on the existing ETH v1 demo key
+before W28 (then explicit card mode was the only hardware path): OpenSSL 3.6.5 +
+pkcs11-provider v1.3.0 on macOS 15.5 arm64, ACS ACR39U reader, ending in
+`HSM_OPENSSL_SELFTEST_OK mode=card` with OpenSSL and python-ecdsa verification.
+This is an operator-reported receipt for that revision, not a run of the W28
+fail-closed build, ETH2, concurrent applications or TLS services.
+[Reader run records](reader-compatibility.md#hardware-runs-parent-physical-card)
+separately record PKCS#11 signing on OMNIKEY 5422 and ACS ACR39U.
+
+Recorded demo public key:
+`0239a28d96002c4950a3052a9288da801085aba4a9d4907ab6d93d6b97c29006e0`.
+With the W28 build the same ETH1-only demo card additionally needs the explicit
+`NURI_ALLOW_ETH1_DEMO=1` opt-in shown below.
+
 ## Parent-only real-card qualification (not run by W28)
 
 Run from the reviewed checkout. These commands do not generate, reset or provision keys. They read public identity and, only for the explicitly armed legacy demo, sign test digests.
