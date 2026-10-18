@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for host/nuri_card_host.py: framing + sim signing round-trip.
+"""Tests for host/nuri_card_host.py: framing, sim signing, PIN flow, sim gating.
 
-Run:  NURI_CARD_SIM=1 <venv>/bin/python host/test_host.py
-Sim only. Never touches a reader or a card.
+Run:  <venv>/bin/python host/test_host.py
+Sim + fake nuri_pcsc only. Never touches a reader, a card or the network.
 """
 
 from __future__ import annotations
@@ -12,13 +12,14 @@ import io
 import json
 import os
 import struct
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-os.environ["NURI_CARD_SIM"] = "1"
 
 import nuri_card_host as host  # noqa: E402
 
@@ -73,9 +74,17 @@ class AddressTests(unittest.TestCase):
                          "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
 
 
+def reset_host():
+    host._SIGNER = None
+    host._INFO = None
+    host._SIM_ACK = False
+    host._SIM_FLAG = False
+
+
 class SimSignTests(unittest.TestCase):
     def setUp(self):
-        host._SIGNER = None
+        os.environ["NURI_CARD_SIM"] = "1"
+        reset_host()
 
     def test_info(self):
         resp = host.handle({"id": 1, "method": "info"})
@@ -83,6 +92,8 @@ class SimSignTests(unittest.TestCase):
         res = resp["result"]
         self.assertEqual(res["mode"], "sim")
         self.assertEqual(res["applet"], "eth1")
+        self.assertIs(res["pin_set"], False)
+        self.assertIsNone(res["pin_tries_left"])
         self.assertEqual(res["pubkey"], SIM_PUBKEY)
         self.assertTrue(res["address"].startswith("0x") and len(res["address"]) == 42)
         self.assertEqual(res["address"], host.pubkey_to_address(bytes.fromhex(SIM_PUBKEY[2:])))
@@ -115,9 +126,10 @@ class SimSignTests(unittest.TestCase):
 
     def test_verify_failed_on_tampered_signer(self):
         class Bad(host.SimSigner):
-            def sign_digest(self, digest):
+            def sign_digest(self, digest, expected=None):
                 r, s = super().sign_digest(digest)
                 return r, (s + 1) % host.curve_order()
+        host.handle({"id": 1, "method": "info"})
         host._SIGNER = Bad()
         resp = host.handle({"id": 9, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
         self.assertFalse(resp["ok"])
@@ -125,9 +137,10 @@ class SimSignTests(unittest.TestCase):
 
     def test_high_s_from_signer_is_normalized(self):
         class HighS(host.SimSigner):
-            def sign_digest(self, digest):
+            def sign_digest(self, digest, expected=None):
                 r, s = super().sign_digest(digest)
                 return r, host.curve_order() - s  # same signature, high-s form
+        info = host.handle({"id": 1, "method": "info"})["result"]
         host._SIGNER = HighS()
         digest = b"\x42" * 32
         resp = host.handle({"id": 9, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})
@@ -135,18 +148,24 @@ class SimSignTests(unittest.TestCase):
         self.assertLessEqual(int(resp["result"]["s"], 16), host.curve_order() // 2)
         self.assertEqual(recover_address(digest, int(resp["result"]["r"], 16), int(resp["result"]["s"], 16),
                                          resp["result"]["yParity"]),
-                         host.handle({"id": 1, "method": "info"})["result"]["address"])
+                         info["address"])
 
 
 class FakePcscCardTests(unittest.TestCase):
     """Card mode against a fake nuri_pcsc module (C1 shape). No reader, no card."""
 
-    def _install_fake(self, applets: set, sim_key, eth2_format="der", eth2_echo_key=None):
-        """eth2_format: "der" (legacy fake) or "rspub" (real applet: r||s||pub65, 129 B)."""
+    def _install_fake(self, applets: set, sim_key, eth2_format="der", eth2_echo_key=None, pin=None, tries=5):
+        """eth2_format: "der" (legacy fake) or "rspub" (real applet: r||s||pub65, 129 B).
+
+        pin: ETH2 OwnerPIN (bytes) or None; validation is per open session like
+        card/eth2/NuriEthSignerV2.java:188-191,213-218,415-425.
+        """
         import types
         from ecdsa.util import sigencode_string, sigencode_der
         calls = []
-        echo_vk = (eth2_echo_key or sim_key).get_verifying_key()
+        card = types.SimpleNamespace(key=sim_key, echo=eth2_echo_key, pin=pin, tries=tries,
+                                     applets=set(applets), opened=[], fail_transmit=None)
+        self.card = card
 
         class CardError(Exception):
             def __init__(self, code, msg=""):
@@ -159,33 +178,60 @@ class FakePcscCardTests(unittest.TestCase):
                 self.reader_name = "Fake Reader 00 00"
                 self.protocol = "T0"
                 self.closed = False
+                self.validated = False
 
             def transmit(self, apdu):
-                calls.append(bytes(apdu).hex())
-                ins = apdu[1]
+                assert not self.closed, "transmit on closed applet"
+                raw = bytes(apdu)
+                ins = raw[1]
+                calls.append("80200000<pin>" if ins == 0x20 else raw.hex())
+                if card.fail_transmit and ins == card.fail_transmit[0]:
+                    raise card.fail_transmit[1]
+                vk = card.key.get_verifying_key()
+                eth2 = self.aid == host.AID_ETH_V2
                 if ins == 0x01:
-                    return (b"\x01\x03\x01ETH1" if self.aid == host.AID_ETH_V1 else b"\x02\x00\x00ETH2\x01\x05"), 0x9000
+                    if not eth2:
+                        return b"\x01\x03\x01ETH1", 0x9000
+                    state = 0x01 | (0x02 if card.pin is not None else 0)
+                    left = card.tries if card.pin is not None else 5
+                    return b"\x02\x00\x00ETH2" + bytes([state, left]), 0x9000
                 if ins == 0x02:
-                    vk = sim_key.get_verifying_key()
-                    return (vk.to_string("compressed") if self.aid == host.AID_ETH_V1 else vk.to_string("uncompressed")), 0x9000
+                    return (vk.to_string("uncompressed") if eth2 else vk.to_string("compressed")), 0x9000
+                if ins == 0x20:
+                    if not eth2 or card.pin is None:
+                        return b"", 0x6985
+                    if card.tries == 0:
+                        return b"", 0x6983
+                    if raw[5:5 + raw[4]] == card.pin:
+                        card.tries = 5
+                        self.validated = True
+                        return b"", 0x9000
+                    card.tries -= 1
+                    return b"", (0x6983 if card.tries == 0 else 0x63C0 | card.tries)
                 if ins == 0x04:
-                    digest = bytes(apdu[5:37])
-                    if self.aid == host.AID_ETH_V1:
-                        sig = sim_key.sign_digest_deterministic(digest, sigencode=sigencode_string)
+                    digest = raw[5:37]
+                    if not eth2:
+                        sig = card.key.sign_digest_deterministic(digest, sigencode=sigencode_string)
                         return sig + b"\x00", 0x9000  # v byte is deliberately wrong; host must recover it
+                    if card.pin is not None and not self.validated:
+                        return b"", 0x6982
                     if eth2_format == "der":
-                        return sim_key.sign_digest_deterministic(digest, sigencode=sigencode_der), 0x9000
-                    sig = sim_key.sign_digest_deterministic(digest, sigencode=sigencode_string)
-                    return sig + echo_vk.to_string("uncompressed"), 0x9000
+                        return card.key.sign_digest_deterministic(digest, sigencode=sigencode_der), 0x9000
+                    sig = card.key.sign_digest_deterministic(digest, sigencode=sigencode_string)
+                    echo = (card.echo or card.key).get_verifying_key()
+                    return sig + echo.to_string("uncompressed"), 0x9000
                 return b"", 0x6D00
 
             def close(self):
                 self.closed = True
+                self.validated = False
 
         def open_applet(aid_hex, reader=None):
-            if aid_hex not in applets:
+            if aid_hex not in card.applets:
                 raise CardError("NO_APPLET", f"SELECT {aid_hex} failed")
-            return Applet(aid_hex)
+            a = Applet(aid_hex)
+            card.opened.append(a)
+            return a
 
         mod = types.ModuleType("nuri_pcsc")
         mod.CardError = CardError
@@ -194,15 +240,19 @@ class FakePcscCardTests(unittest.TestCase):
         sys.modules["nuri_pcsc"] = mod
         return calls
 
+    def assertAllClosed(self):
+        self.assertTrue(self.card.opened, "no session opened")
+        self.assertTrue(all(a.closed for a in self.card.opened), "a card session was left open")
+
     def setUp(self):
         from ecdsa import SigningKey, SECP256k1
         self.key = SigningKey.from_secret_exponent(0x1234567, curve=SECP256k1)
         self.saved_env = os.environ.pop("NURI_CARD_SIM", None)
-        host._SIGNER = None
+        reset_host()
 
     def tearDown(self):
         sys.modules.pop("nuri_pcsc", None)
-        host._SIGNER = None
+        reset_host()
         if self.saved_env is not None:
             os.environ["NURI_CARD_SIM"] = self.saved_env
 
@@ -276,10 +326,275 @@ class FakePcscCardTests(unittest.TestCase):
         self.assertEqual(resp["error"]["code"], "CARD_ERROR")
         self.assertIn("nuri_pcsc", resp["error"]["message"])
 
+    # -- W21: PIN flow ------------------------------------------------------
+    def _pin_card(self, **kw):
+        calls = self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key, eth2_format="rspub",
+                                   pin=b"123456", **kw)
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        return calls, info["result"]
+
+    def _vp(self, pin, digest, address, req_id=5):
+        req = {"id": req_id, "method": "verify_pin", "params": {"pin": pin, "hash": "0x" + digest.hex(), "address": address}}
+        resp = host.handle(req)
+        self.assertNotIn("pin", req["params"], "request params must be scrubbed")
+        self.assertNotIn(pin, json.dumps(resp), "PIN echoed in response")
+        return resp
+
+    def test_info_reports_pin_state(self):
+        _, info = self._pin_card(tries=4)
+        self.assertEqual(info["applet"], "eth2")
+        self.assertIs(info["pin_set"], True)
+        self.assertEqual(info["pin_tries_left"], 4)
+        self.assertAllClosed()
+
+    def test_sign_hash_on_pin_eth2_is_pin_required_and_sends_no_sign(self):
+        calls, _ = self._pin_card()
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
+        self.assertEqual(resp["error"]["code"], "PIN_REQUIRED")
+        self.assertFalse(any(c.startswith("80040000") for c in calls))
+        self.assertAllClosed()
+
+    def test_verify_pin_signs_in_same_session(self):
+        calls, info = self._pin_card()
+        before = len(self.card.opened)
+        digest = hashlib.sha256(b"approved tx").digest()
+        resp = self._vp("123456", digest, info["address"])
+        self.assertTrue(resp["ok"], resp)
+        res = resp["result"]
+        self.assertEqual(set(res), {"r", "s", "yParity", "signature"})
+        self.assertEqual(recover_address(digest, int(res["r"], 16), int(res["s"], 16), res["yParity"]), info["address"])
+        self.assertEqual(len(self.card.opened), before + 1, "VERIFY_PIN and SIGN must share one session")
+        tail = calls[-4:]
+        self.assertEqual(tail, ["8001000000", "8002000000", "80200000<pin>", "8004000020" + digest.hex()])
+        self.assertAllClosed()
+        # validation is not cached: the next plain sign_hash is refused again
+        self.assertEqual(host.handle({"id": 6, "method": "sign_hash", "params": {"hash": "0x" + digest.hex()}})["error"]["code"],
+                         "PIN_REQUIRED")
+
+    def test_wrong_pin_maps_tries_then_blocked(self):
+        _, info = self._pin_card(tries=3)
+        digest = b"\x55" * 32
+        r1 = self._vp("000000", digest, info["address"])
+        self.assertEqual(r1["error"]["code"], "PIN_WRONG")
+        self.assertEqual(r1["error"]["tries_left"], 2)
+        r2 = self._vp("000000", digest, info["address"])
+        self.assertEqual((r2["error"]["code"], r2["error"]["tries_left"]), ("PIN_WRONG", 1))
+        r3 = self._vp("000000", digest, info["address"])
+        self.assertEqual((r3["error"]["code"], r3["error"]["tries_left"]), ("PIN_BLOCKED", 0))
+        r4 = self._vp("123456", digest, info["address"])
+        self.assertEqual(r4["error"]["code"], "PIN_BLOCKED")
+        self.assertAllClosed()
+
+    def test_wrong_then_correct_resets_tries(self):
+        _, info = self._pin_card()
+        digest = b"\x56" * 32
+        self.assertEqual(self._vp("999999", digest, info["address"])["error"]["tries_left"], 4)
+        self.assertTrue(self._vp("123456", digest, info["address"])["ok"])
+        self.assertEqual(self.card.tries, 5)
+
+    def test_sw_mapping(self):
+        for sw, code, left in ((0x6982, "PIN_REQUIRED", None), (0x6983, "PIN_BLOCKED", 0),
+                               (0x63C2, "PIN_WRONG", 2), (0x63C0, "PIN_BLOCKED", 0), (0x6A80, "CARD_ERROR", None)):
+            with self.assertRaises(host.HostError) as ctx:
+                host._check_sw(sw, "VERIFY PIN")
+            self.assertEqual(ctx.exception.code, code, hex(sw))
+            self.assertEqual(ctx.exception.extra.get("tries_left"), left, hex(sw))
+        host._check_sw(0x9000, "x")
+
+    def test_verify_pin_param_validation(self):
+        _, info = self._pin_card()
+        addr = info["address"]
+        bad = [
+            {"pin": "12", "hash": "0x" + "11" * 32, "address": addr},
+            {"pin": 123456, "hash": "0x" + "11" * 32, "address": addr},
+            {"pin": "123456", "hash": "11" * 32, "address": addr},
+            {"pin": "123456", "hash": "0x" + "11" * 31, "address": addr},
+            {"pin": "123456", "hash": "0x" + "11" * 32, "address": addr.lower()},
+            {"pin": "123456", "hash": "0x" + "11" * 32},
+        ]
+        for params in bad:
+            resp = host.handle({"id": 9, "method": "verify_pin", "params": params})
+            self.assertEqual(resp["error"]["code"], "BAD_REQUEST", params)
+            self.assertNotIn("pin", params)
+        self.assertEqual(self.card.tries, 5, "no VERIFY_PIN APDU may be sent for a bad request")
+
+    def test_verify_pin_address_mismatch(self):
+        from ecdsa import SigningKey, SECP256k1
+        _, info = self._pin_card()
+        other = host.pubkey_to_address(SigningKey.from_secret_exponent(99, curve=SECP256k1).get_verifying_key().to_string("compressed"))
+        resp = self._vp("123456", b"\x01" * 32, other)
+        self.assertEqual(resp["error"]["code"], "ADDRESS_MISMATCH")
+        self.assertEqual(self.card.tries, 5)
+
+    def test_card_swap_is_refused_before_pin_or_sign(self):
+        from ecdsa import SigningKey, SECP256k1
+        calls, info = self._pin_card()
+        self.card.key = SigningKey.from_secret_exponent(0xBEEF, curve=SECP256k1)  # different card in the reader
+        resp = self._vp("123456", b"\x02" * 32, info["address"])
+        self.assertEqual(resp["error"]["code"], "CARD_CHANGED")
+        self.assertNotIn("80200000<pin>", calls)
+        self.assertAllClosed()
+        # session state cleared: a new info is required before any sign
+        resp = host.handle({"id": 7, "method": "sign_hash", "params": {"hash": "0x" + "02" * 32}})
+        self.assertEqual(resp["error"]["code"], "INFO_REQUIRED")
+
+    def test_card_swap_on_eth1_sign_hash(self):
+        from ecdsa import SigningKey, SECP256k1
+        calls = self._install_fake({host.AID_ETH_V1}, self.key)
+        host.handle({"id": 1, "method": "info"})
+        self.card.key = SigningKey.from_secret_exponent(0xBEEF, curve=SECP256k1)
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "03" * 32}})
+        self.assertEqual(resp["error"]["code"], "CARD_CHANGED")
+        self.assertFalse(any(c.startswith("80040000") for c in calls))
+
+    def test_applet_swap_eth2_to_eth1_refused(self):
+        self._install_fake({host.AID_ETH_V1, host.AID_ETH_V2}, self.key, eth2_format="rspub")
+        host.handle({"id": 1, "method": "info"})
+        self.card.applets = {host.AID_ETH_V1}  # same key, but only the unprotected v1 is there now
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "04" * 32}})
+        self.assertEqual(resp["error"]["code"], "CARD_CHANGED")
+
+    def test_verify_pin_on_eth1_is_pin_not_set(self):
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        info = host.handle({"id": 1, "method": "info"})["result"]
+        self.assertIs(info["pin_set"], False)
+        self.assertIsNone(info["pin_tries_left"])
+        resp = self._vp("123456", b"\x05" * 32, info["address"])
+        self.assertEqual(resp["error"]["code"], "PIN_NOT_SET")
+        self.assertAllClosed()
+
+    def test_unexpected_error_closes_wipes_and_hides_message(self):
+        _, info = self._pin_card()
+        captured = []
+        real_wipe = host._wipe
+
+        def spy(buf):
+            if isinstance(buf, bytearray):
+                captured.append(buf)
+            real_wipe(buf)
+        host._wipe = spy
+        try:
+            self.card.fail_transmit = (0x20, RuntimeError("transport died with apdu 80200000063132333435 / 123456"))
+            req = {"id": 5, "method": "verify_pin", "params": {"pin": "123456", "hash": "0x" + "06" * 32, "address": info["address"]}}
+            resp = host.handle(req)
+        finally:
+            host._wipe = real_wipe
+        self.assertEqual(resp["error"]["code"], "CARD_ERROR")
+        self.assertNotIn("123456", json.dumps(resp))
+        self.assertNotIn("3132333435", json.dumps(resp))
+        self.assertNotIn("pin", req["params"])
+        self.assertAllClosed()
+        self.assertTrue(captured, "PIN/APDU buffers were not wiped")
+        self.assertTrue(all(not any(b) for b in captured), "a buffer still holds non-zero bytes")
+
+    def test_sign_hash_without_info_refused(self):
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        resp = host.handle({"id": 1, "method": "sign_hash", "params": {"hash": "0x" + "07" * 32}})
+        self.assertEqual(resp["error"]["code"], "INFO_REQUIRED")
+
+    def test_failed_info_revokes_signing(self):
+        calls = self._install_fake({host.AID_ETH_V1}, self.key)
+        self.assertTrue(host.handle({"id": 1, "method": "info"})["ok"])
+        self.card.applets = set()
+        self.assertEqual(host.handle({"id": 2, "method": "info"})["error"]["code"], "NO_APPLET")
+        self.card.applets = {host.AID_ETH_V1}
+        self.assertEqual(host.handle({"id": 3, "method": "sign_hash", "params": {"hash": "0x" + "08" * 32}})["error"]["code"],
+                         "INFO_REQUIRED")
+
+    def test_unknown_pcsc_code_is_card_error_not_sim(self):
+        self._install_fake({host.AID_ETH_V1}, self.key)
+        mod = sys.modules["nuri_pcsc"]
+
+        def boom(aid_hex, reader=None):
+            raise mod.CardError("TRANSPORT", "bus error")
+        mod.open_applet = boom
+        resp = host.handle({"id": 1, "method": "info"})
+        self.assertEqual(resp["error"]["code"], "CARD_ERROR")
+        self.assertIsNone(host._INFO)
+
+
+class SimGateTests(unittest.TestCase):
+    """Sim must be explicit: env exactly "1" AND a successful sim info in this process."""
+
+    def setUp(self):
+        self.saved_env = os.environ.pop("NURI_CARD_SIM", None)
+        reset_host()
+
+    def tearDown(self):
+        reset_host()
+        os.environ.pop("NURI_CARD_SIM", None)
+        if self.saved_env is not None:
+            os.environ["NURI_CARD_SIM"] = self.saved_env
+
+    def test_sim_sign_without_info_refused(self):
+        os.environ["NURI_CARD_SIM"] = "1"
+        host._SIGNER = host.SimSigner()  # even a pre-built sim signer is not authorization
+        resp = host.handle({"id": 1, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
+        self.assertEqual(resp["error"]["code"], "INFO_REQUIRED")
+
+    def test_env_removed_after_info_refuses(self):
+        os.environ["NURI_CARD_SIM"] = "1"
+        self.assertTrue(host.handle({"id": 1, "method": "info"})["ok"])
+        os.environ.pop("NURI_CARD_SIM")
+        sys.modules["nuri_pcsc"] = None  # card mode import must fail, not fall back
+        try:
+            resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
+        finally:
+            sys.modules.pop("nuri_pcsc", None)
+        self.assertFalse(resp["ok"])
+        self.assertEqual(resp["error"]["code"], "INFO_REQUIRED")
+
+    def test_ack_flag_required(self):
+        os.environ["NURI_CARD_SIM"] = "1"
+        self.assertTrue(host.handle({"id": 1, "method": "info"})["ok"])
+        host._SIM_ACK = False
+        resp = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "11" * 32}})
+        self.assertEqual(resp["error"]["code"], "SIM_NOT_AUTHORIZED")
+
+    def test_non_exact_env_values_fail_closed(self):
+        for val in ("true", "yes", "1 ", " 1", "01", "2"):
+            os.environ["NURI_CARD_SIM"] = val
+            reset_host()
+            resp = host.handle({"id": 1, "method": "info"})
+            self.assertEqual(resp["error"]["code"], "CONFIG_ERROR", val)
+            self.assertIsNone(host._INFO)
+
+    def test_sim_flag_without_env_does_not_authorize(self):
+        host._SIM_FLAG = True
+        resp = host.handle({"id": 1, "method": "info"})
+        self.assertEqual(resp["error"]["code"], "CONFIG_ERROR")
+        self.assertNotIn("NURI_CARD_SIM", os.environ)
+
+    def test_verify_pin_in_sim_is_pin_not_set(self):
+        os.environ["NURI_CARD_SIM"] = "1"
+        info = host.handle({"id": 1, "method": "info"})["result"]
+        resp = host.handle({"id": 2, "method": "verify_pin", "params": {"pin": "123456", "hash": "0x" + "11" * 32, "address": info["address"]}})
+        self.assertEqual(resp["error"]["code"], "PIN_NOT_SET")
+
+    def test_subprocess_sim_flag_alone_refused(self):
+        env = {k: v for k, v in os.environ.items() if k != "NURI_CARD_SIM"}
+        proc = subprocess.run([sys.executable, os.path.join(HERE, "nuri_card_host.py"), "--sim", "chrome-extension://test/"],
+                              input=frame({"id": 1, "method": "info"}) + frame({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "ab" * 32}}),
+                              capture_output=True, env=env, timeout=30)
+        msgs = unframe_all(proc.stdout)
+        self.assertEqual([m["error"]["code"] for m in msgs], ["CONFIG_ERROR", "CONFIG_ERROR"])
+
 
 class FramingTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_env = os.environ.get("NURI_CARD_SIM")
+        os.environ["NURI_CARD_SIM"] = "1"
+        reset_host()
+
+    def tearDown(self):
+        reset_host()
+        if self.saved_env is None:
+            os.environ.pop("NURI_CARD_SIM", None)
+        else:
+            os.environ["NURI_CARD_SIM"] = self.saved_env
+
     def test_serve_in_process(self):
-        host._SIGNER = None
         stdin = io.BytesIO(frame({"id": 1, "method": "info"}) + frame({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "00" * 32}}) + frame({"id": 3, "method": "x"}))
         stdout = io.BytesIO()
         host.serve(stdin, stdout)
@@ -311,6 +626,71 @@ class FramingTests(unittest.TestCase):
         res = msgs[1]["result"]
         self.assertEqual(recover_address(bytes.fromhex("ab" * 32), int(res["r"], 16), int(res["s"], 16), res["yParity"]),
                          msgs[0]["result"]["address"])
+
+    def test_log_never_contains_pin_or_params(self):
+        tmp = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+        try:
+            log_path = os.path.join(tmp, "host.log")
+            env = dict(os.environ, NURI_CARD_SIM="1", NURI_CARD_HOST_LOG=log_path)
+            info_addr = host.pubkey_to_address(bytes.fromhex(SIM_PUBKEY[2:]))
+            secret = "73915042"
+            proc = subprocess.run(
+                [sys.executable, os.path.join(HERE, "nuri_card_host.py"), "chrome-extension://test/"],
+                input=frame({"id": 1, "method": "info"})
+                + frame({"id": 2, "method": "verify_pin", "params": {"pin": secret, "hash": "0x" + "ab" * 32, "address": info_addr}})
+                + frame({"id": 3, "method": "verify_pin", "params": {"pin": secret, "hash": "bad", "address": info_addr}})
+                + frame({"id": 4, "method": "sign_hash", "params": {"hash": "0x" + "ab" * 32}, "pin": secret}),
+                capture_output=True, env=env, timeout=30,
+            )
+            msgs = unframe_all(proc.stdout)
+            self.assertEqual([m["id"] for m in msgs], [1, 2, 3, 4])
+            self.assertEqual(msgs[1]["error"]["code"], "PIN_NOT_SET")
+            self.assertEqual(msgs[2]["error"]["code"], "BAD_REQUEST")
+            self.assertTrue(msgs[3]["ok"], msgs[3])
+            with open(log_path) as fh:
+                log = fh.read()
+            self.assertNotIn(secret, log)
+            self.assertNotIn(secret, proc.stdout.decode("utf-8", "replace"))
+            self.assertNotIn(secret, proc.stderr.decode("utf-8", "replace"))
+            self.assertNotIn("params", log)
+            self.assertEqual(len(log.strip().splitlines()), 4)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_invalid_json_frame_with_pin_not_echoed(self):
+        bad = b'{"id":1,"method":"verify_pin","params":{"pin":"55443322"'
+        stdout = io.BytesIO()
+        host.serve(io.BytesIO(struct.pack("<I", len(bad)) + bad), stdout)
+        out = stdout.getvalue().decode()
+        self.assertIn("BAD_REQUEST", out)
+        self.assertNotIn("55443322", out)
+
+
+class InstallerLauncherTests(unittest.TestCase):
+    """host/install-macos.sh launcher only (test hook): no venv, pip, manifest or network."""
+
+    def _launcher(self, *args):
+        home = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+        self.addCleanup(shutil.rmtree, home, True)
+        env = dict(os.environ, HOME=home, NURI_HOST_INSTALL_LAUNCHER_ONLY="1")
+        proc = subprocess.run(["bash", os.path.join(HERE, "install-macos.sh"), *args], env=env,
+                              capture_output=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertFalse(os.path.exists(os.path.join(home, "Library")), "launcher-only must not write the manifest")
+        with open(os.path.join(home, ".nuri-card-host", "run.sh")) as fh:
+            return fh.read()
+
+    def test_normal_launcher_never_enables_sim(self):
+        text = self._launcher()
+        self.assertIn("unset NURI_CARD_SIM", text)
+        self.assertNotIn("NURI_CARD_SIM=1", text)
+        self.assertNotIn("--sim", text)
+
+    def test_sim_launcher_exports_explicitly(self):
+        text = self._launcher("--sim")
+        self.assertIn("export NURI_CARD_SIM=1", text)
+        self.assertIn('nuri_card_host.py" --sim', text)
+        self.assertNotIn("unset NURI_CARD_SIM", text)
 
 
 if __name__ == "__main__":
