@@ -34,11 +34,13 @@ repository-root applet patches are applied only inside `.build/`:
   and simulator scripts check the supported range and use `gradle` from PATH,
   or the executable selected by `GRADLE_BIN`. The release provenance records
   the actual version; newer toolchain reproducibility must be verified.
-- Comparison with upstream main confirms `settings.gradle` and `gradle.properties`
-  are identical; `build.gradle` differs only in two SDK warning messages. The
-  plugin remains upstream's `com.klinec.gradle.javacard` 1.8.0. Its
-  `ClosureBackedAction` dependency is removed in Gradle 9, not Gradle 8.2;
-  changing applet/build configuration is not needed to fix that failure.
+- Comparison with upstream main `32ae7a9ee062f6ce9c8856b2e8c223af3b849e46`
+  found no functional build-configuration differences: `settings.gradle` and
+  `gradle.properties` differ only in trailing newlines. The two SDK warning
+  messages in `build.gradle` are aligned with upstream. The plugin remains
+  upstream's `com.klinec.gradle.javacard` 1.8.0. Its `ClosureBackedAction`
+  dependency is removed in Gradle 9, not Gradle 8.2; fixing the installed Gradle
+  version, rather than changing applet configuration, resolves that failure.
 - `mds.json` is excluded pending separate rights/provenance confirmation for its
   metadata, embedded icon and certificate. It is not needed by the Java/CAP
   compilation. This exclusion does not change the applet's licence.
