@@ -561,9 +561,8 @@ public class NuriEthSignerV2 extends Applet {
         // Outside a transaction a tear between update's internal copy, length and
         // counter writes could leave a mixed PIN. PIN, PUK and both flags are
         // committed together, so a tear aborts back to the no-PIN state; the
-        // user simply retries SET_PIN. Commit size ~38 B max (16+16+fields),
-        // far below the ~100 B already committed card-tested in keygen (see
-        // the KEYGEN transaction above).
+        // user simply retries SET_PIN. Target-card transaction-buffer usage
+        // and physical tear rollback remain unverified.
         JCSystem.beginTransaction();
         pin.update(buffer, pOff, (byte)pLen);
         if (kLen != 0) puk.update(buffer, kOff, (byte)kLen);

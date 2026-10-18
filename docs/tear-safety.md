@@ -27,8 +27,8 @@ flowchart TB
 
 ## Java Card OwnerPIN semantics (authoritative)
 
-From the Java Card API, `javacard.framework.OwnerPIN` (Oracle Java Card 2.2.2
-API specification, class and method notes):
+From the [Oracle Java Card 3.2 `OwnerPIN` API](https://docs.oracle.com/en/java/javacard/3.2/jcapi/api_classic/javacard/framework/OwnerPIN.html),
+class and method notes:
 
 - Class note: even if a transaction is in progress, "update of internal
   state, such as the try counter, the validated flag, and the blocking state,
@@ -63,10 +63,9 @@ All in `card/eth2/NuriEthSignerV2.java`:
   of the previous mixed state where the counter was already unblocked while
   the value was still the old one.
 
-Commit-buffer capacity: SET_PIN's worst case (~38 B: 16 B PIN + 16 B PUK +
-length/counter/flags) is well below what KEYGEN already commits card-tested
-(~100 B: 65 B pubkey copy + attestation binding + flags), so no capacity
-regression is expected (UNVERIFIED on the target card for SET_PIN itself).
+Commit-buffer capacity and implementation bookkeeping overhead remain
+UNVERIFIED on the target card. ETH2 KEYGEN has not been accepted on physical
+hardware either; its transaction is not evidence of available buffer capacity.
 
 ## What is proven where
 
@@ -75,7 +74,7 @@ regression is expected (UNVERIFIED on the target card for SET_PIN itself).
 | Try counters decrement persistently on wrong PIN/PUK, not restored by later commands | Simulator APDU tests, this repo |
 | UNBLOCK's update alone resets a blocked PIN's retry counter (no resetAndUnblock) | Simulator APDU test: wrong PIN after UNBLOCK -> 63C4, not 6983 |
 | update/check transaction structure (begin/commit placement, checks outside) | Static code, `NuriEthSignerV2.java` |
-| OwnerPIN spec semantics (conditional update, non-transactional presentation state) | Oracle Java Card 2.2.2 API javadoc (cited above) |
+| OwnerPIN spec semantics (conditional update, non-transactional presentation state) | Oracle Java Card 3.2 API javadoc (linked above) |
 | Hardware tear actually rolls back the wrapped writes | UNVERIFIED — needs a physical-card power-cut test |
 
 ## Simulator limitations (explicit)
