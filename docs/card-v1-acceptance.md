@@ -74,7 +74,9 @@ TOTP provisioning is optional and service-specific:
 scripts/run-card-python.sh scripts/card-totp.py put "BASE32-SECRET"
 ```
 
-Treat that command and shell history as secret-bearing operational work.
+The first `put` prompts for an admin PIN (4-16 characters) that gates every
+later `put`; set `NURI_TOTP_PIN` to skip the prompt. Treat that command and
+shell history as secret-bearing operational work.
 
 ## 6. Run non-destructive hardware acceptance
 

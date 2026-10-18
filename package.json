@@ -67,6 +67,7 @@
     "card:totp:build": "scripts/build-card-v1-release.sh",
     "card:totp:install": "scripts/install-totp-card.sh",
     "card:totp": "scripts/run-card-python.sh scripts/card-totp.py",
+    "card:totp:test:sim": "scripts/test-totp-sim.sh",
     "card:mcp": "node scripts/card-mcp-server.mjs",
     "card:mcp:selftest": "node scripts/card-mcp-server.mjs --selftest",
     "card:mcp:tunnel": "ngrok http ${PORT:-8799}",

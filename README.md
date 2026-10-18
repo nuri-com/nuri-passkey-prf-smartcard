@@ -1181,8 +1181,13 @@ nuricard totp                                          # current 6-digit code
 ```
 
 The card has no clock, so the host sends the time counter; the secret is written in
-and never read out. Verified against the RFC 6238 vector
-(`python3 scripts/card-totp.py --selfcheck`).
+and never read out. The first `put` chooses an admin PIN; every later `put` must
+present it (5 tries). Reading codes is not PIN-gated. The applet uses the chip's
+native HMAC when present and falls back to a software HMAC-SHA1 over
+`MessageDigest.ALG_SHA` on chips without it (JCOP4 J3R180, SECORA); see
+[`docs/totp-applet.md`](docs/totp-applet.md). Verified against the RFC 6238
+vectors (`python3 scripts/card-totp.py --selfcheck`) and in jCardSim on both
+engines (`scripts/test-totp-sim.sh`).
 
 ### FIDO2 SSH security key
 
