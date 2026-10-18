@@ -35,6 +35,14 @@ public final class Scalar256 {
         (byte)0xbf,(byte)0xd2,(byte)0x5e,(byte)0x8c,
         (byte)0xd0,(byte)0x36,(byte)0x41,(byte)0x41
     };
+    private static final byte[] FIELD_PRIME = {
+        (byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,
+        (byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,
+        (byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,(byte)0xff,
+        (byte)0xff,(byte)0xff,(byte)0xff,(byte)0xfe,(byte)0xff,(byte)0xff,(byte)0xfc,(byte)0x2f
+    };
+    // Public operation mode only; never selected from a secret. Non-reentrant.
+    private boolean fieldArithmetic;
     private final byte[] scratch;
 
     public Scalar256() {
@@ -122,6 +130,21 @@ public final class Scalar256 {
         clear();
     }
 
+    /** Public-point field arithmetic modulo p, sharing the fixed-width engine.
+     * Both n and p exceed 2^255, so the same one-subtract and carry rules apply.
+     */
+    public void fieldMultiply(byte[] a, short ao, byte[] b, short bo, byte[] out, short oo) {
+        fieldArithmetic = true;
+        try { mulMod(a, ao, b, bo, out, oo); }
+        finally { clear(); }
+    }
+
+    public void fieldAdd(byte[] a, short ao, byte[] b, short bo, byte[] out, short oo) {
+        fieldArithmetic = true;
+        try { addMod(a, ao, b, bo, out, oo); }
+        finally { clear(); }
+    }
+
     /** Any 256-bit value is below 2*n; one conditional subtraction suffices. */
     private void load(byte[] in, short io, short slot) {
         copy(in, io, scratch, slot);
@@ -146,10 +169,11 @@ public final class Scalar256 {
      * Select subtraction exactly when high==1 OR low>=n, without a branch.
      */
     private void subtractSelect(short slot, short high) {
+        byte[] modulus = fieldArithmetic ? FIELD_PRIME : ORDER;
         short borrow = 0;
         for (short i = (short)31; i >= 0; i--) {
             short delta = (short)((scratch[(short)(slot + i)] & 0xff)
-                - (ORDER[i] & 0xff) - borrow);
+                - (modulus[i] & 0xff) - borrow);
             scratch[(short)(D + i)] = (byte)delta;
             borrow = (short)((delta >> 15) & 1);
         }
@@ -167,7 +191,9 @@ public final class Scalar256 {
         }
     }
 
-    private void clear() {
+    /** Explicit exceptional-exit cleanup for the applet boundary. */
+    public void clear() {
+        fieldArithmetic = false;
         for (short i = 0; i < (short)160; i++) {
             scratch[i] = 0;
         }

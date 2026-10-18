@@ -15,7 +15,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import nuri_pcsc  # shared PC/SC: reader + protocol ladder, 61XX/6CXX
+import nuri_musig2_card  # APDU driver: PC/SC ladder, version gate, PIN, 1.14 FINALIZE
 
 
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -24,7 +24,7 @@ GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 G = (GX, GY)
 
-APPLET_AID = bytes.fromhex("4E5552494D554701")
+APPLET_AID = nuri_musig2_card.APPLET_AID
 
 
 def sha256(data: bytes) -> bytes:
@@ -171,57 +171,15 @@ def partial_verify(partial: bytes, pub_nonce1: bytes, pub_nonce2: bytes, b: byte
     return point_mul(s, G) == rhs
 
 
-class NuriMuSig2Card:
-    def __init__(self):
-        self.conn = None
-        self.reader = None
-
-    def connect(self):
-        try:
-            self.applet = nuri_pcsc.open_applet(APPLET_AID.hex())
-        except nuri_pcsc.CardError as error:
-            raise RuntimeError(f"No NuriMuSig2 card found ({error})") from error
-        self.conn = self.applet.conn
-        self.reader = f"{self.applet.reader_name} [{self.applet.protocol}]"
-
-    def disconnect(self):
-        if self.conn:
-            self.applet.close()
-
-    def transmit_ok(self, apdu):
-        response, status = self.applet.transmit(bytes(apdu))
-        if status != 0x9000:
-            raise RuntimeError(f"APDU failed: SW={status:04X}")
-        return response
+class NuriMuSig2Card(nuri_musig2_card.MuSig2Card):
+    """Shared host driver (scripts/nuri_musig2_card.py): legacy <1.14 without PIN,
+    1.14+ with VERIFY before nonces/finalize and the 231-byte FINALIZE."""
 
     def version(self):
-        response = self.transmit_ok([0x00, 0x01, 0x00, 0x00, 0x00])
-        return {
-            "version": f"{response[0]}.{response[1]}",
-            "build": response[3:7].decode("ascii", errors="ignore"),
-        }
-
-    def pubkey(self) -> bytes:
-        return self.transmit_ok([0x00, 0x03, 0x00, 0x00, 0x00])
-
-    def keygen(self) -> bytes:
-        response = self.transmit_ok([0x00, 0x04, 0x00, 0x00, 0x00])
-        if len(response) != 33:
-            raise RuntimeError(f"unexpected keygen pubkey length: {len(response)}")
-        return response
-
-    def nonces(self):
-        response = self.transmit_ok([0x00, 0x40, 0x00, 0x00, 0x00])
-        if len(response) != 66:
-            raise RuntimeError(f"unexpected nonce response length: {len(response)}")
-        return response[:33], response[33:]
-
-    def finalize(self, coeff: bytes, b: bytes, parity: int, e: bytes) -> bytes:
-        payload = coeff + b + bytes([parity]) + e
-        response = self.transmit_ok([0x00, 0x41, 0x00, 0x00, len(payload)] + list(payload) + [0x20])
-        if len(response) != 32:
-            raise RuntimeError(f"unexpected partial length: {len(response)}")
-        return response
+        # Shape unchanged for existing callers; PIN/protocol state is reported
+        # separately (card_protocol / card_pin_verified in the proof JSON).
+        info = self.version_info()
+        return {"version": info["version"], "build": info["build"]}
 
 
 def key_agg_coefficients(pubkeys33):
@@ -341,13 +299,18 @@ def run(args):
         b = tagged_hash("MuSig/noncecoef", r1_x + r2_x + aggregate_xonly + msg32)
         b_int = int_from_bytes(b) % N
         aggregate_r = point_add(r1, point_mul(b_int, r2))
+        if aggregate_r is None:
+            aggregate_r = G  # BIP327: infinity -> G
         parity = 0 if aggregate_r[1] % 2 == 0 else 1
         r_even = aggregate_r if parity == 0 else point_neg(aggregate_r)
         r_even_x = bytes_from_int(r_even[0])
         e = tagged_hash("BIP0340/challenge", r_even_x + aggregate_xonly + msg32)
         e_int = int_from_bytes(e) % N
 
-        card_partial = card.finalize(card_coeff, b, parity, e)
+        # 1.14+: also hand the card the actual aggregate nonce R (pre-negation,
+        # y parity == `parity`) and the aggregate key the challenge commits to.
+        # The search loop above guarantees `aggregate` has even y.
+        card_partial = card.finalize(card_coeff, b, parity, e, r_agg=aggregate_r, p_agg=aggregate)
 
         client_r = (client_k1 + b_int * client_k2) % N
         if parity == 1:
@@ -372,6 +335,8 @@ def run(args):
             "card_aid": APPLET_AID.hex().upper(),
             "reader": card.reader,
             "card_version": version,
+            "card_protocol": card.protocol,
+            "card_pin_verified": card.pin_verified,
             "key_origin": key_origin,
             "client_secret_source": client_secret_source,
             "demo_client_secret32": bytes_from_int(client_secret).hex() if args.include_demo_client_secret else None,

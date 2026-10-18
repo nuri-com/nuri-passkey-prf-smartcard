@@ -20,14 +20,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import nuri_pcsc  # shared PC/SC: reader + protocol ladder, 61XX/6CXX
+import nuri_musig2_card  # APDU driver: PC/SC ladder, version gate, PIN, 1.14 FINALIZE
 
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 G = (GX, GY)
-APPLET_AID = bytes.fromhex("4E5552494D554701")
+APPLET_AID = nuri_musig2_card.APPLET_AID
 CSV_BLOCKS = 52500  # Nuri client recovery window
 
 
@@ -143,28 +143,10 @@ def arkade_script_root_tweak(internal_xonly, script_root32):
     return b2i(tagged_hash("TapTweak", internal_xonly + script_root32)) % N
 
 
-class Card:
-    def connect(self):
-        try:
-            self.applet = nuri_pcsc.open_applet(APPLET_AID.hex())
-        except nuri_pcsc.CardError as e:
-            raise RuntimeError(f"No NuriMuSig2 card found ({e})") from e
-        self.conn, self.reader = self.applet.conn, f"{self.applet.reader_name} [{self.applet.protocol}]"
-
-    def _tx(self, apdu):
-        resp, sw = self.applet.transmit(bytes(apdu))
-        if sw != 0x9000: raise RuntimeError(f"APDU SW={sw:04X}")
-        return resp
-
-    def version(self):
-        r = self._tx([0x00, 0x01, 0x00, 0x00, 0x00]); return f"{r[0]}.{r[1]}"
-    def pubkey(self): return self._tx([0x00, 0x03, 0x00, 0x00, 0x00])
-    def nonces(self): r = self._tx([0x00, 0x40, 0x00, 0x00, 0x00]); return r[:33], r[33:]
-    def finalize(self, a, b, parity, e):
-        return self._tx([0x00, 0x41, 0x00, 0x00, 97] + list(a + b + bytes([parity]) + e) + [0x20])
-    def close(self):
-        try: self.conn.disconnect()
-        except Exception: pass
+# Card = the shared NuriMuSig2 host driver (legacy <1.14 and PIN-gated 1.14+).
+# Kept under the old name: real-card-arkade-signer-proof.py, card-arkade-claim-signer.py
+# and read-musig2-card-key.py import this module as `core` and use core.Card.
+Card = nuri_musig2_card.MuSig2Card
 
 
 def run(args):
@@ -216,6 +198,7 @@ def run(args):
         b = tagged_hash("MuSig/noncecoef", i2b(R1[0]) + i2b(R2[0]) + output_xonly + msg)
         bi = b2i(b) % N
         R = padd(R1, pmul(bi, R2))
+        if R is None: R = G  # BIP327 NonceAgg/Sign: infinity -> G
         parity = 0 if R[1] % 2 == 0 else 1
         Re = R if parity == 0 else pneg(R)
         rx = i2b(Re[0])
@@ -224,7 +207,10 @@ def run(args):
 
         # Card partial: fold g*gAcc into the coefficient -> no applet change.
         card_coeff = i2b((a_card * fold) % N)
-        card_partial = card.finalize(card_coeff, b, parity, e)
+        # 1.14+: the card also gets the actual aggregate nonce R (pre-negation,
+        # its y parity == `parity`) and the signing key the challenge commits to
+        # (tweaked output key Qt). Legacy applets ignore both.
+        card_partial = card.finalize(card_coeff, b, parity, e, r_agg=R, p_agg=Qt)
         cpi = b2i(card_partial) % N
 
         # Client partial (software), same g*gAcc fold.
@@ -244,6 +230,8 @@ def run(args):
             "csv_blocks": CSV_BLOCKS,
             "reader": card.reader,
             "card_version": ver,
+            "card_protocol": card.protocol,
+            "card_pin_verified": card.pin_verified,
             "client_pk33": client_pk.hex(),
             "card_pk33": card_pk.hex(),
             "internal_aggregate_xonly32": internal_xonly.hex(),

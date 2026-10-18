@@ -31,13 +31,23 @@ const CSV_BLOCKS = 52500; // matches card-cosign-tweaked.py and nuriBitcoin.ts
 // spend tool still builds + signs (dry-run) but never pushes a mainnet tx.
 const ALLOW_MAINNET = process.env.NURI_ALLOW_MAINNET === '1';
 
+// MuSig2 applet >= 1.14 is PIN-gated: the card scripts VERIFY before every
+// GET_NONCES/FINALIZE session. The PIN reaches them ONLY via the environment
+// (NURI_CARD_PIN, inherited from this server's env), never as an argument, a
+// tool parameter or a log line. Legacy applets (< 1.14, public demo card) ignore it.
+function redactPin(text) {
+  const pin = process.env.NURI_CARD_PIN;
+  const out = String(text ?? '');
+  return pin && pin.length >= 4 ? out.split(pin).join('[PIN]') : out;
+}
+
 // Never run two PC/SC commands at once: serialize all card access.
 let cardChain = Promise.resolve();
 function runPy(args) {
   const job = cardChain.then(() => new Promise((res, rej) => {
-    execFile(PY, args, { cwd: process.cwd(), timeout: 90000, maxBuffer: 1 << 20 }, (err, out, errout) => {
-      if (err) return rej(new Error(`${err.message}\n${errout || out}`.trim()));
-      try { res(JSON.parse(out)); } catch (e) { rej(new Error(`bad JSON from card script: ${e.message}\n${out}`)); }
+    execFile(PY, args, { cwd: process.cwd(), timeout: 90000, maxBuffer: 1 << 20, env: { ...process.env } }, (err, out, errout) => {
+      if (err) return rej(new Error(redactPin(`${err.message}\n${errout || out}`.trim())));
+      try { res(JSON.parse(out)); } catch (e) { rej(new Error(redactPin(`bad JSON from card script: ${e.message}\n${out}`))); }
     });
   }));
   cardChain = job.catch(() => {}); // keep the chain alive on failure
@@ -135,6 +145,8 @@ async function callTool(name, callArgs) {
       status: r.status,
       card_aid: r.card_aid,
       card_version: r.card_version,
+      card_protocol: r.card_protocol,
+      card_pin_verified: r.card_pin_verified,
       reader: r.reader,
       card_pk33: r.card_pk33,
       aggregate_xonly32: r.aggregate_xonly32,
@@ -297,6 +309,7 @@ server.listen(port, host, () => {
   const bound = server.address()?.port ?? port;
   console.log(`Nuri smartcard MCP cosigner: http://${host}:${bound}/mcp  (health: /healthz)`);
   console.log(`Auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_MCP_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS.`);
+  console.log(`MuSig2 card PIN (applet >= 1.14): ${process.env.NURI_CARD_PIN ? 'NURI_CARD_PIN set in env' : 'not set; set NURI_CARD_PIN in this server env (never as an argument)'}`);
   console.log(`Mainnet broadcast: ${ALLOW_MAINNET ? 'ENABLED (NURI_ALLOW_MAINNET=1)' : 'disabled (set NURI_ALLOW_MAINNET=1 to allow)'}`);
 
 });

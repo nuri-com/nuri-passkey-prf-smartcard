@@ -11,6 +11,23 @@ flowchart LR
   O --> P[MuSig2 partial: nonce plus challenge term]
 ```
 
+## W20 current boundary (APDU 1.14)
+
+W20 keeps the scalar algorithm and its six official BIP327 fixtures. It adds
+`fieldMultiply` and `fieldAdd` modulo secp256k1's field prime for public-point
+validation, using the same fixed-width engine with a public modulus selector.
+The selector and scratch are reset on exit. Both primes exceed `2^255`, so the
+normalization/carry argument applies unchanged. The new simulator oracle checks
+164 boundary/random field operand pairs, aliased addition, and scalar modulus
+restoration after every pair (`PinHardeningTest.java:132-151`).
+
+`Scalar256.clear()` is now public so the APDU exception boundary can erase it.
+The applet's secret products are independently additively blinded and computed
+twice; temporary EC keys and all private byte scratch are explicitly erased on
+success and exceptions. The W16 remaining-boundaries section below is historical,
+not the current implementation. See [MuSig2 PIN and hardening](musig2-pin-and-hardening.md)
+for current protocol, measured checks and unverified physical boundaries.
+
 ## Scope and provenance
 
 `card/musig2/Scalar256.java` is independently written for the narrow W14 §5.2

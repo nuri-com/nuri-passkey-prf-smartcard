@@ -112,6 +112,7 @@ def session_keys(card_pk33: bytes, asp_pk33: bytes, mode: str, script_root32: by
     fold = (g * g_acc) % core.N
     return {
         "coeffs": coeffs,
+        "session_q": session_q,
         "internal_xonly": internal_xonly,
         "signing_xonly": signing_xonly,
         "tweak_int": tweak_int,
@@ -147,7 +148,7 @@ def run_case(card, args, mode: str, card_pk33: bytes, asp_secret: int, asp_pk33:
 
     card_coeff32 = core.i2b((keys["coeffs"][card_pk33.hex()] * keys["fold"]) % core.N)
     asp_coeff32 = core.i2b((keys["coeffs"][asp_pk33.hex()] * keys["fold"]) % core.N)
-    card_partial32 = card.finalize(card_coeff32, b32, aggregate_nonce_parity, challenge32)
+    card_partial32 = card.finalize(card_coeff32, b32, aggregate_nonce_parity, challenge32, r_agg=aggregate_r, p_agg=keys["session_q"])
     asp_partial32 = asp_partial_sign(asp_k1, asp_k2, b32, aggregate_nonce_parity, challenge32, asp_coeff32, asp_secret)
 
     card_partial_ok = partial_verify(

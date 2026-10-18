@@ -58,7 +58,9 @@ mkdir -p "$CLASSES"
 javac -nowarn -source 8 -target 8 -cp "$JAR" -d "$CLASSES" \
   "$APPLET_SRC"/*.java \
   "$ROOT/test/musig2-jcardsim/NonceLifetimeTest.java" \
-  "$ROOT/test/musig2-jcardsim/Scalar256Test.java"
+  "$ROOT/test/musig2-jcardsim/Scalar256Test.java" \
+  "$ROOT/test/musig2-jcardsim/PinHardeningTest.java"
 
 java -cp "$CLASSES:$JAR" Scalar256Test
 java -cp "$CLASSES:$JAR" NonceLifetimeTest
+java -cp "$CLASSES:$JAR" PinHardeningTest
