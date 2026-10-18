@@ -236,8 +236,6 @@ def _check_sw(sw: int, what: str) -> None:
         raise HostError("PIN_BLOCKED", f"{what}: PIN blocked (SW 6983)", tries_left=0)
     if (sw & 0xFFF0) == 0x63C0:
         left = sw & 0x0F
-        if left == 0:
-            raise HostError("PIN_BLOCKED", f"{what}: PIN blocked (SW {sw:04X})", tries_left=0)
         raise HostError("PIN_WRONG", f"{what}: wrong PIN, {left} tries left (SW {sw:04X})", tries_left=left)
     if sw == 0x6985 and what == "VERIFY PIN":
         raise HostError("PIN_NOT_SET", f"{what}: applet has no PIN configured (SW 6985)")
@@ -452,18 +450,6 @@ _STRICT_HASH = re.compile(r"0x[0-9a-fA-F]{64}")
 _STRICT_ADDR = re.compile(r"0x[0-9a-fA-F]{40}")
 
 
-def parse_hash(value: Any) -> bytes:
-    if not isinstance(value, str):
-        raise HostError("BAD_REQUEST", "params.hash must be a 0x-prefixed hex string")
-    h = value[2:] if value.lower().startswith("0x") else value
-    if len(h) != 64:
-        raise HostError("BAD_REQUEST", "params.hash must be exactly 32 bytes (64 hex chars)")
-    try:
-        return bytes.fromhex(h)
-    except ValueError:
-        raise HostError("BAD_REQUEST", "params.hash is not valid hex")
-
-
 def parse_hash_strict(value: Any) -> bytes:
     if not isinstance(value, str) or not _STRICT_HASH.fullmatch(value):
         raise HostError("BAD_REQUEST", "params.hash must be 0x + exactly 64 hex chars")
@@ -535,7 +521,7 @@ def handle(request: Any) -> dict[str, Any]:
             params = params or {}
             if not isinstance(params, dict):
                 raise HostError("BAD_REQUEST", "params must be an object")
-            digest = parse_hash(params.get("hash"))
+            digest = parse_hash_strict(params.get("hash"))
             signer = _signing_signer()
             r, s = signer.sign_digest(digest, _INFO)
             return ok_response(req_id, verify_and_recover(signer.pubkey, digest, r, s))

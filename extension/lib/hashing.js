@@ -12,8 +12,9 @@
   if (!ethers) throw new Error("ethers not loaded");
 
   const SUPPORTED_CHAINS = {
-    "0x1": { chainId: 1, name: "Ethereum", rpc: "https://cloudflare-eth.com" },
-    "0x2105": { chainId: 8453, name: "Base", rpc: "https://mainnet.base.org" },
+    "0x1": { chainId: 1, name: "Ethereum", rpc: "https://cloudflare-eth.com", explorer: "https://etherscan.io" },
+    "0x2105": { chainId: 8453, name: "Base", rpc: "https://mainnet.base.org", explorer: "https://basescan.org" },
+    "0x14a34": { chainId: 84532, name: "Base Sepolia", rpc: "https://sepolia.base.org", explorer: "https://sepolia.basescan.org" },
   };
 
   function toHexChainId(n) {
@@ -49,7 +50,9 @@
     }
     const types = { ...td.types };
     delete types.EIP712Domain; // ethers derives the domain type from the domain object
-    return { domain: td.domain, types, primaryType: td.primaryType, message: td.message };
+    const primaryType = ethers.TypedDataEncoder.from(types).primaryType;
+    if (td.primaryType && td.primaryType !== primaryType) throw new Error("claimed primaryType does not match typed-data schema");
+    return { domain: td.domain, types, primaryType, message: td.message };
   }
 
   function hashTypedDataV4(input) {
@@ -71,6 +74,8 @@
     tx.maxFeePerGas = BigInt(req.maxFeePerGas ?? filled.maxFeePerGas);
     tx.maxPriorityFeePerGas = BigInt(req.maxPriorityFeePerGas ?? filled.maxPriorityFeePerGas);
     if (req.accessList) tx.accessList = req.accessList;
+    if (req.chainId != null && BigInt(req.chainId) !== tx.chainId) throw new Error("Transaction chainId mismatch");
+    if (!Number.isSafeInteger(tx.nonce) || tx.nonce < 0 || tx.gasLimit <= 0n || tx.maxPriorityFeePerGas < 0n || tx.maxFeePerGas < tx.maxPriorityFeePerGas || tx.value < 0n) throw new Error("Invalid transaction nonce, gas, value or fee caps");
     return tx;
   }
 
@@ -106,6 +111,8 @@
       gasLimit: tx.gasLimit.toString(),
       maxFeePerGas: ethers.formatUnits(tx.maxFeePerGas, "gwei") + " gwei",
       maxPriorityFeePerGas: ethers.formatUnits(tx.maxPriorityFeePerGas, "gwei") + " gwei",
+      executionFeeCap: ethers.formatEther(tx.gasLimit * tx.maxFeePerGas) + " ETH (Base L1 data fee extra)",
+      accessList: tx.accessList,
       data: tx.data,
     };
   }

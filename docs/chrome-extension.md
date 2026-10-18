@@ -1,89 +1,167 @@
-# Chrome extension
+# Chrome extension: daily-wallet and stage flow
 
 ```mermaid
 flowchart LR
-  P["Page provider<br/>extension/inpage.js:37-45"] --> R["Content relay<br/>extension/content.js:6-18"]
-  R --> B["Signing handlers<br/>extension/background.js:191-242"]
-  B --> A["Approval window<br/>extension/background.js:73-101"]
-  A --> H["Native sign_hash<br/>host/nuri_card_host.py:341-348"]
-  H --> C["ETH applet SIGN<br/>host/nuri_card_host.py:282-293"]
-  C --> V["Verify and recover<br/>host/nuri_card_host.py:103-144"]
-  V --> E["Check expected address<br/>extension/background.js:57-64"]
+  D[HTTP or HTTPS dApp] --> B[MV3 worker: construct immutable digest]
+  B --> A[One random request ID + live popup document and window]
+  A --> V[Display acknowledgement: full summary binding + exact hash]
+  V --> P{ETH2 needs PIN?}
+  P -->|yes: trusted popup only| N[Native verify_pin: verify + sign in one card session]
+  P -->|no: ETH1 demo| S[Native sign_hash]
+  N --> C[Verify identity + ECDSA + recovered address]
+  S --> C
+  C --> R[Broadcast captured EIP-1559 bytes to selected chain]
+  R --> T[Transaction hash + explorer link]
+  A -->|close, reject, 120-second timeout, disconnect| X[Cancel: no released signature or broadcast]
 ```
 
-## Scope
+## Supported flow and boundary
 
-The Manifest V3 extension exposes a page provider with EIP-6963 discovery and an
-EIP-1193-style `request` interface; the isolated content script relays requests to
-the service worker. Sources: [extension/manifest.json:2-22](../extension/manifest.json#L2-L22),
-[extension/inpage.js:32-45,84-100](../extension/inpage.js#L32-L100),
-[extension/content.js:6-18](../extension/content.js#L6-L18).
+Chrome 116+ is required for Chrome-authenticated `documentId`/context binding.
+Base (`8453`, `0x2105`) is the default. Ethereum (`1`, `0x1`) and Base Sepolia
+(`84532`, `0x14a34`) support `wallet_switchEthereumChain` for connected sites.
+Endpoints are fixed in [extension/lib/hashing.js](../extension/lib/hashing.js#L14-L18);
+custom chain URLs are not accepted. `file:`/opaque origins are rejected: serve the
+test dApp over HTTP instead ([extension/background.js](../extension/background.js)).
 
-| Capability | Implementation |
-|---|---|
-| Connect, accounts, chain selection and permissions | Base is the default; Base and Ethereum are built in. [extension/background.js:6,160-189,249-255](../extension/background.js#L160-L255), [extension/lib/hashing.js:14-17](../extension/lib/hashing.js#L14-L17). |
-| `personal_sign`, `eth_signTypedData_v4` | Require a connected origin and approval before signing. [extension/background.js:191-221](../extension/background.js#L191-L221). |
-| `eth_signTransaction` | Approves and returns a signed EIP-1559 transaction without broadcasting it. [extension/background.js:224-232](../extension/background.js#L224-L232), [extension/lib/hashing.js:62-85](../extension/lib/hashing.js#L62-L85). |
-| `eth_sendTransaction` | Fills missing nonce/gas/fees, approves, signs and calls `eth_sendRawTransaction`. [extension/background.js:141-157,234-242](../extension/background.js#L141-L242). |
-| Other RPC methods | An explicit passthrough list includes reads **and `eth_sendRawTransaction`**; passthrough does not call the approval or connection checks. [extension/background.js:258-269](../extension/background.js#L258-L269). |
-| Unsupported methods | `eth_sign`, typed-data v1/v3 and adding chains are rejected. [extension/background.js:245-248](../extension/background.js#L245-L248). |
+Methods include `eth_requestAccounts`, `eth_accounts`, `personal_sign`,
+`eth_signTypedData_v4`, `eth_signTransaction` (returns raw bytes, does not broadcast),
+and `eth_sendTransaction` (broadcasts). `eth_sign` remains disabled. The worker
+builds type-2 transactions, fills missing pending nonce/gas/base fee/priority fee
+from the selected chain's RPC, rejects chain mismatches and invalid fee caps, and
+signs the same hash shown in the approval. Base uses `https://mainnet.base.org`.
+The popup shows recipient, ETH value, chain, nonce, data/access list, fee caps and
+maximum **execution** fee. Base's additional L1 data fee is explicitly not included
+in that cap; this is not an all-in quote ([extension/background.js](../extension/background.js),
+[extension/lib/hashing.js](../extension/lib/hashing.js#L64-L117)).
 
-## Native host and trust boundary
+After broadcast the toolbar and stage page show the full transaction hash with a
+`https://basescan.org/tx/HASH` link for Base. The toolbar reads live ETH balance.
+A broadcast hash is **not** a mined receipt or a confirmation. Other chains use
+their own explorer ([extension/popup.js](../extension/popup.js),
+[extension/test-dapp.html](../extension/test-dapp.html)).
 
-- The host accepts `info` and `sign_hash`; framing is a four-byte little-endian
-  length followed by JSON. Signing accepts exactly 32 bytes and returns verified,
-  low-S `r`, `s`, `yParity` and a serialized signature. Sources:
-  [host/nuri_card_host.py:103-144,313-361](../host/nuri_card_host.py#L313-L361),
-  [host/nuri_card_host.py:368-387](../host/nuri_card_host.py#L368-L387).
-- Card mode prefers ETH v2 and falls back to ETH v1 **only on `NO_APPLET`**.
-  Each signing exchange opens and closes its applet connection. Sources:
-  [host/nuri_card_host.py:229-250,282-293](../host/nuri_card_host.py#L229-L293).
-- ETH v2 returns `r || s || pubkey` (129 bytes); the host also accepts DER and
-  checks an echoed public key when present. Sources:
-  [card/eth2/NuriEthSignerV2.java:322-343](../card/eth2/NuriEthSignerV2.java#L322-L343),
-  [host/nuri_card_host.py:152-170](../host/nuri_card_host.py#L152-L170).
-- Approval is browser-side, not a card touch or user-presence check. ETH v1's
-  signing handler has no PIN gate. ETH v2's gate is optional until a PIN is set;
-  the native host implements no PIN-verification method and reports `PIN_REQUIRED`
-  for status `6982`. Sources: [extension/background.js:191-242](../extension/background.js#L191-L242),
-  [card/eth/NuriEcdsaSigner.java:204-218](../card/eth/NuriEcdsaSigner.java#L204-L218),
-  [card/eth2/NuriEthSignerV2.java:214-217,322-327](../card/eth2/NuriEthSignerV2.java#L214-L327),
-  [host/nuri_card_host.py:244-250,325-349](../host/nuri_card_host.py#L325-L349).
-- The host signs supplied hashes, not decoded transactions; browser approval is
-  not protection against a local caller of the host. Its simulator uses a
-  deterministic software key and is unsuitable for funds. Sources:
-  [host/nuri_card_host.py:183-193,341-348](../host/nuri_card_host.py#L183-L348).
+## PIN and native protocol
 
-## Try the simulator
+The extension uses a persistent `chrome.runtime.connectNative("com.nuri.card")`
+connection, not independent `sendNativeMessage` processes. Host framing remains
+four-byte little-endian JSON length followed by UTF-8 JSON. An `info` request must
+succeed on the **same host process** before any sign operation. `info` returns
+`mode`, `address`, `pubkey`, `applet`, `applet_version`, `reader`, `pin_set` and
+`pin_tries_left` ([host/nuri_card_host.py](../host/nuri_card_host.py#L399-L518)).
 
-From the repository root, install the macOS Chrome native host in simulator mode:
+- No-PIN path: `sign_hash` with `params: {hash}`. ETH1 remains supported for the
+  existing demo card; ETH2 is preferred and fallback to ETH1 happens only on
+  `NO_APPLET`, never on PIN or engine errors.
+- Protected path: `verify_pin` with `params: {pin, hash, address}`. `address` is the
+  EIP-55 identity previously read; `hash` is exactly `0x` plus 64 hex characters.
+  This method **verifies and signs atomically on the same selected applet
+  connection**, then closes it. It is not a persistent PIN-unlock method.
+- The native host re-reads identity before either signing path. Card/applet
+  substitution yields `CARD_CHANGED`, not a signature from an unseen key.
+- SW `6982` → `PIN_REQUIRED`; `63Cx` → `PIN_WRONG` with integer `tries_left`;
+  `6983` → `PIN_BLOCKED` with zero attempts. Zero attempts disables signing.
+- The trusted extension popup shows the field only when `info.pin_set` or a
+  `PIN_REQUIRED` response says it is needed. A wrong PIN displays attempts left;
+  retries require another explicit click and retain the same displayed hash.
+  The dApp/page bridge has no PIN method. PINs are never included in site replies,
+  storage, approval state, logs or error text.
+- The input is cleared before native messaging and on page hide; message objects
+  drop the field after serialization, references are released in `finally`, and
+  mutable host PIN/APDU buffers are zeroed. JavaScript/Python immutable strings
+  and browser/PCSC IPC copies cannot be reliably overwritten: this is best-effort
+  lifetime minimization, **not** a claim of forensic memory erasure.
+
+Implementation: [extension/approve.js](../extension/approve.js),
+[extension/background.js](../extension/background.js#L24-L196),
+[host/nuri_card_host.py](../host/nuri_card_host.py#L229-L396).
+PIN configuration/KEYGEN/PUK recovery are not extension features. No card is
+provisioned, reset or upgraded by this wallet.
+
+## Approval integrity (W13 R7)
+
+Approvals live only in worker memory, use `crypto.randomUUID()`, and are bound to:
+request ID, extension sender ID, exact approval URL, Chrome document ID, live
+popup window/tab, full displayed payload digest and exact signing hash. The popup
+must acknowledge display before approval; wrong-window, stale, reused,
+unacknowledged and changed requests are rejected. The summary is cloned before
+display. Duplicate clicks cannot start a second signing operation. Startup removes
+legacy session records and closes orphan approval contexts. Closing, rejecting,
+120-second expiry or native disconnect cancels; a late card result after
+cancellation is discarded and cannot trigger broadcast. An already accepted
+broadcast cannot be undone ([extension/background.js](../extension/background.js#L95-L196)).
+
+Approval is browser-side consent, **not** an on-card transaction display, physical
+touch check, secure channel or protection against a compromised host. ETH1 has no
+PIN; a PIN-less ETH2 applet is still open if provisioned that way. Mandatory-PIN
+provisioning and the other W13 launch gates remain separate work.
+
+## Simulator is explicit (W13 R8)
+
+Only exact `NURI_CARD_SIM=1` authorizes the public deterministic software signer.
+`--sim` alone does not. Signing additionally requires a successful `info` reporting
+`mode=sim` on the same process. Unknown modes/configurations and missing cards
+fail closed; there is no automatic simulator fallback. A normal installer launcher
+explicitly unsets `NURI_CARD_SIM`; only `host/install-macos.sh --sim` exports it.
+Sim mode is marked by a red **SIM** toolbar badge plus red warnings in connection,
+signing and toolbar popups. **Never fund the sim address**: its private key is
+public ([host/nuri_card_host.py](../host/nuri_card_host.py#L399-L438),
+[host/install-macos.sh](../host/install-macos.sh#L49-L66),
+[extension/approve.html](../extension/approve.html), [extension/popup.js](../extension/popup.js)).
+
+## Parent-only reload and stage demo (real reader/card)
+
+These actions were **not executed by W21**. Use the integrated checkout path
+instead of the worktree below if it has been merged; the launcher embeds that
+path, so do not delete/move it afterward.
 
 ```sh
-host/install-macos.sh --sim --python "$(command -v python3)"
+ROOT=/Users/eminmahrt/Developer/nuri-card-wt/w21-extension-pin
+# NO --sim. Installs the physical host and performs an info-only reader smoke check.
+bash "$ROOT/host/install-macos.sh" --python /opt/homebrew/bin/python3.13
+# Keep this terminal running; serves the dApp, not a signing HTTP backend.
+/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python -m http.server 8787 --bind 127.0.0.1 --directory "$ROOT/extension"
 ```
 
-The installer checks the Python executable, creates its own environment, installs
-Python dependencies and registers the extension origin. Source:
-[host/install-macos.sh:26-76](../host/install-macos.sh#L26-L76).
+1. In Chrome open `chrome://extensions`, enable Developer mode, **Load unpacked**
+   the `ROOT/extension` directory (or click **Reload** on the existing Nuri Card
+   entry). Fixed extension ID: `hlljlndpkgephgelnfgcpnneecmklnmf`. If Chrome reports
+   another ID, rerun the installer with `--extension-id` and that actual ID.
+2. Open `http://127.0.0.1:8787/test-dapp.html` and reload it after extension reload.
+   Pin Nuri Card in the toolbar. Click its icon: require `mode=card`, the live card
+   address, Base `0x2105`, a balance and **no SIM badge**. The current demo ETH1
+   address supplied by the parent is `0xd65B99cCc958E7b73899E9882762602F2664A34f`;
+   stop if the read identity differs unexpectedly. Do not use a hard-coded address
+   in place of the live read.
+3. Click **Connect**, approve the genuine extension popup. Click **Sign message**,
+   inspect the message and hash, approve, and require `matches` in the dApp.
+   ETH1 asks for no PIN. A separately provisioned ETH2 card asks for PIN only in
+   the extension popup; never enter it in the dApp, shell, chat or logs.
+4. The real card needs sufficient **Base ETH for gas**. W21 sent no funds. Click
+   **Send 0 ETH to self** (it switches to Base), inspect self-recipient, `0 ETH`,
+   chain, fee cap and hash in the popup, then approve. This is a real mainnet
+   transaction and spends gas even though its value is zero.
+5. Require a returned transaction hash and open its BaseScan link. Confirm the
+   recipient/value/receipt there. Reopen the toolbar for balance and the last
+   broadcast link. No receipt/settlement claim is made until independently read.
+6. Negative stage check before the real send: reject or close one signing popup;
+   the dApp must receive `4001`. No signing/broadcast should follow that request.
 
-Load `extension/` with Chrome's **Load unpacked** action, then open
-`extension/test-dapp.html`; for a file URL, the manifest declares a file content-script
-match. Registration and match sources:
-[host/install-macos.sh:55-67](../host/install-macos.sh#L55-L67),
-[extension/manifest.json:11-22](../extension/manifest.json#L11-L22).
-
-## Software checks
-
-With `PYTHON` set to a Python executable with `ecdsa` and `pycryptodome` installed:
+## Fake-only checks
 
 ```sh
-NURI_CARD_SIM=1 "$PYTHON" host/test_host.py
-NURI_HOST_PYTHON="$PYTHON" node --test extension/test/*.test.js
+ROOT=/Users/eminmahrt/Developer/nuri-card-wt/w21-extension-pin
+PY=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+# Run from ROOT; no real reader/card/RPC is touched.
+NURI_HOST_PYTHON="$PY" node --test "$ROOT/extension/test"
+"$PY" "$ROOT/host/test_host.py"
+bash -n "$ROOT/host/install-macos.sh"
 ```
 
-The host tests use software signing and fake PC/SC applets; background tests mock
-Chrome and disable network requests. Sources:
-[host/test_host.py:19-23,141-195,299-310](../host/test_host.py#L141-L310),
-[extension/test/background.test.js:15-66](../extension/test/background.test.js#L15-L66).
-**UNVERIFIED:** real Chrome interaction and physical-card behavior are not established
-by these software checks.
+The Node suite mocks Chrome/fetch, executes the actual popup scripts against a
+minimal DOM fixture, and exercises a real framed Python host using its explicit
+public simulator. Host tests use fake PC/SC sessions and verify PIN status mapping,
+identity changes, session closure, log omission, buffers and simulator refusal.
+**UNVERIFIED here:** actual Chrome popup lifecycle/native IPC, physical ETH2 PIN
+signing, physical-reader behavior, live Base RPC/broadcast/receipt and stage UX.
+No real reader/card was touched; ETH2 was not installed on the owner's demo card.

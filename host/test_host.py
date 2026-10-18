@@ -118,6 +118,8 @@ class SimSignTests(unittest.TestCase):
             self.assertNotEqual(recover_address(digest, r, s, 1 - res["yParity"]), info["address"])
 
     def test_bad_requests(self):
+        for malformed in ("00 " * 21 + " ", "00" * 32, "0x" + "gg" * 32, "0x" + "00" * 31):
+            self.assertEqual(host.handle({"id": 1, "method": "sign_hash", "params": {"hash": malformed}})["error"]["code"], "BAD_REQUEST")
         self.assertEqual(host.handle({"id": 1, "method": "nope"})["error"]["code"], "BAD_REQUEST")
         self.assertEqual(host.handle({"id": 1, "method": "sign_hash", "params": {"hash": "0x1234"}})["error"]["code"], "BAD_REQUEST")
         self.assertEqual(host.handle({"id": 1, "method": "sign_hash", "params": {"hash": "zz" * 32}})["error"]["code"], "BAD_REQUEST")
@@ -395,7 +397,7 @@ class FakePcscCardTests(unittest.TestCase):
 
     def test_sw_mapping(self):
         for sw, code, left in ((0x6982, "PIN_REQUIRED", None), (0x6983, "PIN_BLOCKED", 0),
-                               (0x63C2, "PIN_WRONG", 2), (0x63C0, "PIN_BLOCKED", 0), (0x6A80, "CARD_ERROR", None)):
+                               (0x63C2, "PIN_WRONG", 2), (0x63C0, "PIN_WRONG", 0), (0x6A80, "CARD_ERROR", None)):
             with self.assertRaises(host.HostError) as ctx:
                 host._check_sw(sw, "VERIFY PIN")
             self.assertEqual(ctx.exception.code, code, hex(sw))
