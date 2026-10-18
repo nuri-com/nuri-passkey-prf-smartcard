@@ -168,6 +168,12 @@ def main():
     print("Tap the card if required...")
 
     sig = sign(conn, test_hash)
+    if len(sig) != 65 or sig[64] not in (0, 1):
+        conn.close()
+        raise SystemExit(
+            f"Malformed ETH1 signature: expected r||s||v (65 bytes, v in 0/1), "
+            f"got {len(sig)} bytes ending in {sig[-1] if sig else 'none'}: {sig.hex()}"
+        )
     r = sig[:32]
     s = sig[32:64]
     v = sig[64]
@@ -179,13 +185,16 @@ def main():
     # ECDSA recover: given (r, s, v, hash), find Q
     def ecrecover(r_val, s_val, v_val, msg_hash):
         """Recover public key from ECDSA signature."""
-        # r, s are ints
         r_int = r_val
         s_int = s_val
+        if not (0 < r_int < N and 0 < s_int < N):
+            raise ValueError("r and s must satisfy 0 < r,s < secp256k1 order")
 
         # R = (r, y) where y is determined by v
         y_sq = (pow(r_int, 3, P) + 7) % P
         y = pow(y_sq, (P + 1) // 4, P)
+        if pow(y, 2, P) != y_sq:
+            raise ValueError("r does not identify a secp256k1 point")
         if (y & 1) != v_val:
             y = P - y
         R = (r_int, y)
@@ -230,7 +239,14 @@ def main():
     s_int = int.from_bytes(s, "big")
     v_int = v
 
-    recovered = ecrecover(r_int, s_int, v_int, test_hash)
+    try:
+        recovered = ecrecover(r_int, s_int, v_int, test_hash)
+    except (ValueError, ZeroDivisionError, OverflowError) as error:
+        conn.close()
+        raise SystemExit(
+            f"ETH1 ECDSA signature malformed (recovery raised {type(error).__name__}: {error})"
+        ) from error
+
     if recovered:
         rx, ry = recovered
         print(f"\nRecovered pubkey:")
@@ -247,8 +263,14 @@ def main():
             print("\n❌ MISMATCH — recovered pubkey does not match card pubkey")
             print(f"  card:     {pubkey33.hex()}")
             print(f"  recovered:{recovered_pub.hex()}")
+            conn.close()
+            raise SystemExit(
+                "ETH1 ECDSA signature MISMATCH: recovered pubkey does not match card pubkey"
+            )
     else:
         print("\n❌ ECDSA recovery failed (point at infinity)")
+        conn.close()
+        raise SystemExit("ETH1 ECDSA recovery failed (point at infinity)")
 
     print("\n=== MUSIG2 RNG HEALTH CHECK ===")
     musig2_rng_health_check(conn)
