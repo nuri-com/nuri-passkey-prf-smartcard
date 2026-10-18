@@ -7,16 +7,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
+import { createServer, connect } from 'node:net';
 import { request } from 'node:http';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, chmod, writeFile, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardRequest, injectToken, isLoopbackHost, allowedHosts } from '../scripts/helper-auth.mjs';
+import { guardRequest, pairingPage, isLoopbackHost, allowedHosts, loadOrCreateToken, checkBind, PairingSessions } from '../scripts/helper-auth.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const TOKEN = 'test-token-0123456789abcdef0123456789abcdef';
+const TOKEN = '0123456789abcdef'.repeat(4);
 
 function freePort() {
   return new Promise((res, rej) => {
@@ -58,6 +58,7 @@ function req(port, path, { method = 'GET', headers = {}, body, host } = {}) {
     const h = { ...headers };
     for (const k of Object.keys(h)) if (h[k] === undefined) delete h[k];
     if (host) h.host = host;
+    if (body !== undefined && !Object.keys(h).some(k => k.toLowerCase() === 'content-length')) h['content-length'] = Buffer.byteLength(body);
     const r = request({ host: '127.0.0.1', port, path, method, headers: h, setHost: !host }, (res) => {
       let data = '';
       res.on('data', (d) => { data += d; });
@@ -84,7 +85,8 @@ test('guardRequest: pure rules', () => {
   const good = { host: '127.0.0.1:8799', 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` };
   assert.equal(ok(good), null);
   assert.equal(ok({ ...good, host: 'localhost:8799' }), null);
-  assert.equal(ok({ ...good, origin: 'http://localhost:8799' }), null);
+  assert.equal(ok({ ...good, host: 'localhost:8799', origin: 'http://localhost:8799' }), null);
+  assert.equal(ok({ ...good, origin: 'http://localhost:8799' }).status, 403);
   assert.equal(ok({ ...good, host: 'evil.example:8799' }).status, 403);
   assert.equal(ok({ ...good, host: '127.0.0.1:1' }).status, 403);
   assert.equal(ok({ ...good, origin: 'https://evil.example' }).status, 403);
@@ -104,16 +106,17 @@ test('guardRequest: pure rules', () => {
   assert.ok(!allowedHosts(1, { remote: true, bindHost: '0.0.0.0' }).has('0.0.0.0:1'));
 });
 
-test('injectToken puts the fetch shim right after <head>', () => {
-  const html = injectToken('<!doctype html><html><head><title>x</title></head><body></body></html>', 'abc');
-  assert.match(html, /<head><script>\(function\(\)\{var t="abc"/);
+test('public pairing script carries no credential', () => {
+  const html = pairingPage('<html><head></head><body></body></html>');
+  assert.match(html, /src="\/helper-pair.js"/);
+  assert.doesNotMatch(html, /Bearer|NURI_CARD_TOKEN|var t=/);
 });
 
 // ---------------------------------------------------------------- MCP server
 
 test('card-mcp-server: 401/403/415/200 on /mcp, mainnet broadcast refused without NURI_ALLOW_MAINNET', async () => {
   const port = await freePort();
-  const srv = await startServer('scripts/card-mcp-server.mjs', { port, env: { NURI_CARD_TOKEN: TOKEN } });
+  const srv = await startServer('scripts/card-mcp-server.mjs', { port, env: { NURI_MCP_TOKEN: TOKEN, NURI_COSIGN_TOKEN: TOKEN } });
   try {
     assert.equal((await req(port, '/healthz')).status, 200);
     const good = { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` };
@@ -153,7 +156,7 @@ test('card-mcp-server: refuses non-loopback HOST without NURI_ALLOW_REMOTE', asy
   const port = await freePort();
   const dir = await mkdtemp(join(tmpdir(), 'nuri-helper-test-'));
   const child = spawn(process.execPath, [join(ROOT, 'scripts/card-mcp-server.mjs')], {
-    cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '0.0.0.0', NURI_CARD_TOKEN: TOKEN, NURI_CARD_TOKEN_FILE: join(dir, 'token') }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '0.0.0.0', NURI_MCP_TOKEN: TOKEN, NURI_COSIGN_TOKEN: TOKEN, NURI_CARD_TOKEN_FILE: join(dir, 'token') }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let err = '';
   child.stderr.on('data', (d) => { err += d; });
@@ -167,11 +170,11 @@ test('card-mcp-server: generates a 0600 token file when NURI_CARD_TOKEN is unset
   const port = await freePort();
   const srv = await startServer('scripts/card-mcp-server.mjs', { port });
   try {
-    const path = join(srv.dir, 'token');
+    const path = join(srv.dir, 'token.mcp');
     const token = (await readFile(path, 'utf8')).trim();
     assert.equal(token.length, 64);
     assert.equal((await stat(path)).mode & 0o777, 0o600);
-    assert.match(srv.output(), new RegExp(token), 'token printed once at start');
+    assert.doesNotMatch(srv.output(), new RegExp(token), 'bearer is never printed');
     const r = await req(port, '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: rpc(1, 'tools/list') });
     assert.equal(r.status, 200);
   } finally {
@@ -183,11 +186,16 @@ test('card-mcp-server: generates a 0600 token file when NURI_CARD_TOKEN is unset
 
 test('local-card-cosign-server (simulated): pages open, /api needs token, Host/Origin/Content-Type enforced', async () => {
   const port = await freePort();
-  const srv = await startServer('scripts/local-card-cosign-server.mjs', { port, args: [`--port=${port}`, '--backend=simulated'], env: { NURI_CARD_TOKEN: TOKEN } });
+  const srv = await startServer('scripts/local-card-cosign-server.mjs', { port, args: [`--port=${port}`, '--backend=simulated'], env: { NURI_MCP_TOKEN: TOKEN, NURI_COSIGN_TOKEN: TOKEN } });
   try {
     let r = await req(port, '/cosign-demo.html');
     assert.equal(r.status, 200);
-    assert.match(await r.text(), new RegExp(`window.NURI_CARD_TOKEN=t`), 'served page carries the token shim');
+    const html = await r.text();
+    assert.match(html, /helper-pair.js/);
+    assert.doesNotMatch(html, new RegExp(TOKEN));
+    assert.doesNotMatch(html, /NURI_CARD_TOKEN|var t=/);
+    assert.equal(r.headers.get('x-frame-options'), 'DENY');
+    assert.match(r.headers.get('content-security-policy'), /default-src 'self'.*frame-ancestors 'none'/);
 
     r = await req(port, '/api/cosign/info');
     assert.equal(r.status, 401);
@@ -203,7 +211,7 @@ test('local-card-cosign-server (simulated): pages open, /api needs token, Host/O
     r = await req(port, '/api/cosign/info', { headers: { authorization: `Bearer ${TOKEN}` } });
     assert.equal(r.status, 200);
     assert.equal((await r.json()).backend, 'simulated-on-card-keygen');
-    r = await req(port, '/api/cosign/sign', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}`, origin: `http://localhost:${port}` }, body: JSON.stringify({ message: 'guard test' }) });
+    r = await req(port, '/api/cosign/sign', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}`, origin: `http://127.0.0.1:${port}` }, body: JSON.stringify({ message: 'guard test' }) });
     assert.equal(r.status, 200);
     assert.equal((await r.json()).final_signature_verified, true);
   } finally {
@@ -215,7 +223,7 @@ test('local-card-cosign-server: --host=0.0.0.0 refused without NURI_ALLOW_REMOTE
   const port = await freePort();
   const dir = await mkdtemp(join(tmpdir(), 'nuri-helper-test-'));
   const child = spawn(process.execPath, [join(ROOT, 'scripts/local-card-cosign-server.mjs'), `--port=${port}`, '--host=0.0.0.0', '--backend=simulated'], {
-    cwd: ROOT, env: { ...process.env, NURI_CARD_TOKEN: TOKEN, NURI_CARD_TOKEN_FILE: join(dir, 'token') }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, env: { ...process.env, NURI_MCP_TOKEN: TOKEN, NURI_COSIGN_TOKEN: TOKEN, NURI_CARD_TOKEN_FILE: join(dir, 'token') }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let err = '';
   child.stderr.on('data', (d) => { err += d; });

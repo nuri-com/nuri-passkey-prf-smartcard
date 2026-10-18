@@ -14,14 +14,24 @@ Endpoints (all JSON):
   GET  /api/totp/select       — SELECT OATH-TOTP applet
   GET  /api/fido2/select      — SELECT FIDO2 applet
   GET  /api/eth/selftest      — cross-check on-card modInverse against python pow(a,-1,n)
+  GET  /api/session           — {paired, auth, expires_in} for the current browser session
+  POST /pair                  — body {code} -> session cookie (see below); no credential needed
 
-Serves web/dashboard.html at / (with the bearer token injected for its own fetch() calls).
+Serves web/dashboard.html at / and web/helper-pair.js at /helper-pair.js. The page carries NO
+credential: helper-pair.js asks for the one-time pairing code this server prints in its
+terminal, POSTs it to /pair and gets a random session cookie nuri_dashboard_session
+(HttpOnly, SameSite=Strict, Path=/api/, absolute 12 h, memory only).
 
 Access control (scripts/nuri_helper_auth.py, docs/helper-servers-security.md):
-loopback bind, Host/Origin allow-list, Content-Type application/json on POST,
-Authorization: Bearer <NURI_CARD_TOKEN or ~/.nuri-card/token> on /api/*, no CORS.
-Env: NURI_CARD_TOKEN, NURI_CARD_PORT (default 8788), NURI_ALLOW_KEYGEN=1,
-NURI_ALLOW_REMOTE=1 + NURI_CARD_HOST (needs NURI_CARD_TOKEN in env).
+loopback bind only (no remote mode), Host allow-list, Origin must equal http://<Host>,
+Content-Type application/json on POST, /api/* needs the session cookie (browser) or
+Authorization: Bearer <dashboard token> (CLI; NURI_DASHBOARD_TOKEN or
+~/.nuri-card/dashboard.token, never printed), no CORS, CSP + frame-ancestors 'none'.
+Framing before auth: Content-Length must be a plain non-negative integer <= 1 MiB (413),
+Transfer-Encoding is refused (501), and the whole request (headers + body) must arrive
+within an absolute REQUEST_DEADLINE_S (408). Error responses close the connection.
+Env: NURI_DASHBOARD_TOKEN, NURI_DASHBOARD_TOKEN_FILE, NURI_CARD_PORT (default 8788),
+NURI_CARD_HOST (loopback names only), NURI_ALLOW_KEYGEN=1.
 
 Host-side crypto uses PROVEN LIBRARIES, not hand-rolled code:
   - ecdsa (python-ecdsa): ecrecover + signature verification (independent
@@ -39,9 +49,14 @@ then T=1; env NURI_READER / NURI_PCSC_PROTOCOL) and handles 61XX/6CXX.
 """
 import json
 import hashlib
+import io
 import os
+import re
+import socket
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nuri_pcsc
@@ -146,50 +161,119 @@ def select_aid(aid):
 
 # --- HTTP ---------------------------------------------------------------------
 
-# Filled in by main(); tests set them directly. Token '' = every /api call is 401.
-AUTH = {"token": "", "port": 8788, "remote": False, "bind_host": "127.0.0.1"}
-MAX_BODY = 1 << 20
+# Filled in by main(); tests set them directly. Token '' and pairing None = every /api call is 401.
+AUTH = {"token": "", "port": 8788, "pairing": None}
+MAX_BODY = 1 << 20            # 1 MiB request body cap (413 above it)
+REQUEST_DEADLINE_S = 10.0     # absolute: request line + headers + body, never extended (408)
+WRITE_TIMEOUT_S = 10.0        # per send() once the request has been read
+MAX_CONNECTIONS = 16          # concurrent connections; extra ones are closed at once
+CARD_LOCK = threading.Lock()  # one card conversation at a time
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web")
 
-def _drain(handler):
-    """Read a not-yet-consumed small body so error answers are not turned into connection resets."""
-    if getattr(handler, "_body_read", False):
-        return
-    handler._body_read = True
-    try:
-        n = int(handler.headers.get("content-length", 0))
-        if 0 < n <= MAX_BODY:
-            handler.rfile.read(n)
-    except (ValueError, OSError):
-        pass
 
-def json_resp(handler, status, payload):
-    body = json.dumps(payload, indent=2).encode()
+class RequestDeadline(Exception):
+    """The absolute per-request read deadline expired."""
+
+
+class HTTPError(Exception):
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+class _DeadlineReader(io.RawIOBase):
+    """Socket reader whose every recv() only gets the time left until one fixed deadline,
+    so a client that trickles bytes cannot keep the request alive (no per-recv idle reset)."""
+
+    def __init__(self, sock, deadline):
+        self._sock = sock
+        self._deadline = deadline
+
+    def readable(self):
+        return True
+
+    def readinto(self, b):
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise RequestDeadline()
+        self._sock.settimeout(remaining)
+        try:
+            return self._sock.recv_into(b)
+        except TimeoutError:
+            raise RequestDeadline() from None
+
+
+def _send(handler, status, body, content_type, extra_headers=()):
+    handler._responded = True
     if status >= 400:
-        _drain(handler)
         handler.close_connection = True
+        handler._rejected = True
+    try:
+        handler.connection.settimeout(WRITE_TIMEOUT_S)
+    except OSError:
+        pass
     handler.send_response(status)
-    handler.send_header("content-type", "application/json; charset=utf-8")
-    handler.send_header("cache-control", "no-store")
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    for k, v in nuri_helper_auth.SECURITY_HEADERS:
+        handler.send_header(k, v)
+    for k, v in extra_headers:
+        handler.send_header(k, v)
+    if handler.close_connection:
+        handler.send_header("Connection", "close")
     # No access-control-allow-origin on purpose: browsers must not read or send cross-site.
     handler.end_headers()
-    handler.wfile.write(body)
+    if handler.command != "HEAD":
+        handler.wfile.write(body)
 
-def read_body(handler):
-    n = int(handler.headers.get("content-length", 0))
+
+def json_resp(handler, status, payload, extra_headers=()):
+    _send(handler, status, json.dumps(payload, indent=2).encode(), "application/json; charset=utf-8", extra_headers)
+
+
+def read_body(handler, cap=MAX_BODY):
+    """Read exactly the validated Content-Length (already checked by begin()) within the deadline."""
+    n = handler._content_length
+    if n > cap:
+        raise HTTPError(413, f"body too large (max {cap} bytes)")
+    if n == 0:
+        return {}
+    data = handler.rfile.read(n)
     handler._body_read = True
-    if n == 0: return {}
-    if n > MAX_BODY: raise ValueError("body too large")
-    return json.loads(handler.rfile.read(n))
+    if len(data) != n:
+        raise HTTPError(400, "request body shorter than Content-Length")
+    try:
+        body = json.loads(data)
+    except (ValueError, RecursionError):
+        raise HTTPError(400, "body must be valid JSON") from None
+    if not isinstance(body, dict):
+        raise HTTPError(400, "body must be a JSON object")
+    return body
 
-def guard(handler):
-    """Run the shared request guard; on denial answer and return False."""
-    denied = nuri_helper_auth.guard_request(
-        handler.command, handler.path, handler.headers,
-        port=AUTH["port"], token=AUTH["token"], remote=AUTH["remote"], bind_host=AUTH["bind_host"])
+
+def begin(handler):
+    """Framing checks before auth, then the shared guard. On denial answer and return False."""
+    denied, n = nuri_helper_auth.check_framing(handler.headers, MAX_BODY)
+    if denied is None and n and handler.command in ("GET", "HEAD", "OPTIONS"):
+        denied = (400, f"{handler.command} must not have a body")
+    if denied is None:
+        handler._content_length = n
+        denied = nuri_helper_auth.guard_request(
+            handler.command, handler.path, handler.headers,
+            port=AUTH["port"], token=AUTH["token"], pairing=AUTH["pairing"])
+    else:
+        handler._content_length = 0
+        handler._bad_framing = True
     if denied is None:
         return True
     json_resp(handler, denied[0], {"error": denied[1]})
     return False
+
+
+# Kept for callers of the old name.
+guard = begin
+
 
 def eth_applet_version():
     """(major, minor) of the selected ETH applet via INS 0x01."""
@@ -208,142 +292,230 @@ def verify_card_signature(pub, sig):
     return None
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.0: one request per connection, so the connection deadline is the request deadline.
+    protocol_version = "HTTP/1.0"
+
     def log_message(self, *a): pass
 
+    def send_error(self, code, message=None, explain=None):
+        # BaseHTTPRequestHandler otherwise emits an unguarded HTML error page
+        # for unsupported methods/parser errors. Never echo attacker input.
+        self.close_connection = True
+        json_resp(self, code, {"error": "HTTP request rejected"})
+
+    def setup(self):
+        super().setup()
+        self.command, self.path, self.requestline, self.request_version = "", "", "", "HTTP/1.0"
+        self._responded = self._rejected = self._body_read = False
+        self._content_length = 0
+        deadline = time.monotonic() + REQUEST_DEADLINE_S
+        self.rfile.close()  # drop the makefile() reader so the socket really closes in finish
+        self.rfile = io.BufferedReader(_DeadlineReader(self.connection, deadline), 65536)
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except RequestDeadline:
+            self.close_connection = True
+            if not self._responded:
+                try:
+                    json_resp(self, 408, {"error": f"request not received within {REQUEST_DEADLINE_S:g} s"})
+                except OSError:
+                    pass
+
+    def finish(self):
+        try:
+            super().finish()
+        finally:
+            # Discard only what has ALREADY arrived (never wait) so close() does not RST the response.
+            try:
+                self.connection.setblocking(False)
+                for _ in range(64):
+                    if not self.connection.recv(65536):
+                        break
+            except OSError:
+                pass
+
+    def _run(self, fn):
+        try:
+            fn()
+        except RequestDeadline:
+            raise
+        except HTTPError as e:
+            json_resp(self, e.status, {"error": e.message})
+        except Exception as e:
+            json_resp(self, 500, {"error": str(e)})
+
     def do_OPTIONS(self):
-        guard(self)  # always 403: no CORS preflight is ever granted
+        begin(self)  # always 403: no CORS preflight is ever granted
 
     def do_GET(self):
-        if not guard(self): return
-        try:
-            if self.path == "/":
-                self.serve_html()
-            elif self.path == "/api/card/status":
-                self.card_status()
-            elif self.path == "/api/eth/version":
-                select_aid(AID_ETH)
-                data, sw = transmit(bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
-                json_resp(self, 200, {"sw": f"{sw:04X}", "major": data[0], "minor": data[1], "build": data[3:7].decode("ascii", "replace")})
-            elif self.path == "/api/eth/pubkey":
-                select_aid(AID_ETH)
-                data, sw = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
-                json_resp(self, 200, {
-                    "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
-                    "eth_address": eth_address(data),
-                    "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
-                    "btc_hash160_hex": hash160(data).hex(),
-                })
-            elif self.path == "/api/eth/selftest":
-                # Regression guard: cross-check on-card modInverse (INS 0x06) against
-                # python pow(a, -1, n) for 10 random values. Catches on-card bignum
-                # breakage immediately, so we don't debug a wrong signature for hours.
-                select_aid(AID_ETH)
-                N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-                import secrets
-                passed, failed = 0, 0
-                for _ in range(10):
-                    a = secrets.randbelow(N - 1) + 1
-                    a_bytes = a.to_bytes(32, "big")
-                    data, sw = transmit(bytes([0x00, 0x06, 0x00, 0x00, 0x20]) + a_bytes)
-                    if sw != 0x9000:
-                        failed += 1; continue
-                    card_inv = int.from_bytes(data, "big")
-                    host_inv = pow(a, -1, N)
-                    if card_inv == host_inv: passed += 1
-                    else: failed += 1
-                json_resp(self, 200, {"modinv_passed": passed, "modinv_failed": failed, "ok": failed == 0})
-            elif self.path == "/api/musig2/version":
-                select_aid(AID_MUSIG2)
-                data, sw = transmit(bytes([0x80, 0x01, 0x00, 0x00, 0x00]))
-                json_resp(self, 200, {"sw": f"{sw:04X}", "version_hex": data.hex()})
-            elif self.path == "/api/totp/select":
-                _, sw = select_aid(AID_TOTP)
-                json_resp(self, 200, {"sw": f"{sw:04X}", "selected": sw == 0x9000})
-            elif self.path == "/api/fido2/select":
-                _, sw = select_aid(AID_FIDO2)
-                json_resp(self, 200, {"sw": f"{sw:04X}", "selected": sw == 0x9000})
-            else:
-                json_resp(self, 404, {"error": "not found"})
-        except Exception as e:
-            json_resp(self, 500, {"error": str(e)})
+        if not begin(self): return
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            self._run(self.serve_html)
+        elif path == "/helper-pair.js":
+            self._run(self.serve_pair_js)
+        elif path == "/api/session":
+            self._run(self.session_info)
+        elif path.startswith("/api/"):
+            with CARD_LOCK:
+                self._run(lambda: self.get_api(path))
+        else:
+            json_resp(self, 404, {"error": "not found"})
 
     def do_POST(self):
-        if not guard(self): return
-        try:
-            if self.path == "/api/eth/keygen":
-                # Double gate. On ETH applet < 1.4, INS 0x03 REPLACES the existing key with no
-                # confirmation (BRIEF-COMMON.md: a real card key was rotated this way on 2026-10-18).
-                if os.environ.get("NURI_ALLOW_KEYGEN") != "1":
-                    json_resp(self, 403, {"error": "keygen disabled: start the server with NURI_ALLOW_KEYGEN=1 (and only on an ETH applet >= 1.4)"})
-                    return
-                major, minor = eth_applet_version()
-                if (major, minor) < (1, 4):
-                    json_resp(self, 403, {"error": f"keygen refused: ETH applet {major}.{minor} < 1.4 replaces the existing key"})
-                    return
-                select_aid(AID_ETH)
-                data, sw = transmit(bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
-                json_resp(self, 200, {
-                    "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
-                    "eth_address": eth_address(data),
-                    "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
-                    "btc_hash160_hex": hash160(data).hex(),
-                })
-            elif self.path == "/api/eth/sign":
-                # ETH-style: card signs the caller-supplied 32-byte hash directly.
-                # (Host would normally keccak256 the tx before sending; here the
-                #  caller passes the hash so the dashboard can sign arbitrary
-                #  pre-hashed payloads. For a real tx, hash = keccak256(RLP(tx)).)
-                body = read_body(self)
-                h = bytes.fromhex(body["hash"])
-                if len(h) != 32: raise ValueError("hash must be 32 bytes hex")
-                select_aid(AID_ETH)
-                pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
-                sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + h)
-                r = int.from_bytes(sig[:32], "big")
-                s = int.from_bytes(sig[32:64], "big")
-                v = sig[64]
-                sig_rs = sig[:64]
-                verified_verify = ecdsa_verify(pub, sig_rs, h)
-                verified_recover = ecdsa_ecrecover(pub, sig_rs, h)
-                json_resp(self, 200, {
-                    "sw": f"{sw:04X}", "r": f"{r:064x}", "s": f"{s:064x}", "v": v,
-                    "pubkey_hex": pub.hex(),
-                    "verified": verified_verify and verified_recover,
-                    "ecdsa_verify": verified_verify,
-                    "ecdsa_ecrecover": verified_recover,
-                    "verifier": "python-ecdsa (independent of host code)",
-                })
-            elif self.path == "/api/btc/sign":
-                # Bitcoin message signing: sign double-SHA256(message). The same
-                # on-card secp256k1 key signs BTC and ETH; only the host-side
-                # hash differs. Verify with python-ecdsa (independent).
-                body = read_body(self)
-                msg = body["message"].encode()
-                z = hashlib.sha256(hashlib.sha256(msg).digest()).digest()
-                select_aid(AID_ETH)
-                pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
-                sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + z)
-                r = int.from_bytes(sig[:32], "big")
-                s = int.from_bytes(sig[32:64], "big")
-                v = sig[64]
-                sig_rs = sig[:64]
-                verified_verify = ecdsa_verify(pub, sig_rs, z)
-                verified_recover = ecdsa_ecrecover(pub, sig_rs, z)
-                json_resp(self, 200, {
-                    "sw": f"{sw:04X}", "r": f"{r:064x}", "s": f"{s:064x}", "v": v,
-                    "pubkey_hex": pub.hex(),
-                    "verified": verified_verify and verified_recover,
-                    "ecdsa_verify": verified_verify,
-                    "ecdsa_ecrecover": verified_recover,
-                    "verifier": "python-ecdsa (independent of host code)",
-                    "z_hash": z.hex(),
-                    "btc_p2pkh_address": btc_p2pkh_address(pub, "mainnet"),
-                    "hash160_hex": hash160(pub).hex(),
-                })
-            else:
-                json_resp(self, 404, {"error": "not found"})
-        except Exception as e:
-            json_resp(self, 500, {"error": str(e)})
+        if not begin(self): return
+        path = self.path.split("?", 1)[0]
+        if path == "/pair":
+            self._run(self.pair)
+        elif path.startswith("/api/"):
+            def run():
+                body = read_body(self)  # authenticated caller; bounded + deadline, before the card lock
+                with CARD_LOCK:
+                    self.post_api(path, body)
+            self._run(run)
+        else:
+            json_resp(self, 404, {"error": "not found"})
+
+    def pair(self):
+        body = read_body(self, cap=1024)
+        pairing = AUTH["pairing"]
+        session = pairing.pair(body.get("code")) if pairing is not None else None
+        if session is None:
+            raise HTTPError(401, "wrong or already used pairing code; use the code shown in the dashboard terminal")
+        json_resp(self, 200, {"paired": True, "expires_in": int(nuri_helper_auth.SESSION_TTL_S)},
+                  extra_headers=(("Set-Cookie", pairing.set_cookie(session)),))
+
+    def session_info(self):
+        pairing = AUTH["pairing"]
+        left = pairing.remaining(self.headers.get("cookie")) if pairing is not None else 0
+        json_resp(self, 200, {"paired": True, "auth": "session" if left else "bearer",
+                              "expires_in": left or None})
+
+    def get_api(self, path):
+        if path == "/api/card/status":
+            self.card_status()
+        elif path == "/api/eth/version":
+            select_aid(AID_ETH)
+            data, sw = transmit(bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
+            json_resp(self, 200, {"sw": f"{sw:04X}", "major": data[0], "minor": data[1], "build": data[3:7].decode("ascii", "replace")})
+        elif path == "/api/eth/pubkey":
+            select_aid(AID_ETH)
+            data, sw = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
+            json_resp(self, 200, {
+                "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
+                "eth_address": eth_address(data),
+                "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
+                "btc_hash160_hex": hash160(data).hex(),
+            })
+        elif path == "/api/eth/selftest":
+            # Regression guard: cross-check on-card modInverse (INS 0x06) against
+            # python pow(a, -1, n) for 10 random values. Catches on-card bignum
+            # breakage immediately, so we don't debug a wrong signature for hours.
+            select_aid(AID_ETH)
+            N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+            import secrets
+            passed, failed = 0, 0
+            for _ in range(10):
+                a = secrets.randbelow(N - 1) + 1
+                a_bytes = a.to_bytes(32, "big")
+                data, sw = transmit(bytes([0x00, 0x06, 0x00, 0x00, 0x20]) + a_bytes)
+                if sw != 0x9000:
+                    failed += 1; continue
+                card_inv = int.from_bytes(data, "big")
+                host_inv = pow(a, -1, N)
+                if card_inv == host_inv: passed += 1
+                else: failed += 1
+            json_resp(self, 200, {"modinv_passed": passed, "modinv_failed": failed, "ok": failed == 0})
+        elif path == "/api/musig2/version":
+            select_aid(AID_MUSIG2)
+            data, sw = transmit(bytes([0x80, 0x01, 0x00, 0x00, 0x00]))
+            json_resp(self, 200, {"sw": f"{sw:04X}", "version_hex": data.hex()})
+        elif path == "/api/totp/select":
+            _, sw = select_aid(AID_TOTP)
+            json_resp(self, 200, {"sw": f"{sw:04X}", "selected": sw == 0x9000})
+        elif path == "/api/fido2/select":
+            _, sw = select_aid(AID_FIDO2)
+            json_resp(self, 200, {"sw": f"{sw:04X}", "selected": sw == 0x9000})
+        else:
+            json_resp(self, 404, {"error": "not found"})
+
+    def post_api(self, path, body):
+        if path == "/api/eth/keygen":
+            # Double gate. On ETH applet < 1.4, INS 0x03 REPLACES the existing key with no
+            # confirmation (BRIEF-COMMON.md: a real card key was rotated this way on 2026-10-18).
+            if os.environ.get("NURI_ALLOW_KEYGEN") != "1":
+                json_resp(self, 403, {"error": "keygen disabled: start the server with NURI_ALLOW_KEYGEN=1 (and only on an ETH applet >= 1.4)"})
+                return
+            major, minor = eth_applet_version()
+            if (major, minor) < (1, 4):
+                json_resp(self, 403, {"error": f"keygen refused: ETH applet {major}.{minor} < 1.4 replaces the existing key"})
+                return
+            select_aid(AID_ETH)
+            data, sw = transmit(bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
+            json_resp(self, 200, {
+                "sw": f"{sw:04X}", "pubkey_hex": data.hex(),
+                "eth_address": eth_address(data),
+                "btc_p2pkh_address": btc_p2pkh_address(data, "mainnet"),
+                "btc_hash160_hex": hash160(data).hex(),
+            })
+        elif path == "/api/eth/sign":
+            # ETH-style: card signs the caller-supplied 32-byte hash directly.
+            # (Host would normally keccak256 the tx before sending; here the
+            #  caller passes the hash so the dashboard can sign arbitrary
+            #  pre-hashed payloads. For a real tx, hash = keccak256(RLP(tx)).)
+            hx = body.get("hash")
+            if not isinstance(hx, str) or not re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", hx):
+                raise HTTPError(400, "hash must be exactly 32 bytes of hex")
+            h = bytes.fromhex(hx[2:] if hx.startswith("0x") else hx)
+            select_aid(AID_ETH)
+            pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
+            sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + h)
+            r = int.from_bytes(sig[:32], "big")
+            s = int.from_bytes(sig[32:64], "big")
+            v = sig[64]
+            sig_rs = sig[:64]
+            verified_verify = ecdsa_verify(pub, sig_rs, h)
+            verified_recover = ecdsa_ecrecover(pub, sig_rs, h)
+            json_resp(self, 200, {
+                "sw": f"{sw:04X}", "r": f"{r:064x}", "s": f"{s:064x}", "v": v,
+                "pubkey_hex": pub.hex(),
+                "verified": verified_verify and verified_recover,
+                "ecdsa_verify": verified_verify,
+                "ecdsa_ecrecover": verified_recover,
+                "verifier": "python-ecdsa (independent of host code)",
+            })
+        elif path == "/api/btc/sign":
+            # Bitcoin message signing: sign double-SHA256(message). The same
+            # on-card secp256k1 key signs BTC and ETH; only the host-side
+            # hash differs. Verify with python-ecdsa (independent).
+            if not isinstance(body.get("message"), str):
+                raise HTTPError(400, "message must be a string")
+            msg = body["message"].encode()
+            z = hashlib.sha256(hashlib.sha256(msg).digest()).digest()
+            select_aid(AID_ETH)
+            pub, _ = transmit(bytes([0x00, 0x02, 0x00, 0x00, 0x00]))
+            sig, sw = transmit(bytes([0x00, 0x04, 0x00, 0x00, 0x20]) + z)
+            r = int.from_bytes(sig[:32], "big")
+            s = int.from_bytes(sig[32:64], "big")
+            v = sig[64]
+            sig_rs = sig[:64]
+            verified_verify = ecdsa_verify(pub, sig_rs, z)
+            verified_recover = ecdsa_ecrecover(pub, sig_rs, z)
+            json_resp(self, 200, {
+                "sw": f"{sw:04X}", "r": f"{r:064x}", "s": f"{s:064x}", "v": v,
+                "pubkey_hex": pub.hex(),
+                "verified": verified_verify and verified_recover,
+                "ecdsa_verify": verified_verify,
+                "ecdsa_ecrecover": verified_recover,
+                "verifier": "python-ecdsa (independent of host code)",
+                "z_hash": z.hex(),
+                "btc_p2pkh_address": btc_p2pkh_address(pub, "mainnet"),
+                "hash160_hex": hash160(pub).hex(),
+            })
+        else:
+            json_resp(self, 404, {"error": "not found"})
 
     def card_status(self):
         reader_names = nuri_pcsc.reader_names()
@@ -362,34 +534,71 @@ class Handler(BaseHTTPRequestHandler):
                 applets[name] = {"sw": "error", "present": False, "error": str(e)}
         json_resp(self, 200, {"readers": reader_names, "atr": atr, "applets": applets})
 
-    def serve_html(self):
+    def serve_static(self, name, content_type, transform=None):
         try:
-            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "dashboard.html"), "rb") as f:
-                html = f.read().decode("utf-8")
-            # Same-origin page gets the bearer token so its own fetch('/api/..') calls pass the guard.
-            html = nuri_helper_auth.inject_token(html, AUTH["token"]).encode("utf-8")
-            self.send_response(200)
-            self.send_header("content-type", "text/html; charset=utf-8")
-            self.send_header("cache-control", "no-store")
-            self.end_headers()
-            self.wfile.write(html)
+            with open(os.path.join(WEB_DIR, name), "rb") as f:
+                data = f.read()
         except FileNotFoundError:
-            json_resp(self, 404, {"error": "web/dashboard.html not found"})
+            raise HTTPError(404, f"web/{name} not found") from None
+        if transform is not None:
+            data = transform(data.decode("utf-8")).encode("utf-8")
+        _send(self, 200, data, content_type)
+
+    def serve_html(self):
+        # The page carries no credential; helper-pair.js pairs the browser via POST /pair.
+        self.serve_static("dashboard.html", "text/html; charset=utf-8", nuri_helper_auth.inject_pair_script)
+
+    def serve_pair_js(self):
+        self.serve_static("helper-pair.js", "text/javascript; charset=utf-8")
+
+
+class DashboardServer(ThreadingHTTPServer):
+    """Threaded so one slow client cannot block others (each request has its own absolute
+    deadline); card access is still serialized by CARD_LOCK. Connections beyond
+    MAX_CONNECTIONS are closed immediately."""
+    daemon_threads = True
+    request_queue_size = 32
+
+    def __init__(self, *a, **kw):
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(*a, **kw)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
 
 def main():
     port = int(os.environ.get("NURI_CARD_PORT") or 8788)
     host = os.environ.get("NURI_CARD_HOST") or "127.0.0.1"
-    token, source = nuri_helper_auth.load_or_create_token(log=print)
-    nuri_helper_auth.check_bind(host, source)
-    AUTH.update(token=token, port=port, remote=not nuri_helper_auth.is_loopback_host(host), bind_host=host)
-    print(f"Nuri card dashboard: http://{host}:{port}/")
-    print(f"API auth: Authorization: Bearer <token> ({'NURI_CARD_TOKEN' if source == 'env' else source}); Host must be 127.0.0.1:{port}; no CORS.")
+    nuri_helper_auth.check_bind(host)  # loopback only, no override
+    try:
+        token, source = nuri_helper_auth.load_or_create_token("dashboard", log=print)
+    except nuri_helper_auth.TokenError as e:
+        sys.exit(f"card dashboard: {e}")
+    print(f"Nuri card dashboard: http://{'[::1]' if host == '::1' else host}:{port}/")
+    AUTH.update(token=token, port=port, pairing=nuri_helper_auth.Pairing(log=print))
+    print(f"CLI API auth: Authorization: Bearer <dashboard token> ({'NURI_DASHBOARD_TOKEN' if source == 'env' else source}); "
+          f"Host must be 127.0.0.1:{port} or localhost:{port}; no CORS.")
     print(f"/api/eth/keygen: {'ENABLED (NURI_ALLOW_KEYGEN=1, applet >= 1.4 only)' if os.environ.get('NURI_ALLOW_KEYGEN') == '1' else 'disabled'}")
-    if AUTH["remote"]:
-        print(f"WARNING: bound to {host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.")
     print("Card signs, python-ecdsa + pycryptodome verify (no hand-rolled host crypto).")
     print("Reader must have the card inserted (protocol ladder: default, T=0, T=1; see docs/reader-compatibility.md).")
-    HTTPServer((host, port), Handler).serve_forever()
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    srv_cls = type("Srv", (DashboardServer,), {"address_family": family})
+    srv_cls((host.strip("[]"), port), Handler).serve_forever()
+
 
 if __name__ == "__main__":
     main()
