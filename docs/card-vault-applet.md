@@ -70,10 +70,13 @@ jCardSim and ant-javacard are the existing pinned simulator/build tools.
 The stored key is at most SHA256's 64-byte block, so long-key prehashing is
 unnecessary. Message bytes are **not prehashed** by the CLI. Keys, names and
 metadata publish together inside a Java Card transaction; DELETE atomically
-zeros its 64-byte secret/name region and frees the slot. PIN, incoming PUT values,
-MAC scratch and outgoing bearer copies are cleared on every completed/error
-command in `finally`; transient arrays also clear on deselection. Platform-level
-physical erasure and fault resistance remain **UNVERIFIED**.
+zeros its 64-byte secret/name region and frees the slot. PIN/PUT input and
+transient MAC/reply scratch clear on every completed/error command in `finally`;
+transient arrays also clear on deselection. The **final JCRE response APDU buffer
+must remain untouched until transmission completes**, so a revealed bearer
+copy remains there until the runtime recycles/clears it. The applet does not
+promise immediate erasure of that runtime-owned buffer. Platform-level physical
+erasure and fault resistance remain **UNVERIFIED**.
 
 Generic HMAC signing supports webhook verification/signing, HS256 JWTs,
 SHA256-based HOTP/TOTP-style constructions (host supplies counter/truncation),
@@ -166,7 +169,12 @@ statuses, blocking/reset persistence, no HMAC export, DELETE, slot reuse and ful
 store. RFC cases 6/7 use disallowed 131-byte keys, which are explicitly rejected.
 [Bridge test](../test/test_vault_bridge.py) sends the real Python backend's APDUs
 to the actual Java applet under jCardSim. Host contract tests use injected fake
-transports. Installer tests always set GP_BIN to an owned fake and assert no
+transport tests. At maximum Lc=255, pinned jCardSim's 260-byte APDU buffer
+cannot hold a legal 261-byte case-4 command (it copies Le into that buffer).
+The Java boundary test uses case 3 with identical incoming bytes only for that
+one length; production Python retains proper case 4 and fake tests assert its
+exact bytes. This is a simulator limitation, **not a proven real-reader maximum**.
+Installer tests always set GP_BIN to an owned fake and assert no
 DELETE/force calls, FIDO2 preservation and exact registry readback. Negative
 controls remove guards individually, require the intended assertion to fail,
 restore exact source bytes, and require green again.

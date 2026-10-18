@@ -78,6 +78,7 @@ public final class NuriVault extends Applet {
             return;
         }
         byte[] buffer = apdu.getBuffer();
+        boolean sending = false;
         try {
             if (buffer[ISO7816.OFFSET_CLA] != (byte) 0x80) {
                 ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
@@ -150,13 +151,18 @@ public final class NuriVault extends Applet {
             if (n != 0) {
                 apdu.setOutgoing();
                 apdu.setOutgoingLength(n);
+                Util.arrayFillNonAtomic(buffer, (short) 0, (short) buffer.length, (byte) 0);
+                sending = true;
                 apdu.sendBytesLong(reply, (short) 0, n);
             }
         } finally {
             if (JCSystem.getTransactionDepth() != 0) JCSystem.abortTransaction();
             clearScratch();
-            // Incoming PINs/PUT values and outgoing bearer copies must not linger.
-            Util.arrayFillNonAtomic(buffer, (short) 0, (short) buffer.length, (byte) 0);
+            // Do not alter the final response APDU buffer: Java Card may defer
+            // transmission until process returns. Incoming PIN/PUT data is
+            // wiped before sending; response bytes belong to the JCRE until
+            // its next APDU. The transient reply copy is cleared above.
+            if (!sending) Util.arrayFillNonAtomic(buffer, (short) 0, (short) buffer.length, (byte) 0);
         }
     }
 
@@ -265,14 +271,7 @@ public final class NuriVault extends Applet {
         for (short i = 0; i < kl; i++) pad[i] ^= secrets[(short) (ko + i)];
         sha.reset();
         sha.update(pad, (short) 0, SECRET_MAX);
-        if (length == 0) {
-            // Some Java Card SHA implementations reject zero-length doFinal.
-            // Feed the pad in doFinal itself for HMAC of the empty message.
-            sha.reset();
-            sha.doFinal(pad, (short) 0, SECRET_MAX, inner, (short) 0);
-        } else {
-            sha.doFinal(request, offset, length, inner, (short) 0);
-        }
+        sha.doFinal(request, offset, length, inner, (short) 0);
         Util.arrayFillNonAtomic(pad, (short) 0, SECRET_MAX, (byte) 0x5C);
         for (short i = 0; i < kl; i++) pad[i] ^= secrets[(short) (ko + i)];
         sha.update(pad, (short) 0, SECRET_MAX);

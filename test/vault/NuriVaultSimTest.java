@@ -177,7 +177,15 @@ public final class NuriVaultSimTest {
     }
     private static ResponseAPDU send(CardSimulator sim, int ins, byte[] data) { return tx(sim, 0x80, ins, 0, 0, data); }
     private static ResponseAPDU tx(CardSimulator sim, int cla, int ins, int p1, int p2, byte[] data) {
-        return sim.transmitCommand(new CommandAPDU(cla, ins, p1, p2, data, 256));
+        // Pinned jCardSim's APDUProxy copies the whole command into a 260-byte
+        // buffer, including Le: a legal 261-byte case-4 command overflows before
+        // process(). At Lc=255 exercise the applet with case 3 (same incoming
+        // bytes). Production Python still emits legal case 4; fake host tests
+        // check that exact encoding. Real reader behavior remains UNVERIFIED.
+        CommandAPDU command = data.length == 255
+                ? new CommandAPDU(cla, ins, p1, p2, data)
+                : new CommandAPDU(cla, ins, p1, p2, data, 256);
+        return sim.transmitCommand(command);
     }
     private static byte[] ok(CardSimulator sim, int ins, byte[] data) {
         ResponseAPDU r = send(sim, ins, data);
