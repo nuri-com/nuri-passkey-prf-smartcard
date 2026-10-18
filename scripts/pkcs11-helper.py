@@ -22,7 +22,11 @@ SIM_PUBKEY = None
 def sim_init():
     global SIM_KEY, SIM_PUBKEY
     from ecdsa import SigningKey, SECP256k1
-    SIM_KEY = SigningKey.generate(curve=SECP256k1)
+    # Deterministic sim key (CONTRACTS.md C2): the PKCS#11 module spawns one helper
+    # process per call, so the key must be stable across processes for a signature
+    # to verify against the pubkey reported at C_Initialize. Never used on a card.
+    secexp = int.from_bytes(hashlib.sha256(b"nuri-card-sim-v1").digest(), 'big') % SECP256k1.order
+    SIM_KEY = SigningKey.from_secret_exponent(secexp, curve=SECP256k1)
     SIM_PUBKEY = SIM_KEY.get_verifying_key()
     return "OK"
 
