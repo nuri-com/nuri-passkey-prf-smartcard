@@ -7,6 +7,7 @@ cd "$ROOT"
 npm run cli:e2e
 npm run card:arkade:signer:sim
 npm run fido2:test-prf
+npm run card:musig2:test:sim
 scripts/run-card-python.sh scripts/card-totp.py --selfcheck
 
 echo "CARD_V1_VIRTUAL_TESTS_OK"

@@ -16,13 +16,21 @@ import javacardx.crypto.*;
  *   on-card via ALG_SECURE_RANDOM; no host bytes ever become the master key.
  * - KEYGEN is one-shot: a card with a key answers 6989. No silent re-key.
  *
+ * Hardening v1.12 (audit finding A1, nonce lifetime, 2026-10):
+ * - noncesReady/finalized were persistent booleans while nonceK1/nonceK2 are
+ *   CLEAR_ON_RESET. After a power cycle between GET_NONCES and FINALIZE the
+ *   nonces were zero but noncesReady stayed true, so FINALIZE returned
+ *   s_i = 0 + e*a_i*sk and the host could solve for sk. The two session flags
+ *   now live in the same CLEAR_ON_RESET transient memory as the nonces, and
+ *   FINALIZE additionally refuses (6988) when either secret nonce is all-zero.
+ *
  * Author: Claude & Emin
  * Date: 2025-08-31
  */
 public class NuriMuSig2v019 extends Applet {
 
-    // Version 1.11 - no host seed import, one-shot keygen
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0B};
+    // Version 1.12 - session flags share nonce lifetime, zero-nonce FINALIZE refused
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0C};
 
     // Commands
     private static final byte INS_GET_VERSION = (byte)0x01;
@@ -93,8 +101,11 @@ public class NuriMuSig2v019 extends Applet {
     private byte[] nonceK2;      // 32 bytes secret k2
     private byte[] pubK1;        // 33 bytes compressed K1 = k1·G
     private byte[] pubK2;        // 33 bytes compressed K2 = k2·G
-    private boolean noncesReady;
-    private boolean finalized;
+    // Session flags MUST have the same lifetime as the nonces above, so they
+    // are a CLEAR_ON_RESET transient boolean array, never persistent fields.
+    private boolean[] sessionFlags; // [FLAG_NONCES_READY], [FLAG_FINALIZED]
+    private static final short FLAG_NONCES_READY = (short)0;
+    private static final short FLAG_FINALIZED = (short)1;
     // Persistent (EEPROM): once true, KEYGEN is locked forever.
     private boolean keyGenerated;
 
@@ -149,6 +160,7 @@ public class NuriMuSig2v019 extends Applet {
         nonceK2 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_RESET);
         pubK1 = JCSystem.makeTransientByteArray((short)33, JCSystem.CLEAR_ON_RESET);
         pubK2 = JCSystem.makeTransientByteArray((short)33, JCSystem.CLEAR_ON_RESET);
+        sessionFlags = JCSystem.makeTransientBooleanArray((short)2, JCSystem.CLEAR_ON_RESET);
 
         // Allocate scratch buffers
         tempBuffer = JCSystem.makeTransientByteArray((short)65, JCSystem.CLEAR_ON_DESELECT);
@@ -243,8 +255,8 @@ public class NuriMuSig2v019 extends Applet {
         }
 
         // Clear one-shot nonce/session state when installing the long-term key.
-        noncesReady = false;
-        finalized = false;
+        sessionFlags[FLAG_NONCES_READY] = false;
+        sessionFlags[FLAG_FINALIZED] = false;
         // Lock keygen forever (persistent). Any throw above leaves it false.
         keyGenerated = true;
 
@@ -344,8 +356,8 @@ public class NuriMuSig2v019 extends Applet {
         }
 
         // Mark nonces as ready
-        noncesReady = true;
-        finalized = false;
+        sessionFlags[FLAG_NONCES_READY] = true;
+        sessionFlags[FLAG_FINALIZED] = false;
 
         // Return K1 || K2
         byte[] buffer = apdu.getBuffer();
@@ -355,12 +367,20 @@ public class NuriMuSig2v019 extends Applet {
     }
 
     private void doFinalize(APDU apdu) {
-        if (!noncesReady) {
+        if (!sessionFlags[FLAG_NONCES_READY]) {
             ISOException.throwIt(SW_NONCES_NOT_READY);
         }
 
-        if (finalized) {
+        if (sessionFlags[FLAG_FINALIZED]) {
             ISOException.throwIt(SW_ALREADY_FINALIZED);
+        }
+
+        // Defense in depth (A1): a zero secret nonce would make s_i = e*a_i*sk
+        // and hand the host the private key. Never sign with a cleared nonce,
+        // whatever the flags say. Both checks always run (no short-circuit).
+        if (isZeroCT(nonceK1, (short)0, (short)32) | isZeroCT(nonceK2, (short)0, (short)32)) {
+            sessionFlags[FLAG_NONCES_READY] = false;
+            ISOException.throwIt(SW_INVALID_NONCE);
         }
 
         byte[] buffer = apdu.getBuffer();
@@ -467,11 +487,23 @@ public class NuriMuSig2v019 extends Applet {
         Util.arrayFillNonAtomic(scratch32_5, (short)0, (short)32, (byte)0);
 
         // Mark as finalized
-        finalized = true;
-        noncesReady = false;
+        sessionFlags[FLAG_FINALIZED] = true;
+        sessionFlags[FLAG_NONCES_READY] = false;
 
         // Return s_i (32 bytes)
         apdu.setOutgoingAndSend((short)0, (short)32);
+    }
+
+    /**
+     * Check if buffer is all zeros without an early exit: ORs every byte so
+     * the loop runs the same number of iterations for any content.
+     */
+    private boolean isZeroCT(byte[] buf, short off, short len) {
+        byte acc = 0;
+        for (short i = 0; i < len; i++) {
+            acc |= buf[(short)(off + i)];
+        }
+        return acc == 0;
     }
 
     /**

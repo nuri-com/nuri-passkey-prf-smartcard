@@ -64,6 +64,7 @@
     "card:ctap:makecred-uv": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-uv",
     "card:musig2:install": "scripts/install-musig2-card.sh",
     "card:musig2:test": "scripts/test-musig2-card.sh",
+    "card:musig2:test:sim": "scripts/test-musig2-jcardsim.sh",
     "card:totp:build": "scripts/build-card-v1-release.sh",
     "card:totp:install": "scripts/install-totp-card.sh",
     "card:totp": "scripts/run-card-python.sh scripts/card-totp.py",
