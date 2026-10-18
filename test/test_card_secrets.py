@@ -4,6 +4,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
+from unittest.mock import Mock, patch
+import runpy
 import selectors
 import stat
 import subprocess
@@ -62,17 +64,36 @@ class VaultTest(unittest.TestCase):
         self.assertNotIn(SECRET.encode(), result.stdout + result.stderr)
         self.assertNotEqual(self.cli("put", "API", value=b"overwrite").returncode, 0)
         self.assertNotEqual(self.cli("put", "bad-name", value=b"invalid").returncode, 0)
+        signal = self.cli("run", "API", "--", sys.executable, "-c", "import os,signal; os.kill(os.getpid(), signal.SIGTERM)")
+        self.assertEqual(signal.returncode, 143)
 
     def test_metadata_tampering_and_permissive_vault_fail_closed(self):
         self.put()
+        self.assertEqual(self.cli("run", "API", "--", "false",
+                                  env={k: v for k, v in self.env.items() if k != "NURI_CARD_SECRETS_FAKE_PRF"}).returncode, 1)
         vault = json.loads(self.vault.read_text())
+        vault["secrets"]["OTHER"] = vault["secrets"].pop("API")
+        self.vault.write_text(json.dumps(vault))
+        self.assertEqual(self.cli("run", "OTHER", "--", sys.executable, "-c", "pass").returncode, 1)
+        vault["secrets"]["API"] = vault["secrets"].pop("OTHER")
         vault["secrets"]["API"]["tags"] = ["tampered"]
         self.vault.write_text(json.dumps(vault))
         self.assertEqual(self.cli("run", "API", "--", "false").returncode, 1)
         self.vault.chmod(0o644)
         self.assertEqual(self.cli("list").returncode, 1)
-        self.assertEqual(self.cli("run", "API", "--", "false",
-                                  env={k: v for k, v in self.env.items() if k != "NURI_CARD_SECRETS_FAKE_PRF"}).returncode, 1)
+
+    def test_existing_derive_path_with_stub_no_hardware(self):
+        module = runpy.run_path(str(SCRIPT))
+        backup = Mock()
+        backup.derive_once.return_value = (b"p" * 32, None)
+        args = Mock(profile_path="existing-profile.json", transport="pcsc", device_index=None)
+        with patch.dict(os.environ, {}, clear=True), patch("importlib.util.spec_from_file_location"), patch("importlib.util.module_from_spec", return_value=backup):
+            self.assertEqual(module["prf"](args), b"p" * 32)
+        backup.read_profile.assert_called_once_with(Path("existing-profile.json"))
+        call = backup.derive_once.call_args.args
+        self.assertEqual((call[0].user_verification, call[2:]), ("required", (b"nuri-card-secrets-v1", None)))
+        self.assertTrue(call[0].pin_prompt)
+        backup.command_enroll.assert_not_called()
 
     def test_proxy_injects_headers_fixed_upstream_no_leaky_logs(self):
         self.put()
@@ -85,7 +106,7 @@ class VaultTest(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b"ok")
 
-            def log_message(self, *_):
+            def log_message(self, format, *args):
                 pass
 
         with HTTPServer(("127.0.0.1", 0), Upstream) as upstream:
@@ -97,6 +118,7 @@ class VaultTest(unittest.TestCase):
                     f"http://127.0.0.1:{upstream.server_port}/v1", "--header", header],
                     env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
+                    assert proc.stdout is not None
                     with selectors.DefaultSelector() as sel:
                         sel.register(proc.stdout, selectors.EVENT_READ)
                         self.assertTrue(sel.select(10), "proxy startup timed out")

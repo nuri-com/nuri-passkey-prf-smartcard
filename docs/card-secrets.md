@@ -27,6 +27,8 @@ creation time, tags, ciphertexts and nonces. Names/times/tags are **public
 metadata**, authenticated as GCM associated data when unwrapping. No PRF output,
 wrapping key, data key, or plaintext secret is written to the vault. Writes use
 an advisory lock and atomic replacement; transient output files are also 0600.
+Implementation: `scripts/card-secrets.py:29` (PRF), `:57` (AES-GCM), `:67`
+(HKDF), `:75` (authenticated unwrap), `:83` (permissions), `:109` (atomic save).
 Deleting an entry is not secure erasure of filesystem snapshots or backups.
 
 The broker calls the existing `card-prf-backup.py` `read_profile` / `derive_once`
@@ -71,7 +73,7 @@ secret argument. Do not let an agent run a secret-revealing provisioning command
 secret as `NURI_SECRET_<NAME>`. Inherited `NURI_SECRET_*`, `FIDO2_*`, and the fake
 PRF test override are removed from the child's environment. UTF-8, NUL-free
 secrets are required for environment injection. The child exit code is propagated;
-its normal stdout/stderr are not captured or redacted. The trusted child must
+signals map to exit status `128 + signal`. Its normal stdout/stderr are not captured or redacted. The trusted child must
 not print credentials or persist its environment. Never use `env`, `printenv`,
 a shell snippet that echoes the variable, or untrusted agent-generated code.
 

@@ -35,6 +35,7 @@ def prf(args):
     # Import the existing implementation, never its CLI (which prints PRF outputs).
     path = Path(__file__).with_name("card-prf-backup.py")
     spec = importlib.util.spec_from_file_location("card_prf_backup", path)
+    assert spec is not None and spec.loader is not None
     backup = importlib.util.module_from_spec(spec)
     with contextlib.redirect_stdout(io.StringIO()):
         spec.loader.exec_module(backup)
@@ -73,6 +74,8 @@ def kek(args, vault):
 
 def unwrap(args, vault):
     entry = vault["secrets"][args.name]
+    if entry["name"] != args.name:
+        raise ValueError("entry identity mismatch")
     key = unseal(kek(args, vault), entry["wrapped_key"], aad(entry) + b"/key")
     return unseal(key, entry["data"], aad(entry) + b"/data")
 
@@ -130,14 +133,14 @@ def proxy(args, secret):
     injected = "Bearer " + token if args.header == "Authorization" else token
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *_):
+        def log_message(self, format, *args):
             pass
 
         def request(self):
             status, body, content_type = 502, b"upstream unavailable\n", "text/plain"
             connection = None
             try:
-                if (self.headers.get_all("Host") != [f"127.0.0.1:{self.server.server_port}"]
+                if (self.headers.get_all("Host") != [expected_host]
                         or "Origin" in self.headers or "Sec-Fetch-Site" in self.headers
                         or not self.path.startswith("/") or self.path.startswith("//")
                         or "\\" in self.path or "#" in self.path):
@@ -177,7 +180,7 @@ def proxy(args, secret):
         do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = request
 
     class Server(HTTPServer):
-        def handle_error(self, *_):
+        def handle_error(self, request, client_address):
             pass  # No exception tracebacks containing request/credential material.
 
         def get_request(self):
@@ -186,7 +189,8 @@ def proxy(args, secret):
             return client, address
 
     with Server(("127.0.0.1", 0), Handler) as server:
-        print(f"http://127.0.0.1:{server.server_port}", flush=True)
+        expected_host = f"127.0.0.1:{server.server_port}"
+        print("http://" + expected_host, flush=True)
         server.serve_forever()
 
 
@@ -242,7 +246,8 @@ def main():
             raise ValueError("run requires a child command")
         env = {k: v for k, v in os.environ.items() if not k.startswith(("NURI_SECRET_", "FIDO2_", "NURI_CARD_SECRETS_FAKE_PRF"))}
         env["NURI_SECRET_" + args.name] = secret.decode("utf-8")
-        return subprocess.run(cmd, env=env, shell=False).returncode
+        code = subprocess.run(cmd, env=env, shell=False).returncode
+        return code if code >= 0 else 128 - code
     except KeyboardInterrupt:
         return 130
     except Exception:
