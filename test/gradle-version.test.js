@@ -69,14 +69,17 @@ test('unknown Gradle version is rejected rather than assumed usable', () => fixt
 }));
 
 for (const script of ['build-card-v1-release.sh', 'run-fido2-prf-sim-tests.sh']) {
-  test(`${script} rejects old Gradle before downloads or build setup`, () => fixture((dir) => {
-    const result = spawnSync('/bin/bash', [path.join(root, 'scripts', script)], {
-      cwd: root,
-      env: { ...process.env, GRADLE_BIN: fakeGradle(dir, 'Gradle 8.1') },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Gradle 8\.2 or newer is required; found 8\.1/);
-    assert.equal(result.stdout, '');
+  test(`${script} rejects unsupported Gradle before downloads or build setup`, () => fixture((dir) => {
+    for (const version of ['8.1', '9.8.1']) {
+      const result = spawnSync('/bin/bash', [path.join(root, 'scripts', script)], {
+        cwd: root,
+        env: { ...process.env, GRADLE_BIN: fakeGradle(dir, `Gradle ${version}`) },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /Gradle 8\.2 or newer.*is required; found/);
+      assert.ok(result.stderr.includes(`found ${version}`), result.stderr);
+      assert.equal(result.stdout, '');
+    }
   }));
 }

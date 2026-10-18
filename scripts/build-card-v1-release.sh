@@ -66,7 +66,7 @@ build_fido() {
   (
     cd "$build_dir"
     # The upstream plugin runs ant-javacard in-process: it needs JDK 8 for
-    # Java Card 3.0.5's -source/-target 1.5 and byte-identical CAP output.
+    # Java Card 3.0.5's legacy source/target and byte-identical CAP output.
     JAVA_HOME="${GRADLE_JAVA_HOME:-$JAVA8_HOME}" JC_HOME="$JC305" \
       "$GRADLE_BIN" -Dorg.gradle.java.home="$JAVA8_HOME" clean buildJavaCard --no-daemon
   )

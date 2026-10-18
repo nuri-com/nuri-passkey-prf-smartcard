@@ -41,7 +41,7 @@ See `../THIRD_PARTY_NOTICES.md` for the source and combined-CAP licence map.
 CI installs external Gradle 8.2 and both JDKs. JDK 17 launches Gradle;
 `-Dorg.gradle.java.home="$JAVA8_HOME"` runs the CAP build daemon on the pinned
 JDK 8 because the upstream Java Card plugin compiles/converts in-process with
-Java 1.5 source/target settings. The standalone Ant builds also use JDK 8.
+Java 1.6 source/target settings. The standalone Ant builds also use JDK 8.
 Simulator builds use JDK 17 throughout. Gradle 9 removed `ClosureBackedAction`,
 which plugin 1.8.0 requires, and is rejected before downloads or build setup.
 
