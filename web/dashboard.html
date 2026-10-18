@@ -53,7 +53,7 @@
     <div class="row">
       <button class="eth" onclick="api('/api/eth/version').then(render)">Get version</button>
       <button class="eth" onclick="api('/api/eth/pubkey').then(renderPubkey)">Get pubkey + addresses</button>
-      <button class="eth" onclick="confirmKeygen()">Generate new key</button>
+      <button class="eth" onclick="confirmKeygen()" title="Server-side gated: NURI_ALLOW_KEYGEN=1 and ETH applet >= 1.4 only">Generate new key (gated)</button>
       <button class="eth" onclick="runSelftest()">Selftest (on-card modInverse)</button>
     </div>
     <pre id="eth-version"></pre>
@@ -127,8 +127,12 @@ function renderPubkey(d) {
   document.getElementById('eth-addr').innerHTML = html;
 }
 function confirmKeygen() {
-  if (confirm('Generate a NEW on-card key? The old key is lost forever (non-exportable).')) {
-    api('/api/eth/keygen', {method:'POST'}).then(renderPubkey);
+  // Server refuses unless NURI_ALLOW_KEYGEN=1 AND ETH applet >= 1.4 (older applets REPLACE the key).
+  if (confirm('Generate a NEW on-card key? The old key is lost forever (non-exportable). The server only allows this with NURI_ALLOW_KEYGEN=1 on an ETH applet >= 1.4.')) {
+    api('/api/eth/keygen', {method:'POST', headers:{'content-type':'application/json'}, body:'{}'}).then(d => {
+      if (d.error) { document.getElementById('eth-version').textContent = 'keygen refused: ' + d.error; return; }
+      renderPubkey(d);
+    });
   }
 }
 async function signEth() {

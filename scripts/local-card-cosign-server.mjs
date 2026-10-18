@@ -13,6 +13,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bech32, bech32m } from '@scure/base';
 import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosign-flow.js';
 import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
+import { checkBind, guardRequest, injectToken, isLoopbackHost, loadOrCreateToken } from './helper-auth.mjs';
 
 const card = createOnCardGeneratedCard();
 const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
@@ -258,6 +259,7 @@ function parseArgs(argv) {
     else if (arg.startsWith('--backend=')) args.backend = arg.slice('--backend='.length);
     else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node scripts/local-card-cosign-server.mjs [--host=127.0.0.1] [--port=8787] [--backend=simulated|real-card] [--selftest]');
+      console.log('Non-loopback --host needs NURI_ALLOW_REMOTE=1 and NURI_CARD_TOKEN (see docs/helper-servers-security.md).');
       process.exit(0);
     } else {
       throw new Error(`unknown argument: ${arg}`);
@@ -283,14 +285,21 @@ function json(res, status, payload) {
 
 async function readJson(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1024 * 1024) throw new Error('body too large');
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString('utf8').trim();
   if (!raw) return {};
   return JSON.parse(raw);
 }
 
 async function serveStatic(res, path, contentType) {
-  const body = await readFile(path);
+  let body = await readFile(path);
+  // Our own pages get the bearer token injected so their same-origin fetch('/api/..') calls pass the guard.
+  if (contentType.startsWith('text/html') && auth?.token) body = Buffer.from(injectToken(body.toString('utf8'), auth.token));
   res.writeHead(200, {
     'content-type': contentType,
     'cache-control': 'no-store',
@@ -1360,6 +1369,8 @@ async function handleSign(req, res) {
 async function requestHandler(req, res) {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const denied = guardRequest(req, { port: server.address()?.port ?? args.port, token: auth?.token || '', remote, bindHost: args.host });
+    if (denied) { json(res, denied.status, { error: denied.error }); return; }
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/cosign-demo.html')) {
       await serveStatic(res, resolve('web/cosign-demo.html'), 'text/html; charset=utf-8');
       return;
@@ -1423,6 +1434,8 @@ async function requestHandler(req, res) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const remote = !isLoopbackHost(args.host);
+let auth = null; // { token, source } — set before listen (not for --selftest)
 
 if (args.selftest) {
   const result = args.backend === 'real-card'
@@ -1432,11 +1445,16 @@ if (args.selftest) {
   process.exit(0);
 }
 
+auth = loadOrCreateToken();
+checkBind(args.host, { tokenSource: auth.source });
 const server = createServer(requestHandler);
 server.listen(args.port, args.host, () => {
-  console.log(`Nuri card cosign demo server at http://${args.host}:${args.port}/cosign-demo.html`);
-  console.log(`Merchant terminal: http://${args.host}:${args.port}/terminal`);
-  console.log(`Card profile: http://${args.host}:${args.port}/profile`);
+  const bound = server.address()?.port ?? args.port;
+  console.log(`Nuri card cosign demo server at http://${args.host}:${bound}/cosign-demo.html`);
+  console.log(`Merchant terminal: http://${args.host}:${bound}/terminal`);
+  console.log(`Card profile: http://${args.host}:${bound}/profile`);
+  console.log(`API auth: Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_CARD_TOKEN' : auth.source}); Host must be 127.0.0.1:${bound}; no CORS. Pages served here get the token injected.`);
+  if (remote) console.log(`WARNING: bound to ${args.host} (NURI_ALLOW_REMOTE=1). Anyone who reaches this port with the token can make the card sign.`);
   if (args.backend === 'real-card') {
     console.log(`Real-card backend enabled; profile: ${REAL_CARD_PROFILE}`);
   } else {
