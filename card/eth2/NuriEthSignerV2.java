@@ -554,11 +554,19 @@ public class NuriEthSignerV2 extends Applet {
             if (kLen != 0 && kLen != PUK_LEN) ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             if ((short)(rest - 1) != kLen) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
         }
-        // OwnerPIN.update is atomic by itself; the flags flip together afterwards so a
-        // tear can never leave PIN_SET=1 with a half-written PIN.
+        // OwnerPIN.update is only atomic when a transaction is in progress:
+        // the Java Card API requires that "If a transaction is in progress, the
+        // new pin and try counter update must be conditional i.e the copy
+        // operation must use the transaction facility" (javacard.framework.OwnerPIN).
+        // Outside a transaction a tear between update's internal copy, length and
+        // counter writes could leave a mixed PIN. PIN, PUK and both flags are
+        // committed together, so a tear aborts back to the no-PIN state; the
+        // user simply retries SET_PIN. Commit size ~38 B max (16+16+fields),
+        // far below the ~100 B already committed card-tested in keygen (see
+        // the KEYGEN transaction above).
+        JCSystem.beginTransaction();
         pin.update(buffer, pOff, (byte)pLen);
         if (kLen != 0) puk.update(buffer, kOff, (byte)kLen);
-        JCSystem.beginTransaction();
         flags[F_PUK_SET] = (kLen != 0) ? (byte)1 : (byte)0;
         flags[F_PIN_SET] = (byte)1;
         JCSystem.commitTransaction();
@@ -585,8 +593,16 @@ public class NuriEthSignerV2 extends Applet {
             if (left == 0) ISOException.throwIt(SW_PIN_BLOCKED);
             ISOException.throwIt((short)(SW_PIN_TRIES_BASE | left));
         }
+        // The old-PIN check above is a PIN presentation: its try-counter
+        // updates are deliberately non-transactional (OwnerPIN class note), so
+        // it stays outside the transaction. Only the value change is made
+        // conditional (spec: update's copy "must use the transaction facility"
+        // when one is in progress), so a tear rolls the whole change back to
+        // the old PIN instead of a half-updated one.
+        JCSystem.beginTransaction();
         pin.update(buffer, nOff, (byte)nLen);
-        pin.check(buffer, nOff, (byte)nLen);
+        JCSystem.commitTransaction();
+        pin.check(buffer, nOff, (byte)nLen);   // leave the session validated
     }
 
     /** Data: PUK(16) Ln newPIN. Requires a PUK to have been set. Resets PIN tries. */
@@ -605,8 +621,18 @@ public class NuriEthSignerV2 extends Applet {
             if (left == 0) ISOException.throwIt(SW_PIN_BLOCKED);
             ISOException.throwIt((short)(SW_PIN_TRIES_BASE | left));
         }
-        pin.resetAndUnblock();
+        // OwnerPIN.update sets the new value AND resets the PIN try counter to
+        // the try limit (spec: update "resets the PIN try counter to the value
+        // of the PIN try limit"), i.e. it unblocks and installs in one step,
+        // so no separate resetAndUnblock() is needed. Doing the update inside
+        // a transaction makes the whole UNBLOCK conditional: a tear aborts to
+        // the previous state (old PIN, still blocked) and the user retries
+        // with the PUK, instead of the old mixed state where
+        // resetAndUnblock() had already unblocked the PIN while the value was
+        // still the old one.
+        JCSystem.beginTransaction();
         pin.update(buffer, nOff, (byte)nLen);
+        JCSystem.commitTransaction();
         puk.reset();
     }
 
