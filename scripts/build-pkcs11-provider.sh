@@ -10,7 +10,7 @@ VERSION=1.3.0
 SHA256=b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538
 URL="https://github.com/openssl-projects/pkcs11-provider/releases/download/v$VERSION/pkcs11-provider-$VERSION.tar.xz"
 [[ "$(uname -s)" == Darwin ]] || { echo 'This build recipe is verified only on macOS.' >&2; exit 69; }
-[[ "$($OPENSSL version)" == 'OpenSSL 3.'* ]] || { echo 'NURI_OPENSSL must select OpenSSL 3 (not LibreSSL).' >&2; exit 69; }
+[[ "$(OPENSSL_CONF=/dev/null "$OPENSSL" version)" == 'OpenSSL 3.'* ]] || { echo 'NURI_OPENSSL must select OpenSSL 3 (not LibreSSL).' >&2; exit 69; }
 command -v pkg-config >/dev/null
 # Homebrew's OpenSSL is keg-only. Override this for another OpenSSL 3 prefix.
 export PKG_CONFIG_PATH="${NURI_OPENSSL_PKGCONFIG:-/opt/homebrew/opt/openssl@3/lib/pkgconfig}${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
@@ -36,9 +36,12 @@ with tarfile.open(archive) as source:
     source.extractall(root, filter='data')
 PY
 # Build-only dependencies; private target avoids modifying the selected Python.
-"$PYTHON" -m pip install --disable-pip-version-check --target "$WORK/tools" meson==1.12.1 ninja==1.13.2
+"$PYTHON" -m pip install --disable-pip-version-check --no-cache-dir --no-deps \
+  --only-binary=:all: --require-hashes --target "$WORK/tools" \
+  -r "$ROOT/scripts/requirements-pkcs11-provider-build.txt"
 export PYTHONPATH="$WORK/tools${PYTHONPATH:+:$PYTHONPATH}"
 export PATH="$WORK/tools/bin:$PATH"
+export CCACHE_DISABLE=1
 "$PYTHON" -m mesonbuild.mesonmain setup "$WORK/build" "$WORK/pkcs11-provider-$VERSION" \
   --prefix="$PREFIX" --libdir=lib --buildtype=release
 "$PYTHON" -m mesonbuild.mesonmain compile -C "$WORK/build" -j 2
