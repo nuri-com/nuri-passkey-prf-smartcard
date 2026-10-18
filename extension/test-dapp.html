@@ -15,7 +15,7 @@
 </head>
 <body>
   <h1>Nuri Card test dApp</h1>
-  <p>Discovers the <b>Nuri Card</b> provider via EIP-6963 (rdns <code>com.nuri.card</code>). Nothing here broadcasts a transaction.</p>
+  <p>Discovers the <b>Nuri Card</b> provider via EIP-6963 (rdns <code>com.nuri.card</code>). Signing buttons do not broadcast. <b>Send 0 ETH to self broadcasts on Base and spends gas.</b></p>
   <p>Provider: <span id="prov">waiting for eip6963:announceProvider…</span></p>
   <p>
     <button id="connect">Connect</button>
@@ -23,8 +23,10 @@
     <button id="sign" disabled>Sign message</button>
     <button id="typed" disabled>Sign typed data</button>
     <button id="tx" disabled>Sign tx (no send)</button>
+    <button id="send" disabled>Send 0 ETH to self</button>
   </p>
   <p>Account: <code id="acct">—</code> · chainId: <code id="cid">—</code></p>
+  <p id="sent"></p>
   <pre id="log"></pre>
   <script>
     const E = window.ethers;
@@ -55,7 +57,7 @@
         account = accs[0];
         $("acct").textContent = account;
         $("cid").textContent = await provider.request({ method: "eth_chainId" });
-        for (const b of ["chain", "sign", "typed", "tx"]) $(b).disabled = false;
+        for (const b of ["chain", "sign", "typed", "tx", "send"]) $(b).disabled = false;
         log("eth_requestAccounts ->", accs);
       } catch (e) { log("error:", e.message || e); }
     };
@@ -97,6 +99,20 @@
         const types = { Person: typed.types.Person, Mail: typed.types.Mail };
         logMatch(E.verifyTypedData(typed.domain, types, typed.message, sig));
       } catch (e) { log("error:", e.message || e); }
+    };
+
+    $("send").onclick = async () => {
+      $("send").disabled = true;
+      try {
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+        const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: account, to: account, value: "0x0" }] });
+        log("broadcast transaction:", hash);
+        const link = document.createElement("a");
+        link.href = "https://basescan.org/tx/" + hash;
+        link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = hash;
+        $("sent").replaceChildren("Broadcast (not yet confirmed): ", link);
+      } catch (e) { log("error:", e.message || e); }
+      finally { $("send").disabled = false; }
     };
 
     $("tx").onclick = async () => {

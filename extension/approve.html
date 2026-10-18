@@ -16,13 +16,22 @@
     #approve { background: #111; color: #fff; }
     #reject { background: #fff; }
     .warn { color: #b00; font-weight: 600; }
+    body { padding-bottom: 82px; }
+    code { word-break: break-all; }
+    #sim { background: #b00020; color: white; padding: 6px; font-weight: bold; }
+    #pin { display: block; width: 90%; padding: 10px; margin: 8px 0; }
+    #error { color: #b00020; white-space: pre-wrap; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <h1>Nuri Card</h1>
+  <div id="sim" hidden>SIM — PUBLIC SOFTWARE KEY. Never fund this address.</div>
   <div class="row"><span class="k">Site:</span> <span class="origin" id="origin"></span></div>
   <div class="kind" id="kind"></div>
   <div id="body"></div>
+  <div id="pinBox" hidden><label for="pin">Card PIN (sent once to the native host)</label><input id="pin" type="password" autocomplete="off" spellcheck="false" minlength="4" maxlength="16"><div id="tries"></div></div>
+  <div id="error" role="alert"></div>
   <div class="actions">
     <button id="reject">Reject</button>
     <button id="approve">Approve with card</button>
