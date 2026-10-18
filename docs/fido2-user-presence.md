@@ -11,6 +11,11 @@ flowchart TD
 
 ## Advertising is not a consent gate
 
+**User presence is assumed (effectively hardcoded true), not physically measured.**
+The patch advertises `up:true`; it does not implement a button, fingerprint or
+fresh-touch check. A card left inserted is available to the host. CTAP2 UP-bit
+encoding still follows the request option as explained below; U2F hardcodes UP=1.
+
 The vendored GetInfo bytes encode `up:false`; patch 0002 changes that byte to `up:true`. GetInfo copies those bytes into its response. The patch changes capability advertising, not a physical-touch check. [third_party/fido2-applet/src/main/java/us/q3q/fido2/CannedCBOR.java:82-94](../third_party/fido2-applet/src/main/java/us/q3q/fido2/CannedCBOR.java#L82-L94), [patches/0002-advertise-user-presence.patch:1-17](../patches/0002-advertise-user-presence.patch#L1-L17), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:5586-5587](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L5586-L5587)
 
 CTAP2 defaults the UP request option to true. MakeCredential and GetAssertion set the UP response bit from that option, rather than measuring a fresh tap; authenticatorSelection returns success directly. Thus “every response always has UP=1” is also too broad: the CTAP2 flag is conditional on the option. [third_party/fido2-applet/src/main/java/us/q3q/fido2/TransientStorage.java:242-261](../third_party/fido2-applet/src/main/java/us/q3q/fido2/TransientStorage.java#L242-L261), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:1146-1152](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L1146-L1152), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:2343-2346](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L2343-L2346), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:4648-4654](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L4648-L4654)

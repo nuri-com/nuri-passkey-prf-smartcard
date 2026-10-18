@@ -16,6 +16,15 @@ flowchart LR
   P --> B
 ```
 
+## Physical-card run 2026-10-18
+
+The operator recorded disk-backend `put`, `run` and `rm` using the card's
+FIDO2 PRF on OMNIKEY 5422 and ACS ACR39U; see the
+[reader run table](reader-compatibility.md#hardware-runs-parent-physical-card).
+This proves that exercised disk-vault workflow, not the W19 on-card vault,
+on-card HMAC, an adversarial-agent sandbox or independent lost-card recovery.
+The on-card backend below remains simulator only until physical acceptance.
+
 ## Disk backend (default)
 
 `scripts/card-secrets.py` stores `~/.nuri-card/vault.json` as an owned regular

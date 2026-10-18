@@ -36,10 +36,11 @@ the complete selected applet set.
 
 ## Prior observations versus new qualification
 
-Historical project notes identified a Feitian FT-JCOS BioCARD with OS date
-2025-05-14 as the demonstration card. This is historical supplier identification,
-**UNVERIFIED** by a fresh acceptance run in this documentation change. Do not
+The operator-read demonstration-card CPLC reports fabricator `4090` (Infineon),
+OS ID `86aa`, OS date `5134` (2025-05-14). Feitian supplier/model attribution is
+likely but **UNVERIFIED**; this is not a chip or product certification. Do not
 infer NXP/JCOP silicon solely from a reseller label or ATR.
+[Physical reader runs](reader-compatibility.md#hardware-runs-parent-physical-card).
 J3H145, J3R180 and J3R200 remain **UNVERIFIED candidates**, not recommended or
 qualified substitutes.
 

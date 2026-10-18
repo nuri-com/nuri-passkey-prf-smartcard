@@ -8,7 +8,7 @@ flowchart LR
 
 ## Source and patch boundary
 
-The preparation script copies `third_party/fido2-applet/` into `.build/fido2-applet/` by default, then applies every `patches/*.patch`; `FIDO2_SOURCE` and `FIDO2_DEST` override those locations. It uses `rsync --delete`, so the destination is a disposable build tree. [scripts/prepare-fido2-baseline.sh:4-18](../scripts/prepare-fido2-baseline.sh#L4-L18)
+The preparation script copies `third_party/fido2-applet/` into `.build/fido2-applet/` by default, then applies every the [patch directory](../patches/); `FIDO2_SOURCE` and `FIDO2_DEST` override those locations. It uses `rsync --delete`, so the destination is a disposable build tree. [scripts/prepare-fido2-baseline.sh:4-18](../scripts/prepare-fido2-baseline.sh#L4-L18)
 
 - Patch 0001 changes the initial `hmacSecretEnabled` value from false to true; an explicit extension value can still override it. [patches/0001-prf-on-by-default.patch:9-12](../patches/0001-prf-on-by-default.patch#L9-L12), [third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java:700](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L700)
 - Patch 0002 changes the advertised `up` option to true, not the assertion logic. See [user presence](fido2-user-presence.md). [patches/0002-advertise-user-presence.patch:1-17](../patches/0002-advertise-user-presence.patch#L1-L17)

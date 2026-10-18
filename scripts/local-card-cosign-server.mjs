@@ -29,7 +29,7 @@ let cachedCardAccountIdentity = null;
 
 const utf8 = (s) => new TextEncoder().encode(s);
 
-// Exact port of nuri-expo lib/walletDerivation.ts + lib/bitcoin/bip86.ts:
+// Exact port of companion wallet lib/walletDerivation.ts + lib/bitcoin/bip86.ts:
 // browser passkey PRF -> HKDF entropy -> BIP86 m/86'/0'/0'/0/0 client key.
 // Same salt/info/path as the PWA, so a passkey derives the PWA-identical wallet.
 function deriveClientKeyFromPrf(prfBytes) {
@@ -456,7 +456,7 @@ async function handlePasskeySign(req, res) {
   );
   json(res, 200, {
     status: sigValid ? 'NURI_LOCALHOST_PASSKEY_WALLET_OK' : 'SIGNATURE_INVALID',
-    derivation: "browser passkey PRF -> HKDF(app:nuri.com|wallet|v1) -> BIP86 m/86'/0'/0'/0/0 (identical to nuri-expo PWA)",
+    derivation: "browser passkey PRF -> HKDF(app:nuri.com|wallet|v1) -> BIP86 m/86'/0'/0'/0/0 (identical to companion wallet PWA)",
     cosigner: 'physical card MuSig2 applet — musig2(client, card) key-path + client CSV recovery leaf',
     client_pk33: bytesToHex(clientPk33),
     card_pk33: r.card_pk33,

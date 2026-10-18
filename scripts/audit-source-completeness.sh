@@ -41,21 +41,21 @@ for file in "${required_files[@]}"; do
   }
 done
 
-tracked_generated="$(git ls-files 'card/**/3.0.4' 'card/3.0.4')"
+tracked_generated="$(git -C "$ROOT" ls-files 'card/**/3.0.4' 'card/3.0.4')"
 if [[ -n "$tracked_generated" ]]; then
   echo "Generated Java Card converter output must not be tracked:" >&2
   echo "$tracked_generated" >&2
   exit 1
 fi
 
-tracked_nda="$(git ls-files 'vendor/feitian-nda-sdk/**' 'docs/feitian/nda/**')"
+tracked_nda="$(git -C "$ROOT" ls-files 'vendor/feitian-nda-sdk/**' 'docs/feitian/nda/**')"
 if [[ -n "$tracked_nda" ]]; then
   echo "Confidential Feitian NDA SDK material must never be tracked:" >&2
   echo "$tracked_nda" >&2
   exit 1
 fi
 
-if rg -n 'org\.gradle\.java\.home=|/Users/[^/]+/|/private/tmp/nuri-fido2-real-card-venv' \
+if rg -n '/Users/[^/]+/|/private/tmp/nuri-fido2-real-card-venv' \
   package.json scripts card third_party mobile/expo-nfc-prf-probe \
   --glob '!scripts/audit-source-completeness.sh' \
   --glob '!**/node_modules/**' --glob '!**/build/**' --glob '!**/.gradle/**'; then

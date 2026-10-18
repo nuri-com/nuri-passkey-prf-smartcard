@@ -28,7 +28,7 @@ This command selects local simulated/software signers and exercises both signing
 ## Integration limits
 
 - A FIDO2 credential and the MuSig2 public key are separate inputs. The wallet obtains its client seed through a PRF profile and obtains the independent card public key through its signing helper; one successful FIDO2 operation is not evidence of a remote account mapping. [scripts/nuri-card-wallet.mjs:109-127](../scripts/nuri-card-wallet.mjs#L109-L127), [scripts/read-musig2-card-key.py:15-27](../scripts/read-musig2-card-key.py#L15-L27)
-- MuSig2 FINALIZE has no FIDO2 PIN/UV check and no fresh tap gate. Approval policies outside the applet must be verified separately. [card/musig2/NuriMuSig2v019.java:178-203](../card/musig2/NuriMuSig2v019.java#L178-L203), [card/musig2/NuriMuSig2v019.java:369-415](../card/musig2/NuriMuSig2v019.java#L369-L415)
+- Current MuSig2 requires its own PIN and session token, not FIDO2 PIN/UV or fresh touch. Earlier demo applets lack the PIN gate; see [current protocol](musig2-pin-and-hardening.md). Host approval policies remain separate. [card/musig2/NuriMuSig2v019.java:178-203](../card/musig2/NuriMuSig2v019.java), [card/musig2/NuriMuSig2v019.java:369-415](../card/musig2/NuriMuSig2v019.java)
 - **UNVERIFIED:** live Arkade/ASP policy, Boltz swap completion, merchant settlement, deployed identity mapping and current phone/browser compatibility. A local signature or indexed broadcast is not fresh end-to-end Lightning-payment evidence.
 
 See [signing architecture](signing-architecture.md) for key locations and [historical signer evidence](proofs/arkade-card-signer-proof.md) for bounded records. Do not promote historical Signet spends into a live Lightning-settlement claim.

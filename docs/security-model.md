@@ -2,55 +2,59 @@
 
 ```mermaid
 flowchart LR
-  F[Card FIDO2 credential] -->|PRF output| H[Host-visible secret]
-  H --> K[Host client signing key]
-  M[Card MuSig2 signer] -->|Partial signature| A[Host aggregation]
-  K --> A
-  E[ETH applet] -->|Signature| V[Host verification]
+  F[FIDO2 credential] -->|PRF| H[Host-visible client secret]
+  H --> A[Host aggregation and transaction review]
+  M[PIN-gated MuSig2 partial signer] --> A
+  E[ETH2 PIN-gated digest signer] --> A
+  V[Vault] -->|bearer reveal after PIN| H
 ```
 
-## Trust boundaries
+## Release boundary
 
-This model describes software interfaces, not certified physical resistance.
-The PRF wallet derives a private client key in host memory and combines it with
-a MuSig2 card partial. It is incorrect to say that no private spend key reaches
-the host, or that a same-card arrangement is two independent devices.
-Sources: [scripts/nuri-card-wallet.mjs:109–127](../scripts/nuri-card-wallet.mjs#L109-L127),
-[scripts/nuri-card-wallet.mjs:173–185](../scripts/nuri-card-wallet.mjs#L173-L185),
-[scripts/card-arkade-identity.mjs:55–72](../scripts/card-arkade-identity.mjs#L55-L72).
+Research-grade, not externally audited and not a certified hardware wallet.
+Blind signing and no screen: the card does not show or independently approve
+recipient, amount, chain or host-built transaction context. See
+[SECURITY.md](../SECURITY.md), [advisories](security-advisories.md) and the
+[feature evidence table](../README.md#feature-status).
 
-MuSig2 consumes its nonce state during signing; this does not authorize the user
-or decode the transaction. The host supplies coefficients and challenge.
-Source: [card/musig2/NuriMuSig2v019.java:369–415](../card/musig2/NuriMuSig2v019.java#L369-L415).
-See [nonce lifetime](musig2-nonce-lifetime-fix.md).
+## Authorization is applet-specific
 
-## Authorization is not shared between applets
+| Interface | Actual boundary |
+|---|---|
+| FIDO2 | UP is assumed true, not physical touch. CTAP2 response UP follows request options; selection succeeds directly. PIN/UV depends on credential/options and applet policy. |
+| SSH bridge | FIDO2 `ecdsa-sk`; no PIN authentication implemented by this bridge. A connected card is not fresh consent. |
+| Current MuSig2 | Mandatory PIN by default; session token binds nonce/finalize operations. Explicit public-demo install policy exists. New revision is simulator only. |
+| ETH v1 demo | No PIN/UP authorization; any process with reader access can request signing. |
+| ETH v2 | Mandatory PIN by default; explicit install-time demo exception. Validation clears on reselection/deselect/reset, not per signature. Simulator only. |
+| Vault applet | Own five-try PIN; HMAC keys have no reveal command, bearer keys deliberately reach broker RAM. Simulator only. |
+| TOTP | Admin PIN protects replacement, not CALC. Reader access permits code calculation. |
+| GP lock | Reversible management-key rotation with encrypted escrow; not signing authorization or lifecycle CARD_LOCKED. Simulator only. |
 
-| Interface | Actual boundary | Source |
-|---|---|---|
-| FIDO2 | Client-PIN/UV is specific to FIDO2; UP signaling is not fresh physical consent | [FIDO2Applet.java:2343–2346](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L2343-L2346), [4648–4654](../third_party/fido2-applet/src/main/java/us/q3q/fido2/FIDO2Applet.java#L4648-L4654) |
-| MuSig2 | No PIN/fresh-UP gate in the APDU dispatch/signing path | [NuriMuSig2v019.java:178–203](../card/musig2/NuriMuSig2v019.java#L178-L203), [369–415](../card/musig2/NuriMuSig2v019.java#L369-L415) |
-| ETH v1 | Initialized key and exact hash length, not PIN approval | [NuriEcdsaSigner.java:204–218](../card/eth/NuriEcdsaSigner.java#L204-L218) |
-| ETH v2 | Optional PIN after configuration; validation resets on deselect | [NuriEthSignerV2.java:188–218](../card/eth2/NuriEthSignerV2.java#L188-L218), [322–343](../card/eth2/NuriEthSignerV2.java#L322-L343) |
-| TOTP | Admin PIN protects replacement, not code calculation | [NuriOathTotp.java:142–157](../card/totp/NuriOathTotp.java#L142-L157), [171–209](../card/totp/NuriOathTotp.java#L171-L209) |
+Sources: [FIDO2 UP](fido2-user-presence.md), [SSH](ssh-smartcard.md),
+[MuSig2 policy](musig2-pin-and-hardening.md), [ETH2](eth-applet-v2.md),
+[vault](card-vault-applet.md), [TOTP](totp-applet.md), [GP lock](card-lock.md).
+The [native host](../host/nuri_card_host.py) supports same-connection PIN+hash
+signing; browser approval remains host-side, not a trusted card display.
 
-Remove the card when it should not be usable. A host-side popup does not prevent
-a local attacker from calling a card interface. The extension's native host has
-no PIN-unlock operation: [host/nuri_card_host.py:325–349](../host/nuri_card_host.py#L325-L349).
+## Host and recovery assumptions
 
-## What is not established
+PRF-derived client keys exist in host memory. A same-card PRF + MuSig2 wallet is
+not independent two-device custody. Sources:
+[wallet derivation](../scripts/nuri-card-wallet.mjs) and
+[PRF identity adapter](../scripts/card-arkade-identity.mjs).
 
-- **UNVERIFIED:** independent audit, constant-time software bignum, tamper resistance,
-  product-level EAL/FIPS/FIDO certification and biometric gating.
-- No on-card recipient/amount display or transaction-intent verification is shown
-  by hash/partial-signature interfaces. Blind signing remains.
-- A retained historical transaction does not qualify a fresh source/CAP revision.
-- PRF output and caller-supplied seeds are secrets even when card credential
-  private keys are not exported.
-- A recovery path is not universal loss protection. The standalone wallet's
-  client recovery key is itself derived from or supplied to the host; inspect
-  [scripts/nuri-card-wallet.mjs:109–127](../scripts/nuri-card-wallet.mjs#L109-L127)
-  before relying on it after losing the card.
+**Losing the card can mean losing funds or access.** The standalone CSV recovery
+leaf requires its private client key and retained transaction metadata; a countdown
+does not recover that key from a lost FIDO2 credential. Independent lost-card
+recovery is planned, not proven. Keep independently enrolled SSH credentials and
+test any wallet-specific recovery arrangement before reliance. GP escrow backs up
+management keys only, never wallet or FIDO2 keys.
 
-See [signing architecture](signing-architecture.md), [secret handling](hsm.md),
-[helper security](helper-servers-security.md) and [applet key operations](real-card-key-handling.md).
+Reader/host compromise can capture plaintext custom-applet PIN APDUs and
+host-visible secrets. No secure messaging, biometric authorization, independent
+physical side-channel qualification or general memory-zeroization guarantee is
+established. Remove cards when not in use; restrict local processes and agent
+brokers. Pairing and PINs do not protect an already compromised host.
+
+See [signing architecture](signing-architecture.md), [vault boundaries](card-secrets.md),
+[helper security](helper-servers-security.md) and [key lifecycle](real-card-key-handling.md).

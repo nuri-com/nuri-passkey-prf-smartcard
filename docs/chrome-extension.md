@@ -93,8 +93,8 @@ broadcast cannot be undone ([extension/background.js](../extension/background.js
 
 Approval is browser-side consent, **not** an on-card transaction display, physical
 touch check, secure channel or protection against a compromised host. ETH1 has no
-PIN; a PIN-less ETH2 applet is still open if provisioned that way. Mandatory-PIN
-provisioning and the other W13 launch gates remain separate work.
+PIN. ETH2 is mandatory-PIN by default in current source; explicit public-demo
+installation is the exception. Physical-card acceptance of the new flow remains open.
 
 ## Simulator is explicit (W13 R8)
 
@@ -102,7 +102,7 @@ Only exact `NURI_CARD_SIM=1` authorizes the public deterministic software signer
 `--sim` alone does not. Signing additionally requires a successful `info` reporting
 `mode=sim` on the same process. Unknown modes/configurations and missing cards
 fail closed; there is no automatic simulator fallback. A normal installer launcher
-explicitly unsets `NURI_CARD_SIM`; only `host/install-macos.sh --sim` exports it.
+explicitly unsets `NURI_CARD_SIM`; only `host/install-macos.sh` with `--sim` exports it.
 Sim mode is marked by a red **SIM** toolbar badge plus red warnings in connection,
 signing and toolbar popups. **Never fund the sim address**: its private key is
 public ([host/nuri_card_host.py](../host/nuri_card_host.py#L399-L438),
@@ -112,15 +112,15 @@ public ([host/nuri_card_host.py](../host/nuri_card_host.py#L399-L438),
 ## Parent-only reload and stage demo (real reader/card)
 
 These actions were **not executed by W21**. Use the integrated checkout path
-instead of the worktree below if it has been merged; the launcher embeds that
+from the repository root. The launcher embeds the checkout
 path, so do not delete/move it afterward.
 
 ```sh
-ROOT=/Users/eminmahrt/Developer/nuri-card-wt/w21-extension-pin
+ROOT="$PWD"
 # NO --sim. Installs the physical host and performs an info-only reader smoke check.
-bash "$ROOT/host/install-macos.sh" --python /opt/homebrew/bin/python3.13
+bash "$ROOT/host/install-macos.sh" --python "${PYTHON_BIN:-python3}"
 # Keep this terminal running; serves the dApp, not a signing HTTP backend.
-/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python -m http.server 8787 --bind 127.0.0.1 --directory "$ROOT/extension"
+"${PYTHON_BIN:-python3}" -m http.server 8787 --bind 127.0.0.1 --directory "$ROOT/extension"
 ```
 
 1. In Chrome open `chrome://extensions`, enable Developer mode, **Load unpacked**
@@ -150,8 +150,8 @@ bash "$ROOT/host/install-macos.sh" --python /opt/homebrew/bin/python3.13
 ## Fake-only checks
 
 ```sh
-ROOT=/Users/eminmahrt/Developer/nuri-card-wt/w21-extension-pin
-PY=/Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python
+ROOT="$PWD"
+PY="${PYTHON_BIN:-python3}"
 # Run from ROOT; no real reader/card/RPC is touched.
 NURI_HOST_PYTHON="$PY" node --test "$ROOT/extension/test"
 "$PY" "$ROOT/host/test_host.py"

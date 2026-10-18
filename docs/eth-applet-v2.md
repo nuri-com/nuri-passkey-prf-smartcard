@@ -58,7 +58,7 @@ CLA is exactly `80` (basic channel). Other CLAs return `6E00`. P1/P2 must be `00
 | `73` SEAL_ATTESTATION | Empty; requires a stored certificate; irreversible |
 | `74` GET_KEY_BINDING | Empty → stored NHWV1 DER signature; requires a committed signing key |
 
-Signing and PIN handlers are in [`NuriEthSignerV2.java`](../card/eth2/NuriEthSignerV2.java); attestation operations use the parent-generated [`NuriAttestation.java`](../card/eth2/NuriAttestation.java), from the shared [helper contract](../test/attestation-contract.txt).
+Signing and PIN handlers are in [`NuriEthSignerV2.java`](../card/eth2/NuriEthSignerV2.java); attestation operations use the parent-generated [`NuriAttestation.java`](../card/eth2/NuriAttestation.java), from the shared [helper source](../card/attestation/NuriAttestation.java.in).
 
 ## Attestation wire format and trust boundary
 

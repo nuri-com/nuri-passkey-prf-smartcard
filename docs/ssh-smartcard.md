@@ -46,4 +46,4 @@ ssh nuri-card-host
 | Backup access | Enroll a separate credential on a second card with a different output filename; authorize and test it independently. This is a recovery procedure, not a cloning claim. Enrollment outputs: [scripts/ssh-pcsc-sk-helper.py:83-100](../scripts/ssh-pcsc-sk-helper.py#L83-L100). Recovery on your server: **UNVERIFIED**. |
 | Resident-key recovery | Do not rely on provider discovery: `sk_load_resident_keys` returns an empty list. Preserve the enrollment files. [scripts/ssh-pcsc-sk-provider.c:323-329](../scripts/ssh-pcsc-sk-provider.c#L323-L329) |
 
-Hardware login, reader qualification and physical extraction resistance are **UNVERIFIED** by this source-based guide; no private-server transcript is used as launch evidence.
+Physical SSH login is recorded for the three [tested readers](reader-compatibility.md#hardware-runs-parent-physical-card). Your server, other batches and physical extraction resistance remain **UNVERIFIED**. No private hostname or server transcript is needed to reproduce your own test.

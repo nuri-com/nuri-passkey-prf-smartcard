@@ -1,103 +1,52 @@
-# Card V1 flash artifacts
-
-This directory contains the normalized, reproducible CAP set for Nuri Card V1.
-Run `npm run card:release:verify` to rebuild every applet from source, verify the
-Java Card converters, compare every internal CAP component with these artifacts,
-and check `SHA256SUMS`.
-
-ZIP timestamps and the generated CAP creation-time manifest field are normalized.
-This makes the outer CAP hashes deterministic without changing any loadable Java
-Card component.
-
-| Artifact | Source | Applet AID | Runtime version | License | SHA-256 |
-| --- | --- | --- | --- | --- | --- |
-| `FIDO2.cap` | `third_party/fido2-applet/` + patch 0001 | `A0000006472F0001` | package 0.4, `up:false` | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
-| `FIDO2-up.cap` | same + patches 0001 and 0002 | `A0000006472F0001` | package 0.4, `up:true` | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
-| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.14 / `PIN2`, package 2.1 — mandatory PIN by default, session token, blinded double computation, one-shot atomic KEYGEN | See source/licence map; independent Scalar256 arithmetic | `98d8d8e2d19532d5779ce041f7302f46be45d3538f692066340e2e458f27e811` |
-| `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | package 1.0 | MIT | `6f33f7c4aedea49238d3ac33867999b787972d8cc0c4f4948ad302c5e9ab1af2` |
-| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / `SIGN` — debug INS removed, one-shot KEYGEN | GPL-2.0-or-later combined work | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
-| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` (package `4E55524945544832`) | 2.0 / `ETH2` — native `ALG_ECDSA_SHA_256` + `signPreComputedHash`, no bignum, optional PIN, installs beside v1 | MIT | `f7c122328405d035050c5d3609483b572c4f7ebb03345a4d3e57b54cd268f3c5` |
-
-## Exact build inputs
-
-The additional `nuri-vault.cap` is MIT clean-room Nuri source in `card/vault/`,
-package AID `4E555249564C54`, applet AID `4E555249564C5401`, package 1.0.
-Its SHA-256 is `cab8adc6ad2b9500042a49625d278d20287a89491009856de5d27a923cf37d7f`.
-It is built/verified by the full release scripts and independently by
-`scripts/build-vault-cap.sh`. It installs **alongside**, not instead of FIDO2,
-through the install-only `scripts/install-vault-card.sh`. It requires its own PIN
-for every secret operation; HMAC slots have no export API and bearer slots do.
-See [the custody boundary and protocol](../docs/card-vault-applet.md).
-
-- FIDO2 Nuri fork base: `4f318197cc08f316ce784a89bdf29dc73cca7fcf`
-  (parent: upstream FIDO2Applet v2.0.5 `0194107d9648577379058b59843504924b546514`)
-- Java Card SDK checkout: `e2df471e04d86f33de69a947f44766fbef1d9d69`
-- FIDO2 converter: Java Card 3.0.5 (`jc305u3_kit`)
-- Nuri applet converter: Java Card 3.0.4 (`jc304_kit`)
-- Java: Azul Zulu OpenJDK `1.8.0_452`
-- Custom-applet build tool: `tools/ant-javacard-proven.jar`, SHA-256
-  `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`
-
-The FIDO2 source snapshot is vendored with the packaging exclusions recorded in
-`third_party/fido2-applet/UPSTREAM.md`. The Gradle wrapper is not redistributed;
-install Gradle 8.2 (supported range: 8.2 through 8.x) separately (`gradle --version`), or set `GRADLE_BIN`
-to its absolute executable path. The original wrapper used Gradle 8.2; the build
-records the installed version in `BUILD-PROVENANCE.txt`. Reproducibility with a
-different Gradle version must be checked, not assumed. The Oracle Java Card SDK
-checkout is fetched at its exact public commit and retains its separate licence.
-See `../THIRD_PARTY_NOTICES.md` for the source and combined-CAP licence map.
-
-CI installs external Gradle 8.2 and both JDKs. JDK 17 launches Gradle;
-`-Dorg.gradle.java.home="$JAVA8_HOME"` runs the CAP build daemon on the pinned
-JDK 8 because the upstream Java Card plugin compiles/converts in-process with
-Java 1.6 source/target settings. The standalone Ant builds also use JDK 8.
-Simulator builds use JDK 17 throughout. Gradle 9 removed `ClosureBackedAction`,
-which plugin 1.8.0 requires, and is rejected before downloads or build setup.
-
-On macOS the release builder discovers installed JDK 17 and Zulu JDK 8. To
-select explicit installations (also usable on Linux):
-
-```bash
-export JAVA17_HOME=/path/to/jdk-17
-export JAVA8_HOME=/path/to/zulu-8.0.452
-export GRADLE_BIN=/path/to/gradle-8.2/bin/gradle
-npm run card:release:verify
-```
+# Release artifacts
 
 ```mermaid
 flowchart LR
-  S[Vendored applet source] --> B[External Gradle and Java Card SDK]
-  B --> C[Normalized CAP artifacts]
-  C --> V[Component and checksum verification]
+  S[Source and pinned tools] --> B[Build and normalize CAPs]
+  B --> C[Component and checksum verification]
+  C --> H[Separate physical-card acceptance]
 ```
 
-## Which FIDO2 artifact to install
+Current checksum inventory from [SHA256SUMS](SHA256SUMS); filenames and successful
+hashes do not prove the installed card revision or certification. New PIN,
+attestation and vault CAPs are simulator only. [Feature status](../README.md#feature-status).
 
-`FIDO2-up.cap` is the Card V1 production candidate. It enables `hmac-secret`
-for created credentials and advertises physical card presence as `up:true`.
-`FIDO2.cap` is retained only to reproduce the earlier `up:false` card state.
+| Artifact | Source | Applet AID | Version / scope | Licence | SHA-256 |
+|---|---|---|---|---|---|
+| `FIDO2.cap` | `third_party/fido2-applet/ + patch 0001` | `A0000006472F0001` | 0.4, advertises up:false | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
+| `FIDO2-up.cap` | `third_party/fido2-applet/ + patches 0001/0002` | `A0000006472F0001` | 0.4, advertises up:true; no physical touch check | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.14, package 2.2; PIN/token/attestation | MIT | `eee7a911723c7fcd0541a791362b29375333e66075bb207136587ef6a32a3b53` |
+| `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
+| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / SIGN; demo, no PIN | GPL-2.0-or-later combined | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
+| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation | MIT | `158088eec670eab578fc81d4621087c3752e4001f7afcf288e8ff48b01f9261e` |
+| `nuri-vault.cap` | `card/vault/` | `4E555249564C5401` | package 1.1; PIN slots and attestation | MIT | `70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33` |
+| `pkcs11-nuri.so` | `scripts/pkcs11-nuri.c` | `not an applet` | macOS native module; rebuild for your platform | MIT source | `9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165` |
 
-## Build and verify
+The machine-specific prebuilt SSH provider is omitted. Build it on your own host
+using [SSH setup](../docs/ssh-smartcard.md); locally generated absolute paths must
+not be redistributed. The PKCS#11 module is a separate native artifact, not a CAP;
+its source/platform correspondence is checked separately.
 
-```bash
-npm ci
+## Build inputs and reproduction
+
+- FIDO2 fork `4f318197cc08f316ce784a89bdf29dc73cca7fcf`, upstream v2.0.5
+  `0194107d9648577379058b59843504924b546514`; packaging deviations in
+  [upstream provenance](../third_party/fido2-applet/UPSTREAM.md).
+- Java Card SDK checkout `e2df471e04d86f33de69a947f44766fbef1d9d69`;
+  FIDO2 converter 3.0.5, custom applets 3.0.4. SDK is external, not MIT-relicensed.
+- Azul Zulu OpenJDK `1.8.0_452` for CAP compilation; JDK17 launches Gradle/simulators.
+- External Gradle 8.2 through 8.x; no vendored wrapper. Other versions require
+  separate reproducibility checks; Gradle 9 is rejected by the current build gate.
+- [Pinned ant-javacard](../tools/README.md), SHA-256
+  `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`.
+
+```sh
 npm run card:release:verify
 ```
 
-Successful verification ends with `CARD_V1_RELEASE_VERIFIED`.
-
-## Install all four applets on a blank development card
-
-```bash
-CARD_PROVISION_CONFIRM=YES \
-GP_READER_INDEX=2 \
-GP_KEY="seller-supplied-transport-key" \
-scripts/provision-card-v1.sh
-```
-
-Never publish the transport key, PIN, credential profile, TOTP secret, or any
-card-generated private key. Provisioning a second card creates a new identity;
-it does not clone the original card.
-
-See `docs/card-v1-release.md` and `docs/card-v1-acceptance.md` for the complete
-rebuild, provisioning, testing, and handoff procedures.
+Require `CARD_V1_RELEASE_VERIFIED`, preserve build provenance and run
+[physical acceptance](../docs/acceptance.md) separately. The legacy bundle
+installer still installs ETH1, not ETH2/vault: it is a blank-card demo installer,
+not consumer provisioning. Follow [blank-spare personalization](../docs/attestation.md#blank-card-personalization)
+for the new applets; do not overwrite an existing wallet or sole SSH key.
+[Notices](../THIRD_PARTY_NOTICES.md) govern licence distribution, including old GPL binaries.

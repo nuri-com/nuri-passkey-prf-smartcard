@@ -14,7 +14,7 @@ config.resolver.sourceExts = [...config.resolver.sourceExts, 'ts', 'tsx'];
 // Watch the DS repo directory so Metro can follow symlinks
 config.watchFolders = [
   __dirname,
-  path.resolve(__dirname, '../../.build/nuri-design-system'),
+  path.resolve(__dirname, '../../.build/ui-dependency'),
 ];
 
 // Resolve all node_modules from this project first

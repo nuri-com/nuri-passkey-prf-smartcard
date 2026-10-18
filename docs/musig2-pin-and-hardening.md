@@ -212,13 +212,15 @@ applets; compatibility is not owner authorization.
 
 ```sh
 npm run card:musig2:test:sim
-/opt/homebrew/bin/python3.13 scripts/test-musig2-hardening-negative.py
-PYTHONDONTWRITEBYTECODE=1 /Users/eminmahrt/Developer/nuri-card-wt/_launch/venv/bin/python \
+"${PYTHON_BIN:-python3}" scripts/test-musig2-hardening-negative.py
+PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN:-python3}" \
   -m unittest discover -s test -p test_musig2_host_pin.py -v
 npm test
 ```
 
-Three consecutive complete runs on macOS, Zulu JDK 17, pinned jCardSim 3.0.5.11:
+Frozen W20 results (before later attestation changes), not current release hashes
+or physical-card acceptance: three consecutive runs on macOS, Zulu JDK 17, pinned
+jCardSim 3.0.5.11:
 
 ```text
 SCALAR256_OK assertions=15376024 ... bip327=6 ...
@@ -245,7 +247,9 @@ Card 3.0.4 verifier's handler-order check. Moving cleanup into a separate helper
 fixed it; the final CAP converted and verified successfully. Package 2.1 produces
 the expected missing-previous-minor-export converter warning (0 errors, 1 warning);
 verifier: **0 warnings, 0 errors**. Two independent builds normalized byte-identically.
-Only the applet and Scalar256 classes are present, and integer support is FALSE.
+That pre-attestation CAP contained only the applet and Scalar256 classes, with
+integer support FALSE. Current CAPs also include the attestation helper; use
+[release verification](release.md) and the current manifest for release hashes.
 
 ```text
 CAP SHA256 98d8d8e2d19532d5779ce041f7302f46be45d3538f692066340e2e458f27e811

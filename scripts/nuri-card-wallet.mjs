@@ -105,7 +105,7 @@ export async function provisionAddress(networkName, opts = {}) {
   if (!net) throw new Error(`unknown network: ${networkName}`);
   const existing = await loadProfile(networkName);
   // Client key source: either a caller-supplied seed (browser passkey PRF, already
-  // HKDF+BIP86-derived the nuri-expo way) or the card's own FIDO2 PRF over PC/SC.
+  // HKDF+BIP86-derived the companion wallet way) or the card's own FIDO2 PRF over PC/SC.
   const prfProfile = opts.prfProfile || existing?.client_prf_profile || DEFAULT_PRF_PROFILE;
   const prfSalt = opts.prfSalt || existing?.client_prf_salt || DEFAULT_PRF_SALT;
   const seedHex = opts.clientSeedHex || await derivePrfSeed(prfProfile, prfSalt);

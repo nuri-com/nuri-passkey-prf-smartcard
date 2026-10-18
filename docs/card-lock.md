@@ -90,7 +90,7 @@ diversification, or another target. `GP_BIN` itself is a trusted executable path
 
 ## Owner procedure — never the demo/SSH card
 
-1. Remove Emin’s demo/SSH card and use a disposable or customer-qualified card.
+1. Remove any existing wallet or sole SSH-key card and use a disposable or customer-qualified card.
    The owner must create `~/.nuri-card` with mode **0700** and
    `~/.nuri-card/no-lock-cplc.txt` with mode **0600**. The deny-list is mandatory,
    cannot be overridden from the CLI, and accepts one exact eight-hex-digit CPLC

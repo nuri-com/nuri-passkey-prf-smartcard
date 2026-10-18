@@ -1,5 +1,12 @@
 # Exact ant-javacard source
 
+```mermaid
+flowchart LR
+  U[Pinned upstream MIT source] --> S[Retained Java implementation]
+  S --> J[Hash-pinned build tool JAR]
+  P[Packaging omissions] -. no executable-source changes .-> S
+```
+
 This is the complete MIT-licensed source snapshot for the checked-in
 `tools/ant-javacard-proven.jar`.
 
@@ -15,4 +22,6 @@ not duplicated here; the Card V1 builder checks out that separate SDK at its
 own exact documented commit.
 
 One historical developer-home path in the upstream README example is normalized
-to `/path/to/`; executable source is unchanged.
+to `/path/to/`; unused upstream Travis notification/deploy configuration is
+omitted and optional POM developer email metadata is removed for public packaging.
+Copyright and MIT licence notices are retained; executable source is unchanged.
