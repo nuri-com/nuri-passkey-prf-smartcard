@@ -57,10 +57,12 @@ mkdir -p "$BUILD/classes"
 "$JAVAC" -nowarn -d "$BUILD/classes" -cp "$JCARDSIM_JAR" \
   "$ROOT"/card/eth2/*.java \
   "$ROOT"/card/eth/*.java \
-  "$ROOT"/test/eth2/Eth2SimTest.java
+  "$ROOT"/test/eth2/Eth2SimTest.java \
+  "$ROOT"/test/eth2/OwnerPinTearCapabilityTest.java
 
 # --- run ------------------------------------------------------------------------
 "$JAVA" -cp "$BUILD/classes:$JCARDSIM_JAR" com.nuri.eth2.test.Eth2SimTest "$BUILD/sigs.json" "$SIGN_COUNT" with-v1
+"$JAVA" -cp "$BUILD/classes:$JCARDSIM_JAR" com.nuri.eth2.test.OwnerPinTearCapabilityTest
 "$VENV/bin/python" "$ROOT/test/eth2/verify_eth2_sigs.py" "$BUILD/sigs.json" "$SIGN_COUNT"
 "$VENV/bin/python" -m unittest discover -s "$ROOT/host" -p 'test_host.py' -v 2>&1 | tail -4
 
