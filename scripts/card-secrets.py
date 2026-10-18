@@ -98,7 +98,15 @@ def card_session():
     try:
         yield applet
     finally:
-        applet.close()
+        try:
+            if getattr(applet, "_vault_verify_attempted", False):
+                # A PC/SC disconnect is not itself applet logout. Re-select our
+                # exact AID to reset OwnerPIN before releasing the connection.
+                _, sw = applet.transmit(nuri_pcsc.select_apdu(VAULT_AID))
+                if sw != SW_OK:
+                    raise CardVaultError("could not confirm vault logout; remove the card before further use")
+        finally:
+            applet.close()
 
 
 def card_status(applet):
@@ -129,7 +137,9 @@ def card_authenticate(applet):
         raise CardVaultError("card vault is not initialized; the owner runs: card-secrets.py --backend card init")
     if status["tries"] == 0:
         raise CardVaultError(SW_TEXT[0x6983])
-    _, sw = applet.transmit(card_apdu(INS_VERIFY, data=read_pin("Card vault PIN: ")))
+    pin = read_pin("Card vault PIN: ")
+    applet._vault_verify_attempted = True  # also logout if a VERIFY response is lost
+    _, sw = applet.transmit(card_apdu(INS_VERIFY, data=pin))
     if sw == SW_OK:
         return
     if sw & 0xFFF0 == 0x63C0:

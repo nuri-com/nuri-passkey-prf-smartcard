@@ -77,6 +77,8 @@ class VaultBridgeTest(unittest.TestCase):
         key = bytes(range(64))
         self.assertEqual(self.cli('put', 'SIGN', '--kind', 'hmac', value=key)[0], 0)
         self.assertEqual(self.cli('put', 'TOKEN', value=b'bridge-bearer-sentinel')[0], 0)
+        # No reset/disconnect in the bridge: the host must explicitly log out.
+        self.assertEqual(self.tx(cs.card_apdu(cs.INS_REVEAL, data=b'\x05TOKEN', response=True))[1], 0x6982)
         code, out, err = self.cli('list')
         self.assertEqual(code, 0, err)
         self.assertEqual({x['name']: x['kind'] for x in json.loads(out)}, {'SIGN': 'hmac', 'TOKEN': 'bearer'})

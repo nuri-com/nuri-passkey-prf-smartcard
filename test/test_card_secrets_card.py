@@ -75,6 +75,9 @@ class FakeConnection:
 
     def _handle(self, apdu):
         c = self.card
+        if apdu == bytes.fromhex("00A40400084E555249564C5401"):
+            self.verified = False
+            return b"", 0x9000
         if len(apdu) < 4:
             return b"", 0x6700
         cla, ins, p1, p2 = apdu[:4]
@@ -214,6 +217,7 @@ class CardBackendTest(unittest.TestCase):
     def assert_every_connection_closed(self):
         self.assertTrue(self.card.connections)
         self.assertTrue(all(conn.closed for conn in self.card.connections))
+        self.assertTrue(all(not conn.verified for conn in self.card.connections))
 
     # --- contract / init -------------------------------------------------
     def test_init_sets_pin_explicitly_and_does_not_authenticate(self):
@@ -257,6 +261,7 @@ class CardBackendTest(unittest.TestCase):
             bytes([0x80, 0x30, 0, 0, 2 + 3 + len(BEARER), 2, 3]) + b"API" + BEARER,
             bytes.fromhex("8031000000"),
             bytes.fromhex("8031010000"),
+            bytes.fromhex("00A40400084E555249564C5401"),
         ])
         code, _, err = self.put("SIGNER", HMAC_KEY, kind="hmac")
         self.assertEqual(code, 0, err)
@@ -268,7 +273,7 @@ class CardBackendTest(unittest.TestCase):
         code, _, err = self.card_cli("rm", "API", pins=(PIN,))
         self.assertEqual(code, 0, err)
         self.assertEqual(self.card.log[2], bytes.fromhex("8050000004") + b"\x03API")
-        self.assertEqual(self.card.log[3:], [bytes.fromhex("8031000000"), bytes.fromhex("8031010000")])
+        self.assertEqual(self.card.log[3:], [bytes.fromhex("8031000000"), bytes.fromhex("8031010000"), bytes.fromhex("00A40400084E555249564C5401")])
         self.assertEqual(list(self.card.entries), [b"SIGNER"])
         self.assertFalse(self.vault_file.exists())
         self.assert_every_connection_closed()
@@ -340,7 +345,7 @@ class CardBackendTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("4 tries left", err)
         self.assertIn("not retried", err)
-        self.assertEqual(self.card.ins_seen(), [0x01, 0x20])
+        self.assertEqual(self.card.ins_seen(), [0x01, 0x20, 0xA4])
         self.assertEqual(self.prompts, 1)
         self.assertNotIn(BEARER.decode(), out + err)
         self.card.tries = 0
@@ -450,6 +455,24 @@ class CardBackendTest(unittest.TestCase):
         code, _, err = self.card_cli("proxy", "API", "--upstream", "http://example.invalid/v1")
         self.assertEqual(code, 1)
         self.assertEqual(self.open_applet.call_count, opened)
+
+    def test_logout_failure_prevents_child_and_still_closes(self):
+        self.init()
+        self.put("API", BEARER)
+        original = FakeConnection._handle
+
+        def fail_logout(conn, apdu):
+            if apdu[1] == 0xA4:
+                return b"", 0x6F00
+            return original(conn, apdu)
+
+        with patch.object(FakeConnection, "_handle", fail_logout), patch.object(cs.subprocess, "run") as child:
+            code, out, err = self.card_cli("run", "API", "--", "not-executed", pins=(PIN,))
+        self.assertEqual(code, 1)
+        self.assertIn("could not confirm vault logout", err)
+        self.assertNotIn(BEARER.decode(), out + err)
+        child.assert_not_called()
+        self.assertTrue(all(conn.closed for conn in self.card.connections))
 
     def test_reader_errors_are_reported_without_traceback(self):
         self.open_applet.side_effect = nuri_pcsc.CardError("NO_APPLET", "SELECT failed")

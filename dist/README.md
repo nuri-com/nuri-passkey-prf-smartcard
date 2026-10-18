@@ -20,6 +20,15 @@ Card component.
 
 ## Exact build inputs
 
+The additional `nuri-vault.cap` is MIT clean-room Nuri source in `card/vault/`,
+package AID `4E555249564C54`, applet AID `4E555249564C5401`, package 1.0.
+Its SHA-256 is `cab8adc6ad2b9500042a49625d278d20287a89491009856de5d27a923cf37d7f`.
+It is built/verified by the full release scripts and independently by
+`scripts/build-vault-cap.sh`. It installs **alongside**, not instead of FIDO2,
+through the install-only `scripts/install-vault-card.sh`. It requires its own PIN
+for every secret operation; HMAC slots have no export API and bearer slots do.
+See [the custody boundary and protocol](../docs/card-vault-applet.md).
+
 - FIDO2 Nuri fork base: `4f318197cc08f316ce784a89bdf29dc73cca7fcf`
   (parent: upstream FIDO2Applet v2.0.5 `0194107d9648577379058b59843504924b546514`)
 - Java Card SDK checkout: `e2df471e04d86f33de69a947f44766fbef1d9d69`

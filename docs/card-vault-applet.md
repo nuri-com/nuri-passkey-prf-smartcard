@@ -137,7 +137,12 @@ scripts/run-card-python.sh scripts/card-secrets.py --backend card run TOKEN -- t
 ```
 
 There is no CLI `reveal`/`get`/`show`. Only run/proxy call REVEAL internally; they
-cannot use HMAC entries. The card connection closes before the child/proxy starts.
+cannot use HMAC entries. The card connection closes before the child/proxy starts. After any attempted
+VERIFY, the broker explicitly re-SELECTs the exact vault AID to log out before
+closing; disconnect disposition defaults are not relied upon. Failed logout
+prevents child/proxy startup. This is not a PC/SC-exclusive transaction: another
+local reader client could share authorization **while the session is active**.
+Reader access and concurrent clients therefore must remain trusted/isolated.
 PUT/DELETE read LIST back before returning success. A child gets
 `NURI_SECRET_<NAME>`; the agent must not control the child executable or inspect
 its environment/output. See [card-secrets.md](card-secrets.md) for proxy framing,
@@ -169,7 +174,7 @@ statuses, blocking/reset persistence, no HMAC export, DELETE, slot reuse and ful
 store. RFC cases 6/7 use disallowed 131-byte keys, which are explicitly rejected.
 [Bridge test](../test/test_vault_bridge.py) sends the real Python backend's APDUs
 to the actual Java applet under jCardSim. Host contract tests use injected fake
-transport tests. At maximum Lc=255, pinned jCardSim's 260-byte APDU buffer
+transports. At maximum Lc=255, pinned jCardSim's 260-byte APDU buffer
 cannot hold a legal 261-byte case-4 command (it copies Le into that buffer).
 The Java boundary test uses case 3 with identical incoming bytes only for that
 one length; production Python retains proper case 4 and fake tests assert its
