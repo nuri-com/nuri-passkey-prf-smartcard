@@ -41,7 +41,7 @@ def prf(args):
         spec.loader.exec_module(backup)
         profile = backup.read_profile(Path(args.profile_path))
         device = argparse.Namespace(transport=args.transport, device_index=args.device_index,
-                                   pin=None, pin_prompt=True, user_verification="required")
+                                   pin=None, pin_prompt=False, user_verification=None)
         first, _ = backup.derive_once(device, profile, DOMAIN, None)
     return first
 
@@ -197,7 +197,7 @@ def proxy(args, secret):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vault", type=Path, default=Path.home() / ".nuri-card/vault.json")
-    parser.add_argument("--profile-path", default=".nuri-card-prf/nuri-offline-backup.json")
+    parser.add_argument("--profile-path", type=Path, default=Path.home() / ".nuri-card-prf/nuri-offline-backup.json")
     parser.add_argument("--transport", choices=("pcsc", "hid"), default="pcsc")
     parser.add_argument("--device-index", type=int)
     sub = parser.add_subparsers(dest="command", required=True)

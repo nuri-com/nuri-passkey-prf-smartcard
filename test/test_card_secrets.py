@@ -91,8 +91,8 @@ class VaultTest(unittest.TestCase):
             self.assertEqual(module["prf"](args), b"p" * 32)
         backup.read_profile.assert_called_once_with(Path("existing-profile.json"))
         call = backup.derive_once.call_args.args
-        self.assertEqual((call[0].user_verification, call[2:]), ("required", (b"nuri-card-secrets-v1", None)))
-        self.assertTrue(call[0].pin_prompt)
+        self.assertEqual((call[0].user_verification, call[2:]), (None, (b"nuri-card-secrets-v1", None)))
+        self.assertFalse(call[0].pin_prompt)
         backup.command_enroll.assert_not_called()
 
     def test_proxy_injects_headers_fixed_upstream_no_leaky_logs(self):
