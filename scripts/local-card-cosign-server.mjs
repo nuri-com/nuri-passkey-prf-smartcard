@@ -326,23 +326,49 @@ function handleInfo(res) {
       checkoutConfirm: 'POST /api/checkout/confirm',
     },
     real_card_proof:
-      'The installed NuriMuSig2 v1.10/KGEN applet has a real INS_KEYGEN path. Run npm run cosign:real-card to prove on-card keygen, card partial verification, and final aggregate BIP340 verification.',
+      'The NuriMuSig2 KGEN applet has a real INS_KEYGEN path. Run npm run cosign:real-card to prove on-card keygen, card partial verification, and final aggregate BIP340 verification. Applet >= 1.14 needs the card PIN: start this server with NURI_CARD_PIN in its environment (never pass it as an argument).',
   });
 }
 
-function execFileJson(file, fileArgs) {
+// PINs reach child scripts through the environment only, never argv (visible
+// in ps) and never logged. MuSig2 applet >= 1.14 scripts read NURI_CARD_PIN
+// (scripts/nuri_musig2_card.py); the server's own NURI_CARD_PIN is inherited.
+// pinEnv overrides per call; values are redacted from any error text.
+function childEnv(pinEnv = {}) {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(pinEnv)) {
+    if (value) env[key] = String(value);
+    else delete env[key];
+  }
+  return env;
+}
+
+function redactPins(text, pinEnv = {}) {
+  let out = String(text ?? '');
+  const pins = [process.env.NURI_CARD_PIN, process.env.FIDO2_BACKUP_PIN, ...Object.values(pinEnv)];
+  for (const pin of pins) {
+    if (pin && String(pin).length >= 4) out = out.split(String(pin)).join('[PIN]');
+  }
+  return out;
+}
+
+function execFileJson(file, fileArgs, { pinEnv } = {}) {
   return new Promise((resolvePromise, reject) => {
     execFile(file, fileArgs, {
       cwd: process.cwd(),
       timeout: 60000,
       maxBuffer: 1024 * 1024,
-    }, (error, stdout, stderr) => {
+      env: childEnv(pinEnv),
+    }, (rawError, rawStdout, rawStderr) => {
+      const error = rawError && new Error(redactPins(rawError.message, pinEnv));
+      const stdout = redactPins(rawStdout, pinEnv);
+      const stderr = redactPins(rawStderr, pinEnv);
       if (error) {
         reject(new Error(`${error.message}\n${stderr || stdout}`.trim()));
         return;
       }
       try {
-        resolvePromise(JSON.parse(stdout));
+        resolvePromise(JSON.parse(rawStdout));
       } catch (parseError) {
         reject(new Error(`could not parse JSON from real-card script: ${parseError.message}\n${stdout}\n${stderr}`.trim()));
       }
@@ -758,10 +784,10 @@ async function fetchLiveLnurlAccount(identity, registration, profile) {
     '--origin', profile.origin,
     `--credential-id=${registration.receive_owner.cred_id_b64u}`,
     '--user-verification', 'required',
-    '--pin', CARD_PIN,
   ];
   if (CARD_RECEIVE_PROFILE_PATH) assertionArgs.push('--profile-path', CARD_RECEIVE_PROFILE_PATH);
-  const assertion = await execFileJson(REAL_CARD_PYTHON, assertionArgs);
+  // PIN via env only (card-prf-backup.py reads FIDO2_BACKUP_PIN); argv is visible in ps.
+  const assertion = await execFileJson(REAL_CARD_PYTHON, assertionArgs, { pinEnv: { FIDO2_BACKUP_PIN: CARD_PIN } });
   const status = await fetchJsonRequest(`${signerV4Url()}/arkade/lnurl/status`, 'Nuri Arkade LNURL status', {
     method: 'POST',
     headers: {
@@ -1154,8 +1180,7 @@ async function handleCardProbe(req, res) {
       '--rp-id', profile.rp_id,
       '--origin', profile.origin,
       `--credential-id=${credId}`,
-      '--pin', pin,
-    ]);
+    ], { pinEnv: { FIDO2_BACKUP_PIN: pin } });
     json(res, 200, result);
   } catch (error) {
     json(res, 200, { present: false, error: (error?.message || String(error)).slice(0, 200) });
