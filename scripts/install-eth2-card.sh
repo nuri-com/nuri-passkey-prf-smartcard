@@ -92,4 +92,4 @@ while read -r aid; do
 done < <(grep -oE '(APP|PKG): [0-9A-F]+' <<<"$before" | awk '{print $2}' | sort -u)
 
 echo "ETH2_INSTALLED_ALONGSIDE_V1 package=$ETH2_PACKAGE_AID applet=$ETH2_APPLET_AID fido2=$FIDO2_AID"
-echo "Next: KEYGEN once (80 03 00 00), then SET_PIN (80 21) if the owner wants PIN gating. See docs/eth-applet-v2.md."
+echo "Next: SET_PIN (80 21), VERIFY (80 20), then one-shot KEYGEN (80 03), all in a trusted provisioning session. PIN is mandatory by default. See docs/attestation.md."

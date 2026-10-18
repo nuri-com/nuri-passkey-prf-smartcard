@@ -10,7 +10,7 @@
 
     <target name="build">
         <javacard jckit="${jckit.path}">
-            <cap aid="4E55524945544832" version="2.0" output="${cap.output}" sources="." jca="3.0.4">
+            <cap aid="4E55524945544832" version="2.1" output="${cap.output}" sources="." jca="3.0.4">
                 <applet class="com.nuri.eth2.NuriEthSignerV2" aid="4E5552494554483201"/>
             </cap>
         </javacard>

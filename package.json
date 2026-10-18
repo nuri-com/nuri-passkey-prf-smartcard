@@ -64,6 +64,8 @@
     "card:prf:derive": "scripts/card-prf-backup.sh derive",
     "card:prf:selftest": "scripts/card-prf-backup.sh selftest",
     "card:secrets:selftest": "scripts/run-card-python.sh -m unittest discover -s test -p 'test_card_secrets*.py' -v",
+    "card:attestation:test:sim": "scripts/test-attestation-sim.sh",
+    "card:attestation:build": "bash scripts/build-attestation-caps.sh",
     "card:vault:build": "scripts/build-vault-cap.sh",
     "card:vault:install": "scripts/install-vault-card.sh",
     "card:vault:test:sim": "scripts/test-vault-sim.sh",

@@ -9,13 +9,50 @@ import javacard.framework.JCSystem;
 import javacard.framework.OwnerPIN;
 import javacard.framework.Util;
 import javacard.security.MessageDigest;
+import javacard.security.ECKey;
+import javacard.security.ECPublicKey;
+import javacard.security.KeyPair;
 
 /** PIN-gated, 16-slot vault. Clean-room RFC 2104 HMAC-SHA256 using only SHA256.
  * No secret export exists for HMAC slots. Bearer REVEAL deliberately exports.
  * No native TYPE_HMAC dependency, install switches, debug or reset commands.
  */
 public final class NuriVault extends Applet {
+    private static final byte[] APPLET_AID = {
+        (byte)0x4E, (byte)0x55, (byte)0x52, (byte)0x49,
+        (byte)0x56, (byte)0x4C, (byte)0x54, (byte)0x01
+    };
+    // NIST P-256: p, a, b, n, and the uncompressed generator (32/32/32/32/65).
+    private static final byte[] P256 = {
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x01,
+        (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+        (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF,
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF,
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x01,
+        (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+        (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF,
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFC,
+        (byte)0x5A, (byte)0xC6, (byte)0x35, (byte)0xD8, (byte)0xAA, (byte)0x3A, (byte)0x93, (byte)0xE7,
+        (byte)0xB3, (byte)0xEB, (byte)0xBD, (byte)0x55, (byte)0x76, (byte)0x98, (byte)0x86, (byte)0xBC,
+        (byte)0x65, (byte)0x1D, (byte)0x06, (byte)0xB0, (byte)0xCC, (byte)0x53, (byte)0xB0, (byte)0xF6,
+        (byte)0x3B, (byte)0xCE, (byte)0x3C, (byte)0x3E, (byte)0x27, (byte)0xD2, (byte)0x60, (byte)0x4B,
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+        (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF,
+        (byte)0xBC, (byte)0xE6, (byte)0xFA, (byte)0xAD, (byte)0xA7, (byte)0x17, (byte)0x9E, (byte)0x84,
+        (byte)0xF3, (byte)0xB9, (byte)0xCA, (byte)0xC2, (byte)0xFC, (byte)0x63, (byte)0x25, (byte)0x51,
+        (byte)0x04, (byte)0x6B, (byte)0x17, (byte)0xD1, (byte)0xF2, (byte)0xE1, (byte)0x2C, (byte)0x42,
+        (byte)0x47, (byte)0xF8, (byte)0xBC, (byte)0xE6, (byte)0xE5, (byte)0x63, (byte)0xA4, (byte)0x40,
+        (byte)0xF2, (byte)0x77, (byte)0x03, (byte)0x7D, (byte)0x81, (byte)0x2D, (byte)0xEB, (byte)0x33,
+        (byte)0xA0, (byte)0xF4, (byte)0xA1, (byte)0x39, (byte)0x45, (byte)0xD8, (byte)0x98, (byte)0xC2,
+        (byte)0x96, (byte)0x4F, (byte)0xE3, (byte)0x42, (byte)0xE2, (byte)0xFE, (byte)0x1A, (byte)0x7F,
+        (byte)0x9B, (byte)0x8E, (byte)0xE7, (byte)0xEB, (byte)0x4A, (byte)0x7C, (byte)0x0F, (byte)0x9E,
+        (byte)0x16, (byte)0x2B, (byte)0xCE, (byte)0x33, (byte)0x57, (byte)0x6B, (byte)0x31, (byte)0x5E,
+        (byte)0xCE, (byte)0xCB, (byte)0xB6, (byte)0x40, (byte)0x68, (byte)0x37, (byte)0xBF, (byte)0x51,
+        (byte)0xF5
+    };
     private static final byte STATUS = (byte) 0x01;
+    private static final byte GET_PUBKEY = (byte) 0x02;
+    private static final byte KEYGEN = (byte) 0x03;
     private static final byte SET_PIN = (byte) 0x10;
     private static final byte VERIFY = (byte) 0x20;
     private static final byte PUT = (byte) 0x30;
@@ -43,6 +80,12 @@ public final class NuriVault extends Applet {
     private final byte[] reply;
     private final byte[] pad;
     private final byte[] inner;
+    private final NuriAttestation attestation;
+    // A distinct native binding key, not provenance for any imported slot value.
+    private final KeyPair candidateBindingKeyPair;
+    private KeyPair bindingKeyPair;
+    private final byte[] bindingPublicKey;
+    private boolean bindingKeyGenerated;
 
     private NuriVault() {
         pin = new OwnerPIN((byte) 5, (byte) 16);
@@ -56,10 +99,23 @@ public final class NuriVault extends Applet {
         reply = JCSystem.makeTransientByteArray((short) 144, JCSystem.CLEAR_ON_DESELECT);
         pad = JCSystem.makeTransientByteArray(SECRET_MAX, JCSystem.CLEAR_ON_DESELECT);
         inner = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
+        candidateBindingKeyPair = new KeyPair(KeyPair.ALG_EC_FP, (short)256);
+        bindingPublicKey = new byte[65];
+        attestation = new NuriAttestation(APPLET_AID);
     }
 
     public static void install(byte[] data, short offset, byte length) {
-        new NuriVault().register();
+        short size = (short)(length & 0xff);
+        if (size != 0) {
+            if (offset < 0 || offset > data.length || size > (short)(data.length - offset))
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            short aidLength = (short)(data[offset++] & 0xff);
+            if (aidLength > (short)(size - 1) || (aidLength != 0 &&
+                    (aidLength != APPLET_AID.length ||
+                    Util.arrayCompare(data, offset, APPLET_AID, (short)0, aidLength) != 0)))
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        }
+        new NuriVault().register(APPLET_AID, (short)0, (byte)APPLET_AID.length);
     }
 
     public boolean select() {
@@ -74,19 +130,25 @@ public final class NuriVault extends Applet {
     }
 
     public void process(APDU apdu) {
-        if (selectingApplet()) {
-            return;
-        }
         byte[] buffer = apdu.getBuffer();
         boolean sending = false;
         try {
+            if (selectingApplet()) return;
             if (buffer[ISO7816.OFFSET_CLA] != (byte) 0x80) {
                 ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
             }
             byte ins = buffer[ISO7816.OFFSET_INS];
             short page = (short) (buffer[ISO7816.OFFSET_P1] & 0xFF);
-            if (buffer[ISO7816.OFFSET_P2] != 0 || (ins == LIST ? page > 1 : page != 0)) {
+            if (buffer[ISO7816.OFFSET_P2] != 0 || ((ins == LIST || ins == (byte)0x72) ? page > 1 : page != 0)) {
                 ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
+            }
+            if (attestation.handles(ins)) {
+                // The helper owns reception/output; do not consume its APDU or
+                // clear the JCRE response buffer after sendBytesLong.
+                sending = true;
+                attestation.process(apdu, bindingPublicKey, (short)0,
+                    bindingKeyGenerated ? (short)65 : (short)0, attestationPinState());
+                return;
             }
             short length = receive(apdu);
             short n = 0;
@@ -98,6 +160,19 @@ public final class NuriVault extends Applet {
                     reply[2] = pin.getTriesRemaining();
                     reply[3] = (byte) SLOTS;
                     n = 4;
+                    break;
+                case GET_PUBKEY:
+                    authorized();
+                    exact(length, (short)0);
+                    if (!bindingKeyGenerated) ISOException.throwIt((short)0x6986);
+                    Util.arrayCopyNonAtomic(bindingPublicKey, (short)0, reply, (short)0, (short)65);
+                    n = 65;
+                    break;
+                case KEYGEN:
+                    authorized();
+                    exact(length, (short)0);
+                    keygen();
+                    n = 65;
                     break;
                 case SET_PIN:
                     if (pinSet) ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -156,7 +231,14 @@ public final class NuriVault extends Applet {
                 apdu.sendBytesLong(reply, (short) 0, n);
             }
         } finally {
+            finishCommand(buffer, sending);
+        }
+    }
+
+    private void finishCommand(byte[] buffer, boolean sending) {
+        try {
             if (JCSystem.getTransactionDepth() != 0) JCSystem.abortTransaction();
+        } finally {
             clearScratch();
             // Do not alter the final response APDU buffer: Java Card may defer
             // transmission until process returns. Incoming PIN/PUT data is
@@ -183,6 +265,39 @@ public final class NuriVault extends Applet {
         }
         exact(copied, length);
         return length;
+    }
+
+    private byte attestationPinState() {
+        return (byte)(1 | (pinSet ? 2 : 0) | (pin.isValidated() ? 4 : 0)
+            | (pin.getTriesRemaining() == 0 ? 8 : 0));
+    }
+
+    private static void configureBindingKey(ECKey key) {
+        key.setFieldFP(P256, (short)0, (short)32);
+        key.setA(P256, (short)32, (short)32);
+        key.setB(P256, (short)64, (short)32);
+        key.setR(P256, (short)96, (short)32);
+        key.setG(P256, (short)128, (short)65);
+        key.setK((short)1);
+    }
+
+    private void keygen() {
+        if (bindingKeyGenerated) ISOException.throwIt((short)0x6989);
+        // Native key generation never reads a private scalar into byte arrays.
+        // The candidate remains unreachable from command APIs until the flag
+        // commits, even when the platform does not roll key-provider writes back.
+        configureBindingKey((ECKey)candidateBindingKeyPair.getPublic());
+        configureBindingKey((ECKey)candidateBindingKeyPair.getPrivate());
+        candidateBindingKeyPair.genKeyPair();
+        short length = ((ECPublicKey)candidateBindingKeyPair.getPublic()).getW(reply, (short)0);
+        if (length != 65 || reply[0] != 4) ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
+        attestation.prepareBinding(reply, (short)0, (short)65);
+        JCSystem.beginTransaction();
+        bindingKeyPair = candidateBindingKeyPair;
+        Util.arrayCopy(reply, (short)0, bindingPublicKey, (short)0, (short)65);
+        attestation.commitBinding();
+        bindingKeyGenerated = true;
+        JCSystem.commitTransaction();
     }
 
     private void initialized() {
@@ -279,6 +394,11 @@ public final class NuriVault extends Applet {
     }
 
     private void clearScratch() {
+        try { clearVaultScratch(); }
+        finally { attestation.clearScratch(); }
+    }
+
+    private void clearVaultScratch() {
         sha.reset();
         Util.arrayFillNonAtomic(request, (short) 0, (short) request.length, (byte) 0);
         Util.arrayFillNonAtomic(reply, (short) 0, (short) reply.length, (byte) 0);

@@ -75,6 +75,36 @@ class AddressTests(unittest.TestCase):
                          "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
 
 
+def attestation_response(ca_key, attestation_key, signing_pub, challenge, mutation=None):
+    """Independent wire fixture: real P256 signatures, no verifier mocked."""
+    from ecdsa import NIST256p, SECP256k1, SigningKey
+    from ecdsa.util import sigencode_der
+    aid = bytes.fromhex(host.AID_ETH_V2)
+    if mutation == "aid":
+        aid = bytes.fromhex("4E5552494D554701")
+    if mutation == "money_key":
+        signing_pub = SigningKey.from_secret_exponent(0xBAD, curve=SECP256k1).verifying_key.to_string("compressed")
+    att_pub = attestation_key.verifying_key.to_string("uncompressed")
+    card_id = bytes.fromhex("00112233445566778899aabbccddeeff")
+
+    def sign(key, message):
+        return key.sign_deterministic(message, hashfunc=hashlib.sha256, sigencode=sigencode_der)
+
+    cert_key = SigningKey.from_secret_exponent(0xBADCA, curve=NIST256p) if mutation == "certificate" else ca_key
+    cert = sign(cert_key, b"NURI-ATT-V1" + card_id + aid + att_pub)
+    sealed = 0 if mutation == "unsealed" else 1
+    info = b"\x01" + card_id + bytes([len(aid)]) + aid + att_pub + bytes([sealed, len(cert)]) + cert
+    signed_challenge = b"\x00" * 32 if mutation == "challenge" else challenge
+    response = sign(attestation_key, b"NURI-ATT-RESP-V1" + signed_challenge + signing_pub + b"\x03")
+    if mutation == "response":
+        response = response[:-1] + bytes([response[-1] ^ 1])
+    binding = sign(attestation_key, (b"NHWV0" if mutation == "binding" else b"NHWV1") + aid + signing_pub)
+    if mutation == "missing_binding":
+        binding = b""
+    pin_state = 0x01 if mutation == "pin_state" else 0x03
+    return info + bytes([len(signing_pub)]) + signing_pub + bytes([pin_state, len(response)]) + response + bytes([len(binding)]) + binding
+
+
 def reset_host():
     host._SIGNER = None
     host._INFO = None
@@ -98,6 +128,13 @@ class SimSignTests(unittest.TestCase):
         self.assertEqual(res["pubkey"], SIM_PUBKEY)
         self.assertTrue(res["address"].startswith("0x") and len(res["address"]) == 42)
         self.assertEqual(res["address"], host.pubkey_to_address(bytes.fromhex(SIM_PUBKEY[2:])))
+
+    def test_sim_attestation_never_verified_even_with_ca_configured(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"NURI_CARD_CA_PUBKEY": "/nonexistent/public-ca.pem"}):
+            info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "unverified"})
 
     def test_sign_hash_round_trip_recovers_sim_address(self):
         info = host.handle({"id": 1, "method": "info"})["result"]
@@ -192,7 +229,7 @@ class FakePcscCardTests(unittest.TestCase):
         from ecdsa.util import sigencode_string, sigencode_der
         calls = []
         card = types.SimpleNamespace(key=sim_key, echo=eth2_echo_key, pin=pin, tries=tries,
-                                     applets=set(applets), opened=[], fail_transmit=None)
+                                     applets=set(applets), opened=[], fail_transmit=None, attestation=None)
         self.card = card
 
         class CardError(Exception):
@@ -225,6 +262,13 @@ class FakePcscCardTests(unittest.TestCase):
                     return b"\x02\x00\x00ETH2" + bytes([state, left]), 0x9000
                 if ins == 0x02:
                     return (vk.to_string("uncompressed") if eth2 else vk.to_string("compressed")), 0x9000
+                if ins == 0x72 and card.attestation is not None:
+                    assert eth2 and len(raw) == 38 and raw[:2] == b"\x80\x72"
+                    assert raw[2] in (0, 1) and raw[3:5] == b"\x00\x20" and raw[-1] == 0
+                    if raw[2] == 0:
+                        return card.attestation_info, 0x9000
+                    logical = card.attestation(raw[5:37])
+                    return logical[len(card.attestation_info):], 0x9000
                 if ins == 0x20:
                     if not eth2 or card.pin is None:
                         return b"", 0x6985
@@ -276,13 +320,218 @@ class FakePcscCardTests(unittest.TestCase):
         from ecdsa import SigningKey, SECP256k1
         self.key = SigningKey.from_secret_exponent(0x1234567, curve=SECP256k1)
         self.saved_env = os.environ.pop("NURI_CARD_SIM", None)
+        self.saved_ca = os.environ.pop("NURI_CARD_CA_PUBKEY", None)
         reset_host()
 
     def tearDown(self):
         sys.modules.pop("nuri_pcsc", None)
         reset_host()
+        os.environ.pop("NURI_CARD_CA_PUBKEY", None)
+        if self.saved_ca is not None:
+            os.environ["NURI_CARD_CA_PUBKEY"] = self.saved_ca
         if self.saved_env is not None:
             os.environ["NURI_CARD_SIM"] = self.saved_env
+
+    def _attestation_card(self, mutation=None, configured=True, pem=True):
+        from ecdsa import NIST256p, SigningKey
+        self.ca_key = SigningKey.from_secret_exponent(0xCA25, curve=NIST256p)
+        self.attestation_key = SigningKey.from_secret_exponent(0xA725, curve=NIST256p)
+        calls = self._install_fake({host.AID_ETH_V2}, self.key)
+        self.card.attestation = lambda challenge: attestation_response(
+            self.ca_key, self.attestation_key, self.card.key.verifying_key.to_string("compressed"), challenge, mutation)
+        fixture = self.card.attestation(b"\x00" * 32)
+        sealed_offset = 18 + fixture[17] + 65
+        info_length = sealed_offset + 2 + fixture[sealed_offset + 1]
+        self.card.attestation_info = fixture[:info_length]
+        if configured:
+            directory = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+            self.addCleanup(shutil.rmtree, directory, True)
+            path = os.path.join(directory, "ca.pub")
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
+                key = self.ca_key.verifying_key
+                stream.write(key.to_pem() if pem else key.to_string("uncompressed").hex().encode())
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            os.environ["NURI_CARD_CA_PUBKEY"] = path
+        return calls
+
+    def test_attestation_ca_unset_is_unverified_and_never_sends_challenge(self):
+        calls = self._attestation_card(configured=False)
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "unverified"})
+        self.assertFalse(any(c.startswith("8072") for c in calls))
+        self.assertAllClosed()
+
+    def test_attestation_genuine_pem_and_hex_ca_on_same_selected_session(self):
+        for pem in (True, False):
+            with self.subTest(pem=pem):
+                calls = self._attestation_card(pem=pem)
+                info = host.handle({"id": 1, "method": "info"})
+                self.assertTrue(info["ok"], info)
+                self.assertEqual(info["result"]["attestation"], {"verified": True, "reason": "verified"})
+                self.assertEqual(len(self.card.opened), 1, "identity and evidence must share the selected applet")
+                self.assertEqual(calls[:2], ["8001000000", "8002000000"])
+                page0, page1 = (bytes.fromhex(raw) for raw in calls[2:])
+                self.assertEqual(page0[:5], b"\x80\x72\x00\x00\x20")
+                self.assertEqual(page1[:5], b"\x80\x72\x01\x00\x20")
+                self.assertEqual(page0[5:37], page1[5:37], "one issued challenge must be reused on both pages")
+                self.assertEqual((len(page0), len(page1), page0[-1], page1[-1]), (38, 38, 0, 0))
+                self.assertEqual(len(calls), 4, "attestation must be read-only, no provisioning/PIN/keygen")
+                self.assertAllClosed()
+
+    def test_attestation_page1_challenge_substitution_is_nonfatal_false(self):
+        self._attestation_card()
+        Applet = sys.modules["nuri_pcsc"].Applet
+        original = Applet.transmit
+        seen = []
+
+        def substitute(applet, apdu):
+            raw = bytes(apdu)
+            if raw[1] == 0x72:
+                seen.append(raw)
+                if raw[2] == 1:
+                    changed = bytes([raw[5] ^ 1]) + raw[6:37]
+                    raw = raw[:5] + changed + raw[-1:]
+            return original(applet, raw)
+
+        Applet.transmit = substitute
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "verification_failed"})
+        self.assertEqual([raw[2] for raw in seen], [0, 1])
+        self.assertEqual(seen[0][5:37], seen[1][5:37], "host must issue exactly one challenge")
+        self.assertAllClosed()
+
+    def test_attestation_page1_transport_status_and_unsupported_never_verify(self):
+        for sw in (0x6985, 0x6D00, 0x6E00):
+            with self.subTest(sw=hex(sw)):
+                calls = self._attestation_card()
+                Applet = sys.modules["nuri_pcsc"].Applet
+                original = Applet.transmit
+                def fail_tail(applet, apdu):
+                    if apdu[1:3] == b"\x72\x01":
+                        return b"", sw
+                    return original(applet, apdu)
+                Applet.transmit = fail_tail
+                info = host.handle({"id": 1, "method": "info"})
+                self.assertTrue(info["ok"], info)
+                self.assertEqual(info["result"]["attestation"], {
+                    "verified": False,
+                    "reason": "verification_failed" if sw == 0x6985 else "unsupported"})
+                self.assertEqual(sum(c.startswith("8072") for c in calls), 1, "only INFO page reaches the fake")
+                self.assertAllClosed()
+
+    def test_attestation_noncanonical_selected_aid_is_never_verified(self):
+        from unittest.mock import patch
+        with patch.object(host, "AID_ETH_V2", "4E5552494554483202"):
+            calls = self._attestation_card()
+            info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "unsupported"})
+        self.assertFalse(any(c.startswith("8072") for c in calls))
+        self.assertAllClosed()
+
+    def test_attestation_tampering_and_binding_mismatches_are_nonfatal_false(self):
+        for mutation in ("certificate", "response", "challenge", "aid", "money_key", "binding",
+                         "missing_binding", "pin_state", "unsealed"):
+            with self.subTest(mutation=mutation):
+                self._attestation_card(mutation=mutation)
+                info = host.handle({"id": 1, "method": "info"})
+                self.assertTrue(info["ok"], info)
+                self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "verification_failed"})
+                self.assertAllClosed()
+                signed = host.handle({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "22" * 32}})
+                self.assertTrue(signed["ok"], signed)
+                self.assertAllClosed()
+
+    def test_attestation_fresh_challenge_each_info_rejects_replayed_response(self):
+        self._attestation_card()
+        challenges, responses = [], []
+        genuine = self.card.attestation
+
+        def replay(challenge):
+            challenges.append(challenge)
+            if not responses:
+                responses.append(genuine(challenge))
+            return responses[0]
+
+        self.card.attestation = replay
+        first = host.handle({"id": 1, "method": "info"})
+        second = host.handle({"id": 2, "method": "info"})
+        self.assertIs(first["result"]["attestation"]["verified"], True)
+        self.assertIs(second["result"]["attestation"]["verified"], False)
+        self.assertEqual(len(challenges), 2)
+        self.assertEqual([len(c) for c in challenges], [32, 32])
+        self.assertNotEqual(challenges[0], challenges[1])
+        self.assertAllClosed()
+
+    def test_attestation_unsupported_eth2_and_v1_are_nonfatal_false(self):
+        self._attestation_card()
+        self.card.attestation = None
+        info = host.handle({"id": 1, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "unsupported"})
+        calls = self._install_fake({host.AID_ETH_V1}, self.key)
+        info = host.handle({"id": 2, "method": "info"})
+        self.assertTrue(info["ok"], info)
+        self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "unsupported"})
+        self.assertFalse(any(c.startswith("8072") for c in calls), "legacy must not receive unknown attestation INS")
+        self.assertAllClosed()
+
+    def test_attestation_invalid_ca_transport_and_malformed_response_are_nonfatal_false(self):
+        for failure in ("missing_file", "invalid_ca", "wrong_ca", "transport", "malformed", "status"):
+            with self.subTest(failure=failure):
+                self._attestation_card()
+                if failure == "missing_file":
+                    os.environ["NURI_CARD_CA_PUBKEY"] += ".missing"
+                elif failure == "invalid_ca":
+                    with open(os.environ["NURI_CARD_CA_PUBKEY"], "wb") as stream:
+                        stream.write(b"invalid pin")
+                elif failure == "wrong_ca":
+                    with open(os.environ["NURI_CARD_CA_PUBKEY"], "wb") as stream:
+                        stream.write(self.attestation_key.verifying_key.to_pem())
+                elif failure == "transport":
+                    self.card.fail_transmit = (0x72, RuntimeError("private transport diagnostic"))
+                elif failure == "malformed":
+                    self.card.attestation = lambda challenge: b"\x01"
+                else:
+                    self.card.attestation = None  # force an unsupported result to a different failing SW
+                    transmit = sys.modules["nuri_pcsc"].Applet.transmit
+                    sys.modules["nuri_pcsc"].Applet.transmit = lambda applet, apdu: (b"", 0x6985) if apdu[1] == 0x72 else transmit(applet, apdu)
+                info = host.handle({"id": 1, "method": "info"})
+                self.assertTrue(info["ok"], info)
+                self.assertEqual(info["result"]["attestation"], {"verified": False, "reason": "verification_failed"})
+                self.assertNotIn("private transport diagnostic", json.dumps(info))
+                self.assertAllClosed()
+
+    def test_attestation_native_framing_ca_unset_genuine_tamper_unsupported(self):
+        bootstrap = '''import sys
+sys.path.insert(0, sys.argv[1])
+import test_host as tests
+fake = tests.FakePcscCardTests()
+fake.setUp()
+try:
+    scenario = sys.argv[2]
+    fake._attestation_card(mutation="binding" if scenario == "tamper" else None, configured=scenario != "unset")
+    if scenario == "unsupported":
+        fake.card.attestation = None
+    raise SystemExit(tests.host.main([]))
+finally:
+    fake.tearDown()
+    fake.doCleanups()
+'''
+        for scenario, verified, reason in (("unset", False, "unverified"), ("genuine", True, "verified"),
+                                            ("tamper", False, "verification_failed"), ("unsupported", False, "unsupported")):
+            with self.subTest(scenario=scenario):
+                proc = subprocess.run([sys.executable, "-c", bootstrap, HERE, scenario],
+                                      input=frame({"id": 1, "method": "info"}) + frame({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "33" * 32}}),
+                                      capture_output=True, env=dict(os.environ, NURI_CARD_HOST_LOG=""), timeout=30)
+                self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+                self.assertEqual(proc.stderr, b"")
+                responses = unframe_all(proc.stdout)
+                self.assertEqual([r["id"] for r in responses], [1, 2])
+                self.assertTrue(all(r["ok"] for r in responses), responses)
+                self.assertEqual(responses[0]["result"]["attestation"], {"verified": verified, "reason": reason})
 
     def test_eth1_fallback_signs_and_recovers(self):
         calls = self._install_fake({host.AID_ETH_V1}, self.key)
@@ -893,6 +1142,49 @@ class InstallerLauncherTests(unittest.TestCase):
         self.assertIn("unset NURI_CARD_SIM", text)
         self.assertNotIn("NURI_CARD_SIM=1", text)
         self.assertNotIn("--sim", text)
+
+    def test_installed_snapshot_packages_attestation_verifier_and_checksums_offline(self):
+        # Fake only the dependency installer. Exercise actual copying, checksums,
+        # manifest and native SIM framing with our already-approved interpreter.
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as home:
+            from pathlib import Path
+            venv = Path(home) / ".nuri-card-host-venv" / "bin"
+            venv.mkdir(parents=True)
+            import shlex
+            (venv / "python").write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+            (venv / "python").chmod(0o700)
+            (venv / "pip").write_text("#!/bin/sh\nexit 0\n")
+            (venv / "pip").chmod(0o700)
+            env = dict(os.environ, HOME=home, NURI_CARD_HOST_LOG="", NURI_CARD_CA_PUBKEY="")
+            env.pop("NURI_HOST_INSTALL_LAUNCHER_ONLY", None)
+            proc = subprocess.run(["bash", os.path.join(HERE, "install-macos.sh"), "--sim", "--python", sys.executable],
+                                  env=env, capture_output=True, timeout=30)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+            self.assertIn(b'"attestation":{"verified":false,"reason":"unverified"}', proc.stdout)
+            installed = Path(home) / ".nuri-card-host"
+            with (installed / "run.sh").open() as stream:
+                self.assertIn(str(installed / "host" / "nuri_card_host.py"), stream.read())
+            with (Path(home) / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nuri.card.json").open() as stream:
+                manifest = json.load(stream)
+            self.assertEqual(manifest["path"], str(installed / "run.sh"))
+            expected = {"host/nuri_card_host.py", "scripts/nuri_pcsc.py", "scripts/nuri_attest.py"}
+            with (installed / "SHA256SUMS").open() as stream:
+                checksums = dict((parts[1], parts[0]) for parts in (line.split() for line in stream))
+            self.assertEqual(set(checksums), expected)
+            repo = Path(HERE).parent
+            for name in expected:
+                with (installed / name).open("rb") as stream:
+                    copied = stream.read()
+                with (repo / name).open("rb") as stream:
+                    self.assertEqual(copied, stream.read(), name)
+                self.assertEqual(hashlib.sha256(copied).hexdigest(), checksums[name])
+            # -I removes cwd/PYTHONPATH: verifier must really import from the
+            # installed scripts directory, not quietly fall back to the repo.
+            probe = subprocess.run([sys.executable, "-I", "-c",
+                                    "import sys; sys.path.insert(0, sys.argv[1]); import nuri_attest; print(nuri_attest.__file__)",
+                                    str(installed / "scripts")], cwd=home, env=env, capture_output=True, timeout=30)
+            self.assertEqual(probe.returncode, 0, probe.stderr.decode())
+            self.assertEqual(probe.stdout.decode().strip(), str(installed / "scripts/nuri_attest.py"))
 
     def test_sim_launcher_exports_explicitly(self):
         text = self._launcher("--sim")

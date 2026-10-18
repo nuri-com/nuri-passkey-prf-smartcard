@@ -16,7 +16,11 @@ stateDiagram-v2
 
 ## Scope and status
 
-The applet reports **1.14 (`010E`), build `PIN2`**, package version **2.1**.
+W25 applet reports **1.15 (`010F`), build `PIN2`**, package version **2.2**.
+It adds per-applet native P-256 attestation and transactional NHWV1 key binding;
+the W20 PIN2 frames and protections described below remain unchanged. See
+[attestation trust boundaries and parent commands](attestation.md).
+The W20 build/hash evidence below is historical, not the W25 CAP checksum.
 The compatibility filename remains `dist/nuri-musig2-v20-keygen.cap`.
 W20 implements the requested source/simulator portion of W13 gate 2/R4 and
 R12/R13; it does **not** certify silicon, physical leakage or a secure channel.

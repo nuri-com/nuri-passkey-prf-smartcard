@@ -10,7 +10,10 @@ session with exit code 1; nothing after it is parsed.
 
 Methods (issue info first on the same connection; signing refuses otherwise)
   {"id": n, "method": "info"}
-      -> {applet, applet_version, pubkey, address, reader, mode, pin_set, pin_tries_left}
+      -> {applet, applet_version, pubkey, address, reader, mode, pin_set, pin_tries_left,
+          attestation: {verified, reason}}
+      Authenticity is false/unverified without NURI_CARD_CA_PUBKEY (a PEM/hex
+      P256 CA public-key file). Only fresh, key/AID-bound evidence can be true.
   {"id": n, "method": "sign_hash", "params": {"hash": "0x<64 hex>"}}
       no-PIN path (ETH1 / ETH2 without PIN); PIN-protected ETH2 -> PIN_REQUIRED
   {"id": n, "method": "verify_pin",
@@ -284,9 +287,11 @@ class CardSigner:
         self.pin_tries_left = None
         self._applet = None
         self.pubkey = b""
+        self.attestation = {"verified": False, "reason": "unverified"}
         self._open()
         try:
             self._load_identity()
+            self._load_attestation()
         finally:
             self.close()
 
@@ -348,6 +353,45 @@ class CardSigner:
             if len(pub) != 33 or pub[0] not in (0x02, 0x03):
                 raise HostError("CARD_ERROR", f"ETH1 pubkey malformed: {pub.hex()}")
             self.pubkey = pub
+
+    def _load_attestation(self) -> None:
+        """Read-only, fresh evidence on the SAME selection as VERSION/PUBKEY.
+
+        A missing CA pin, legacy applet, failed transport or invalid evidence
+        never prevents info/signing; none of those paths can assert authenticity.
+        The CA setting is a local PEM/hex public-key FILE, never response data.
+        """
+        ca_path = os.environ.get("NURI_CARD_CA_PUBKEY")
+        if not ca_path:
+            return
+        if self.applet != "eth2":
+            self.attestation = {"verified": False, "reason": "unsupported"}
+            return
+        try:
+            import nuri_attest
+
+            expected_aid = bytes.fromhex(AID_ETH_V2)
+            if expected_aid != nuri_attest.ETH2_AID:
+                self.attestation = {"verified": False, "reason": "unsupported"}
+                return
+            with open(ca_path, "rb") as stream:
+                ca_pubkey = stream.read(16385)
+            if len(ca_pubkey) > 16384:
+                raise ValueError("CA public key file too large")
+            verifier = nuri_attest.ChallengeVerifier()
+            challenge = verifier.issue()
+            try:
+                response = nuri_attest.read_attestation(self._applet, 0x80, challenge)
+            except nuri_attest.AttestationCommandError as error:
+                if error.sw in (0x6D00, 0x6E00):
+                    self.attestation = {"verified": False, "reason": "unsupported"}
+                    return
+                raise
+            verifier.verify(response, ca_pubkey, challenge, expected_aid, self.pubkey)
+            self.attestation = {"verified": True, "reason": "verified"}
+        except Exception:
+            # Do not echo arbitrary transport/file/verification exception text.
+            self.attestation = {"verified": False, "reason": "verification_failed"}
 
     def _check_identity(self, expected: dict) -> None:
         if self.applet != expected["applet"] or self.pubkey != expected["pubkey"]:
@@ -531,6 +575,7 @@ def _do_info(req_id: Any) -> dict[str, Any]:
         "mode": signer.mode,
         "pin_set": bool(signer.pin_set),
         "pin_tries_left": signer.pin_tries_left,
+        "attestation": dict(getattr(signer, "attestation", {"verified": False, "reason": "unverified"})),
     })
 
 

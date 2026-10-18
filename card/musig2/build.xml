@@ -10,7 +10,7 @@
 
     <target name="build">
         <javacard jckit="${jckit.path}">
-            <cap aid="4E5552494D5547" version="2.1" output="${cap.output}" sources="." jca="3.0.4">
+            <cap aid="4E5552494D5547" version="2.2" output="${cap.output}" sources="." jca="3.0.4">
                 <applet class="nuri.musig2.NuriMuSig2v019" aid="4E5552494D554701"/>
             </cap>
         </javacard>

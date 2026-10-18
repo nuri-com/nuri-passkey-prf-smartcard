@@ -16,7 +16,11 @@ flowchart LR
 ## Contract and custody boundary
 
 Package AID **`4E555249564C54`**, applet AID **`4E555249564C5401`**, package
-version 1.0, Java Card 3.0.4. Source: [NuriVault.java](../card/vault/NuriVault.java)
+version **1.1**, Java Card 3.0.4. W25 adds per-applet P-256 attestation and a
+separate PIN-gated one-shot binding key (`03` KEYGEN, `02` GET_PUBKEY).
+This does not attest imported HMAC/bearer provenance; see
+[attestation.md](attestation.md) for protocol, trust boundaries and parent acceptance.
+The original four-byte STATUS and all secret-slot commands remain compatible. Source: [NuriVault.java](../card/vault/NuriVault.java)
 and [build.xml](../card/vault/build.xml). This is a separate applet; it does not
 replace the FIDO2, ETH, MuSig2 or TOTP applets, or reuse their PINs.
 
@@ -37,7 +41,7 @@ identifiers. There are no tags/timestamps or disk vault files in the card backen
 | Strong claim justified | **Non-exportable through this applet's command API after import** | **Not non-exportable**; hardware-backed at-rest storage only |
 | Not established by simulation | Physical tamper resistance, side-channel resistance, EEPROM remanence, power-loss behavior | Same; Python cannot promise reliable memory zeroization |
 
-Only SET_PIN, VERIFY and STATUS are usable before authentication. The owner must
+Only SET_PIN, VERIFY, STATUS and the public attestation commands are usable before authentication. The owner must
 set a **4–16-byte PIN** once (`init`); no secret operation works without it.
 SET_PIN does **not** log in. VERIFY establishes applet-session authorization.
 Selection/reselection, deselection and card reset clear authorization. A failed
