@@ -265,7 +265,14 @@ public final class NuriVault extends Applet {
         for (short i = 0; i < kl; i++) pad[i] ^= secrets[(short) (ko + i)];
         sha.reset();
         sha.update(pad, (short) 0, SECRET_MAX);
-        sha.doFinal(request, offset, length, inner, (short) 0);
+        if (length == 0) {
+            // Some Java Card SHA implementations reject zero-length doFinal.
+            // Feed the pad in doFinal itself for HMAC of the empty message.
+            sha.reset();
+            sha.doFinal(pad, (short) 0, SECRET_MAX, inner, (short) 0);
+        } else {
+            sha.doFinal(request, offset, length, inner, (short) 0);
+        }
         Util.arrayFillNonAtomic(pad, (short) 0, SECRET_MAX, (byte) 0x5C);
         for (short i = 0; i < kl; i++) pad[i] ^= secrets[(short) (ko + i)];
         sha.update(pad, (short) 0, SECRET_MAX);

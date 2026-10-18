@@ -181,7 +181,7 @@ public final class NuriVaultSimTest {
     }
     private static byte[] ok(CardSimulator sim, int ins, byte[] data) {
         ResponseAPDU r = send(sim, ins, data);
-        sw("INS=" + ins, 0x9000, r);
+        sw("INS=" + ins + " Lc=" + data.length, 0x9000, r);
         return r.getData();
     }
     private static void sw(String label, int expected, ResponseAPDU response) {
