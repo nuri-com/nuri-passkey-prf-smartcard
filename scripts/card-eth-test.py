@@ -185,13 +185,16 @@ def main():
     # ECDSA recover: given (r, s, v, hash), find Q
     def ecrecover(r_val, s_val, v_val, msg_hash):
         """Recover public key from ECDSA signature."""
-        # r, s are ints
         r_int = r_val
         s_int = s_val
+        if not (0 < r_int < N and 0 < s_int < N):
+            raise ValueError("r and s must satisfy 0 < r,s < secp256k1 order")
 
         # R = (r, y) where y is determined by v
         y_sq = (pow(r_int, 3, P) + 7) % P
         y = pow(y_sq, (P + 1) // 4, P)
+        if pow(y, 2, P) != y_sq:
+            raise ValueError("r does not identify a secp256k1 point")
         if (y & 1) != v_val:
             y = P - y
         R = (r_int, y)

@@ -779,8 +779,19 @@ class CardEthFailClosedTests(PcscTestCase):
                 sig = r_value.to_bytes(32, "big") + s_value.to_bytes(32, "big") + bytes([0])
                 rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(d), sig))
                 self.assertNotIn(exc.code, (None, 0))
+                self.assertIn("r and s must satisfy", str(exc.code))
                 self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
                 self._assert_all_disconnected(self, rdr)
+
+    def test_invalid_recovery_point_fails_closed(self):
+        r = next(r for r in range(1, 100)
+                 if pow((pow(r, 3, _P) + 7) % _P, (_P - 1) // 2, _P) == _P - 1)
+        sig = r.to_bytes(32, "big") + (1).to_bytes(32, "big") + bytes([0])
+        rdr, out, exc = self._run_main_expecting_exit(self._card(_eth1_pubkey(2), sig))
+        self.assertIn("r does not identify a secp256k1 point", str(exc.code))
+        self.assertNotIn(exc.code, (None, 0))
+        self.assertNotIn("REAL_CARD_ETH_SIGN_FLOW_OK", out)
+        self._assert_all_disconnected(self, rdr)
 
     def test_recovery_point_at_infinity_fails_closed(self):
         point = _point_mul(self._Z, _G)

@@ -47,8 +47,10 @@ flowchart TD
   mismatched, malformed or unrecoverable ECDSA signature now closes the connection
   and exits non-zero before `REAL_CARD_ETH_SIGN_FLOW_OK`, so
   `scripts/accept-card-v1.sh:22` cannot print `REAL_CARD_V1_ACCEPTANCE_OK`
-  after a bad signature (fake-reader regressions: `CardEthFailClosedTests` in
-  `test/test_nuri_pcsc.py`).
+  after a bad signature. Recovery requires `0 < r,s < N` and a valid secp256k1
+  recovery point; zero/out-of-range scalars are rejected before modular arithmetic.
+  Fake-reader regressions in `CardEthFailClosedTests` also execute the actual
+  script entrypoint in a subprocess for success, mismatch and malformed responses.
 - `host/nuri_card_host.py:325`: ETH2-first selection, with explicit demo gate and
   independent all-reader confirmation of ETH2 absence before any ETH1 fallback.
   ETH2 PIN/status/transport failures never downgrade. `NURI_ETH2_AID` cannot alias
