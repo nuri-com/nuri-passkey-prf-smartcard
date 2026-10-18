@@ -5,11 +5,8 @@ import javacard.security.*;
 import javacardx.crypto.*;
 
 /**
- * NuriMuSig2 v0.19 - FIXED 96-byte buffer handling
- *
- * Fixes from v0.18:
- * - Use full 96-byte buffer for mod() like Satochip
- * - Copy result from offset+64 for 96-byte buffer
+ * NuriMuSig2 v1.13 - independent fixed-width scalar arithmetic.
+ * Scalar256 normalizes all host scalars and supports aliased outputs.
  *
  * Hardening v1.11 (Coldcard Mk3 entropy advisory, 2026-07):
  * - INS_INIT (host seed import) REMOVED. Key material can only be born
@@ -29,8 +26,8 @@ import javacardx.crypto.*;
  */
 public class NuriMuSig2v019 extends Applet {
 
-    // Version 1.12 - session flags share nonce lifetime, zero-nonce FINALIZE refused
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0C};
+    // Version 1.13 - independent scalar math; v1.12 nonce lifetime retained
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0D};
 
     // Commands
     private static final byte INS_GET_VERSION = (byte)0x01;
@@ -116,7 +113,7 @@ public class NuriMuSig2v019 extends Applet {
     private byte[] scratch32_3;  // 32 bytes
     private byte[] scratch32_4;  // 32 bytes
     private byte[] scratch32_5;  // 32 bytes
-    private byte[] mulWorkspace; // 96 bytes for Satochip multiplication
+    private Scalar256 scalar;
 
     public static void install(byte[] bArray, short bOffset, byte bLength) {
         new NuriMuSig2v019().register();
@@ -169,10 +166,7 @@ public class NuriMuSig2v019 extends Applet {
         scratch32_3 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
         scratch32_4 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
         scratch32_5 = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
-        mulWorkspace = JCSystem.makeTransientByteArray((short)96, JCSystem.CLEAR_ON_DESELECT);
-
-        // Initialize Satochip BigInteger
-        BigIntegerWrapper.init();
+        scalar = new Scalar256();
     }
 
     public void process(APDU apdu) {
@@ -225,7 +219,7 @@ public class NuriMuSig2v019 extends Applet {
         // Generate a non-zero secp256k1 scalar fully on-card.
         do {
             rng.generateData(scratch32_1, (short)0, (short)32);
-            BigIntegerMod.reduce(scratch32_1, (short)0, scratch32_1, (short)0);
+            scalar.reduce(scratch32_1, (short)0, scratch32_1, (short)0);
         } while (isZero(scratch32_1, (short)0, (short)32));
 
         masterKey.setS(scratch32_1, (short)0, (short)32);
@@ -241,10 +235,9 @@ public class NuriMuSig2v019 extends Applet {
             // BIP340 uses x-only even-Y keys. If generated key has odd Y,
             // replace sk with n-sk so the public point becomes even-Y.
             Util.arrayCopy(scratch32_1, (short)0, scratch32_2, (short)0, (short)32);
-            BigIntegerWrapper.negateMod(
+            scalar.negate(
                 scratch32_2, (short)0,
-                scratch32_1, (short)0,
-                (short)32
+                scratch32_1, (short)0
             );
             masterKey.setS(scratch32_1, (short)0, (short)32);
             keyAgreement.init(masterKey);
@@ -313,12 +306,12 @@ public class NuriMuSig2v019 extends Applet {
         // Generate fresh nonces k1 and k2
         do {
             rng.generateData(nonceK1, (short)0, (short)32);
-            BigIntegerMod.reduce(nonceK1, (short)0, nonceK1, (short)0);
+            scalar.reduce(nonceK1, (short)0, nonceK1, (short)0);
         } while (isZero(nonceK1, (short)0, (short)32));
 
         do {
             rng.generateData(nonceK2, (short)0, (short)32);
-            BigIntegerMod.reduce(nonceK2, (short)0, nonceK2, (short)0);
+            scalar.reduce(nonceK2, (short)0, nonceK2, (short)0);
         } while (isZero(nonceK2, (short)0, (short)32));
 
         // Compute K1 = k1·G
@@ -418,20 +411,17 @@ public class NuriMuSig2v019 extends Applet {
 
         // Step 1: Compute r_i = k1 + b·k2 (mod n)
         // First: scratch32_4 = b * k2 (mod n)
-        BigIntegerWrapper.mulMod(
+        scalar.mulMod(
             scratch32_2, (short)0,    // b
             nonceK2, (short)0,         // k2
-            scratch32_4, (short)0,     // result: b*k2
-            mulWorkspace, (short)0,    // workspace
-            (short)32                  // length
+            scratch32_4, (short)0      // result: b*k2
         );
 
         // Then: scratch32_5 = k1 + b*k2 (mod n)
-        BigIntegerWrapper.addMod(
+        scalar.addMod(
             nonceK1, (short)0,         // k1
             scratch32_4, (short)0,     // b*k2
-            scratch32_5, (short)0,     // result: r_i
-            (short)32                  // length
+            scratch32_5, (short)0      // result: r_i
         );
 
         // Step 2: Apply parity negation if needed
@@ -439,10 +429,9 @@ public class NuriMuSig2v019 extends Applet {
             // r_i = -r_i (mod n)
             // Use scratch32_4 as temp to avoid aliasing
             Util.arrayCopy(scratch32_5, (short)0, scratch32_4, (short)0, (short)32);
-            BigIntegerWrapper.negateMod(
+            scalar.negate(
                 scratch32_4, (short)0,
-                scratch32_5, (short)0,
-                (short)32
+                scratch32_5, (short)0
             );
         }
 
@@ -451,29 +440,24 @@ public class NuriMuSig2v019 extends Applet {
         masterKey.getS(tempBuffer, (short)0);
 
         // First: scratch32_4 = a_i * sk (mod n)
-        BigIntegerWrapper.mulMod(
+        scalar.mulMod(
             scratch32_1, (short)0,     // a_i
             tempBuffer, (short)0,      // sk
-            scratch32_4, (short)0,     // result: a_i*sk
-            mulWorkspace, (short)0,
-            (short)32
+            scratch32_4, (short)0      // result: a_i*sk
         );
 
         // Then: scratch32_4 = e * (a_i*sk) (mod n)
-        BigIntegerWrapper.mulMod(
+        scalar.mulMod(
             scratch32_3, (short)0,     // e
             scratch32_4, (short)0,     // a_i*sk
-            scratch32_4, (short)0,     // result: e*a_i*sk (reuse buffer)
-            mulWorkspace, (short)0,
-            (short)32
+            scratch32_4, (short)0      // result: e*a_i*sk (reuse buffer)
         );
 
         // Step 4: s_i = r_i + e·a_i·sk (mod n)
-        BigIntegerWrapper.addMod(
+        scalar.addMod(
             scratch32_5, (short)0,     // r_i
             scratch32_4, (short)0,     // e*a_i*sk
-            buffer, (short)0,          // result: s_i (directly to output buffer)
-            (short)32
+            buffer, (short)0           // result: s_i (directly to output buffer)
         );
 
         // Clear sensitive data
