@@ -56,3 +56,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s test -p test_nuri_pcsc
 ```
 
 The suite injects fake readers and a stand-in FIDO2 module; its import check also compiles Python scripts. Sources: [test/test_nuri_pcsc.py:164-177](../test/test_nuri_pcsc.py#L164-L177), [test/test_nuri_pcsc.py:362-399](../test/test_nuri_pcsc.py#L362-L399), [test/test_nuri_pcsc.py:533-546](../test/test_nuri_pcsc.py#L533-L546). These tests do not establish real-reader, contactless or operating-system compatibility (**UNVERIFIED**).
+
+## Hardware runs (parent, physical card)
+
+Each row is one run on Emin's demo card (CPLC fabricator 4090, OS id 86aa) with the stated reader. Rows record what ran, not a certified reader list.
+
+| Reader (USB id / ATR) | Date | Protocol `nuri_pcsc` chose | Paths that passed |
+|---|---|---|---|
+| HID Global OMNIKEY 5422, contact slot | 2026-10-18 | `default` | SSH login (`ssh nuri.com`), FIDO2 PIN status, ETH v1 sign verified with python-ecdsa, PKCS#11 `pkcs11-tool --sign` verified, native host `info`/`sign_hash`, card-secrets `put`/`run`/`rm` |
+| Generic Realtek `0bda:0165`, ATR `3b119580` | 2026-10-17/18 | `T0` (default connect: `0x80100066`, T=1: `0x8010000F`) | SSH login, FIDO2 PIN status, ETH SELECT/version/pubkey |
+| ACS ACR39U ICC Reader | 2026-10-18 | `T0` | SSH login, FIDO2 PIN status, ETH v1 sign verified, PKCS#11 sign verified, native host `info`/`sign_hash` (as Chrome launches it), card-secrets `put`/`run`/`rm` |
