@@ -170,6 +170,8 @@ public final class Eth2SimTest {
 
         // CHANGE_PIN
         expectSW(tx(0x80, 0x22, 0, 0, cat(lv("0000".getBytes()), lv(PIN2))), 0x63C4, "CHANGE_PIN wrong old -> 63C4");
+        r = tx(0x80, 0x01, 0, 0, null);
+        check(r.getData()[8] == 4, "wrong-old decrement persisted at 4 (try state is non-transactional)");
         expectSW(tx(0x80, 0x22, 0, 0, cat(lv(PIN), lv(PIN2))), 0x9000, "CHANGE_PIN");
         expectSW(tx(0x80, 0x04, 0, 0, random(32)), 0x9000, "SIGN after CHANGE_PIN (validated)");
         select();
@@ -187,11 +189,17 @@ public final class Eth2SimTest {
         r = tx(0x80, 0x01, 0, 0, null);
         check(r.getData()[8] == 0, "0 tries left");
 
-        // UNBLOCK with PUK
+        // UNBLOCK with PUK. The PIN was at 0 tries; the PUK try counter is 3.
         expectSW(tx(0x80, 0x23, 0, 0, cat("XXXXXXXXXXXXXXXX".getBytes(), lv(PIN))), 0x63C2, "UNBLOCK wrong PUK -> 63C2");
+        expectSW(tx(0x80, 0x23, 0, 0, cat("YYYYYYYYYYYYYYYY".getBytes(), lv(PIN))), 0x63C1, "UNBLOCK wrong PUK #2 -> 63C1 (PUK decrement persists)");
         expectSW(tx(0x80, 0x23, 0, 0, cat(PUK, lv(PIN))), 0x9000, "UNBLOCK with PUK");
+        // A single wrong PIN now returns 63C4 (not 6983): observable proof that
+        // UNBLOCK's OwnerPIN.update reset the blocked PIN's try counter to the
+        // limit without any resetAndUnblock() call.
+        expectSW(tx(0x80, 0x20, 0, 0, "0000".getBytes()), 0x63C4, "wrong PIN after UNBLOCK -> 63C4 (update reset the counter)");
         expectSW(tx(0x80, 0x04, 0, 0, random(32)), 0x6982, "UNBLOCK does not validate");
         expectSW(tx(0x80, 0x20, 0, 0, PIN), 0x9000, "VERIFY after unblock");
+        expectSW(tx(0x80, 0x23, 0, 0, cat("XXXXXXXXXXXXXXXX".getBytes(), lv(PIN))), 0x63C2, "PUK counter back at 3 (successful PUK check reset it)");
         r = tx(0x80, 0x04, 0, 0, random(32));
         expectSW(r, 0x9000, "SIGN after unblock");
         {
