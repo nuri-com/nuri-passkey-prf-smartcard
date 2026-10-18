@@ -372,6 +372,20 @@ class PairingUnit(unittest.TestCase):
         self.assertNotEqual(self.code(), c)
         self.assertIsNotNone(self.p.pair(self.code()))
 
+    def test_code_expires_without_creating_a_session(self):
+        old = self.code()
+        self.now += nuri_helper_auth.PAIR_CODE_TTL_S
+        self.assertIsNone(self.p.pair(old))
+        self.assertEqual(len(self.p._sessions), 0)
+        self.assertIsNotNone(self.p.pair(self.code()))
+
+    def test_code_concurrent_exchange_has_one_winner(self):
+        import concurrent.futures
+        old = self.code()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: self.p.pair(old), range(8)))
+        self.assertEqual(sum(s is not None for s in results), 1)
+
     def test_wrong_codes_burn_the_code(self):
         c = self.code()
         for bad in (None, 123, "", "x" * 1000, {"code": c}, ["a"]):
@@ -658,6 +672,15 @@ class DashboardServer(unittest.TestCase):
         self.assertEqual(self.status_of(resp), 501)
         self.assertIn(b"Connection: close", resp)
         self.assertEqual(resp.count(b"HTTP/1."), 1, "no second (smuggled) request is processed")
+
+    def test_unsupported_method_errors_also_have_page_guards(self):
+        status, headers, body = self.req("PUT", "/", body="{}")
+        self.assertEqual(status, 501)
+        h = {k.lower(): v for k, v in headers.items()}
+        self.assertEqual(h["x-frame-options"], "DENY")
+        self.assertIn("default-src 'self'", h["content-security-policy"])
+        self.assertIn("frame-ancestors 'none'", h["content-security-policy"])
+        self.assertNotIn(TOKEN.encode(), body)
 
     def test_get_with_body_refused(self):
         _, resp = self.raw(f"GET /api/eth/version HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\nContent-Length: 3\r\n\r\nabc".encode())

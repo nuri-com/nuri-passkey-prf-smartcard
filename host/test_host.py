@@ -305,6 +305,14 @@ class FakePcscCardTests(unittest.TestCase):
 
 
 class FramingTests(unittest.TestCase):
+    def test_timeout_configuration_cannot_disable_the_read_deadline(self):
+        from unittest.mock import patch
+        for value in ("inf", "nan", "0", "-1", "999999", "invalid"):
+            with self.subTest(value=value), patch.dict(os.environ, {"NURI_CARD_HOST_FRAME_TIMEOUT": value}):
+                self.assertEqual(host.frame_timeout_from_env(), host.DEFAULT_FRAME_TIMEOUT)
+        with patch.dict(os.environ, {"NURI_CARD_HOST_FRAME_TIMEOUT": "0.1"}):
+            self.assertEqual(host.frame_timeout_from_env(), 0.1)
+
     def test_serve_in_process(self):
         host._SIGNER = None
         stdin = io.BytesIO(frame({"id": 1, "method": "info"}) + frame({"id": 2, "method": "sign_hash", "params": {"hash": "0x" + "00" * 32}}) + frame({"id": 3, "method": "x"}))

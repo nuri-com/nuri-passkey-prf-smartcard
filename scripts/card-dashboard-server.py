@@ -297,6 +297,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *a): pass
 
+    def send_error(self, code, message=None, explain=None):
+        # BaseHTTPRequestHandler otherwise emits an unguarded HTML error page
+        # for unsupported methods/parser errors. Never echo attacker input.
+        self.close_connection = True
+        json_resp(self, code, {"error": "HTTP request rejected"})
+
     def setup(self):
         super().setup()
         self.command, self.path, self.requestline, self.request_version = "", "", "", "HTTP/1.0"

@@ -42,7 +42,7 @@ function checkAncestors(path) {
     current = join(current, part);
     const st = lstatSync(current);
     const writable = (st.mode & 0o022) && !(st.uid === 0 && (st.mode & 0o1000));
-    if (!st.isDirectory() || st.isSymbolicLink() || writable) throw new Error('token path has a symlink or writable ancestor');
+    if (!st.isDirectory() || st.isSymbolicLink() || writable || (st.uid !== 0 && st.uid !== process.getuid())) throw new Error('token path has a symlink or writable ancestor');
   }
 }
 export function loadOrCreateToken({ service = 'cosign', log = console.error } = {}) {

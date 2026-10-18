@@ -51,6 +51,7 @@ SESSION_COOKIE = "nuri_dashboard_session"
 SESSION_TTL_S = 12 * 60 * 60
 PAIR_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
 PAIR_CODE_LEN = 8                                       # 31^8 ~ 2^39.6
+PAIR_CODE_TTL_S = 5 * 60
 PAIR_MAX_FAILURES = 10
 MAX_SESSIONS = 32
 MAX_CODE_INPUT = 64
@@ -275,7 +276,8 @@ class Pairing:
     def _rotate(self, label: str) -> None:
         self._code = "".join(secrets.choice(PAIR_CODE_ALPHABET) for _ in range(PAIR_CODE_LEN))
         self._failures = 0
-        self._log(f"{label}: {self._code[:4]}-{self._code[4:]}  (single use; type it into the dashboard page)")
+        self._code_expires = self._clock() + PAIR_CODE_TTL_S
+        self._log(f"{label}: {self._code[:4]}-{self._code[4:]}  (single use, expires in 5 minutes; type it into the dashboard page)")
 
     def _prune(self, now: float) -> None:
         for k in [k for k, exp in self._sessions.items() if exp <= now]:
@@ -287,6 +289,9 @@ class Pairing:
             code = ""
         given = re.sub(r"[\s-]", "", code).upper().encode()
         with self._lock:
+            if self._clock() >= self._code_expires:
+                self._rotate("pairing code expired; new pairing code")
+                return None
             if not (given and hmac.compare_digest(given, self._code.encode())):
                 self._failures += 1
                 if self._failures >= PAIR_MAX_FAILURES:

@@ -393,7 +393,7 @@ def frame_timeout_from_env() -> float:
         value = float(os.environ.get("NURI_CARD_HOST_FRAME_TIMEOUT", DEFAULT_FRAME_TIMEOUT))
     except ValueError:
         return DEFAULT_FRAME_TIMEOUT
-    return value if value > 0 else DEFAULT_FRAME_TIMEOUT
+    return value if 0 < value <= DEFAULT_FRAME_TIMEOUT else DEFAULT_FRAME_TIMEOUT
 
 
 def _stream_fd(stream) -> int | None:
