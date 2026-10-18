@@ -11,6 +11,7 @@
  */
 
 #define _DARWIN_C_SOURCE
+#define _GNU_SOURCE   /* asprintf, dladdr on glibc (Linux build UNVERIFIED) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
