@@ -7,9 +7,7 @@
 
   const CHANNEL_TO_CONTENT = "nuri-card:to-content";
   const CHANNEL_TO_PAGE = "nuri-card:to-page";
-  const ICON =
-    "data:image/svg+xml;base64," +
-    btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#111"/><text x="16" y="21" font-family="Helvetica,Arial" font-size="14" fill="#fff" text-anchor="middle">N</text></svg>');
+  const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACp0lEQVR4AcXBzWsUZxzA8e/z25md3U0yZjfZxOhGWlLBl8324CsiBQ9FelAo1IOIDaW00Ju3Qj3oRWzRQ9NLoH+AiGfvngQPKr4FxMRqA760Rp3sbnb2bZ6n7GFhWZvZBFbm81H5qYIhQkLEhIgJERMiJkRMCHE0W2Z292sKbpW2QUszu/s1AzFNp8u7/mHMadLpu0mPIyOrhBFCbE002bPJ5+xnyzhiaLGVYd+wjy2GNgUcSldIiaHTzsEauWSTMEIPt7wUBvhx23s+BqGHmlZcWMhyYkuR/FCNfhPW4WHJ4dpLl1+2vyEuhn4S1unPpTQt3096dDNAQysSMU2nRMxQ14owwjrVteLCQpavxsr8n9srCU5uXcFWhpbP3SqFoSp3VhKEsdiA+ZLDlRcup3MrdPvt6SgXd/zL9f1LFJsxMnbAH88yLK7GCaPyUwXDGmwxCFDTijZRkBRNJRAMH9qWbDAQ0zz3bfxA6MUiREMrumkDq4GwliXfZiOEiFmEcC3NoKVp0wbe1C0CwwfSdkAyZui2XI9R14q1WIT4NufxzUSRciC0xJWhYRTnnmS57SXpdObTd3yZLdPthwdbmC85rMWih5vvU5x9PEaLAk7nPH6eWubEnUk6XVwc5dLTEQ5nKvz0yTtO3c3RUtFCGGEDDHCvmGDcCehW1YpyIFS1whhFORDKgaANoSx6mHCaHBsv0eKI4fh4iRtvU/SLRQ9pO+Bg2mfI0uzd5DP3d4arL136xaKH+8UE559kUcDc9CuG7YCGVvSLsE4G+HVxlK83F8kP1ej2RabCTM7jyEiFAUszk/OYyXmMxgPCCCEWVuM8Kjm0Pfdtfv9rhAPDPt0mkw2m3RoDluZ+McG0W2ParZGKacKo/FTBECEhYkLEhIgJERMi9h/NLeDlNbJhXAAAAABJRU5ErkJggg==";
 
   class ProviderRpcError extends Error {
     constructor(code, message, data) {

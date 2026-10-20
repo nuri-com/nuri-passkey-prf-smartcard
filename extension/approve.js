@@ -11,7 +11,7 @@
   const binding = response.binding;
   const hash = s.hash || null;
   $("#origin").textContent = req.origin;
-  const titles = { connect: "Connect account", personal_sign: "Sign message (personal_sign)", eth_signTypedData_v4: "Sign typed data (EIP-712)", eth_signTransaction: "Sign transaction (not broadcast)", eth_sendTransaction: "SEND transaction" };
+  const titles = { connect: "Connect account", personal_sign: "Sign message", eth_signTypedData_v4: "Sign typed data", eth_signTransaction: "Sign transaction · no broadcast", eth_sendTransaction: "Send transaction" };
   $("#kind").textContent = titles[req.kind] || req.kind;
   $("#sim").hidden = s.mode !== "sim";
   const rows = [];

@@ -1,36 +1,19 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nuri Card — approve</title>
-  <style>
-    body { font: 14px/1.4 -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; color: #111; background: #fafafa; }
-    h1 { font-size: 16px; margin: 0 0 8px; }
-    .origin { font-weight: 600; word-break: break-all; }
-    .kind { display: inline-block; background: #111; color: #fff; border-radius: 4px; padding: 2px 8px; font-size: 12px; margin-bottom: 12px; }
-    pre { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; }
-    .row { margin: 6px 0; }
-    .k { color: #666; }
-    .actions { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px 16px; background: #fafafa; border-top: 1px solid #ddd; display: flex; gap: 8px; }
-    button { flex: 1; padding: 10px; font-size: 14px; border-radius: 6px; border: 1px solid #111; cursor: pointer; }
-    #approve { background: #111; color: #fff; }
-    #reject { background: #fff; }
-    .warn { color: #b00; font-weight: 600; }
-    body { padding-bottom: 82px; }
-    code { word-break: break-all; }
-    #sim { background: #b00020; color: white; padding: 6px; font-weight: bold; }
-    #pin { display: block; width: 90%; padding: 10px; margin: 8px 0; }
-    #error { color: #b00020; white-space: pre-wrap; }
-    [hidden] { display: none !important; }
-  </style>
+  <link rel="icon" href="icon32.png">
+  <link rel="stylesheet" href="ui.css">
 </head>
 <body>
-  <h1>Nuri Card</h1>
-  <div id="sim" hidden>SIM — PUBLIC SOFTWARE KEY. Never fund this address.</div>
-  <div class="row"><span class="k">Site:</span> <span class="origin" id="origin"></span></div>
+  <header><img src="icon128.png" alt="Nuri"><h1>Nuri Card</h1></header>
+  <div id="sim" class="sim" hidden>Software simulator · public test key. Do not deposit money.</div>
+  <div class="row"><span class="k">Site</span><br><span class="origin" id="origin"></span></div>
   <div class="kind" id="kind"></div>
-  <div id="body"></div>
-  <div id="pinBox" hidden><label for="pin">Card PIN (sent once to the native host)</label><input id="pin" type="password" autocomplete="off" spellcheck="false" minlength="4" maxlength="16"><div id="tries"></div></div>
+  <main id="body"></main>
+  <div id="pinBox" hidden><label for="pin">Card PIN</label><input id="pin" type="password" autocomplete="off" spellcheck="false" minlength="4" maxlength="16"><div id="tries"></div></div>
   <div id="error" role="alert"></div>
   <div class="actions">
     <button id="reject">Reject</button>

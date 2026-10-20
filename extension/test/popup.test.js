@@ -20,10 +20,10 @@ async function approvalPopup(t, options = {}) {
   await vm.runInContext(fs.readFileSync(path.join(EXT, 'approve.js'), 'utf8'), context);
   return { h, result, ...page };
 }
-test('approval UI shows red SIM warning on every signing popup; legacy PIN field stays hidden', async (t) => {
+test('approval UI labels simulator on every signing popup; legacy PIN field stays hidden', async (t) => {
   const ui = await approvalPopup(t, { mode: 'sim' }); assert.equal(ui.element('sim').hidden, false); assert.equal(ui.element('pinBox').hidden, true);
   assert.match(ui.element('body').innerHTML, /Hash sent to card/); await ui.element('approve').onclick(); assert.ok((await ui.result).result); assert.equal(ui.events.closed, true);
-  const css = fs.readFileSync(path.join(EXT, 'approve.html'), 'utf8'); assert.match(css, /#sim \{ background: #b00020/);
+  const css = fs.readFileSync(path.join(EXT, 'ui.css'), 'utf8'); assert.match(css, /\.sim \{ background: #FFE2D6/);
 });
 test('PIN popup clears input before native use, wrong tries shown, retry has same hash and explicit click', async (t) => {
   const ui = await approvalPopup(t, { pin: '2468' }); assert.equal(ui.element('pinBox').hidden, false); assert.equal(ui.element('sim').hidden, true);
@@ -76,7 +76,7 @@ test('toolbar SIM cannot claim genuineness even with a true flag, and refresh re
   info = { mode: 'sim', attestation: { verified: true } };
   page.element('refresh').onclick();
   assert.doesNotMatch(page.element('out').innerHTML, /genuine Nuri card/);
-  assert.match(page.element('out').innerHTML, /SIM — PUBLIC SOFTWARE KEY/);
+  assert.match(page.element('out').innerHTML, /Software simulator · public test key/);
   assert.match(page.element('out').innerHTML, /Card authenticity unverified/);
   info = { mode: 'card', attestation: { verified: false, reason: '<script>genuine Nuri card</script>' } };
   page.element('refresh').onclick();
@@ -104,6 +104,8 @@ test('stage Send 0 ETH button requests Base self-send and exposes a basescan lin
   const html = fs.readFileSync(path.join(EXT, 'test-dapp.html'), 'utf8'); const inline = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const page = dom(), callbacks = {}, calls = [], address = E.ZeroAddress, hash = '0x' + 'cd'.repeat(32);
   const provider = { on() {}, async request(req) { calls.push(req); if (req.method === 'eth_requestAccounts') return [address]; if (req.method === 'eth_chainId') return '0x2105'; if (req.method === 'eth_sendTransaction') return hash; return null; } };
+  page.document.createTextNode = (text) => ({ textContent: text });
+  page.element('log').append = (node) => { page.element('log').textContent += node.textContent; };
   page.document.createElement = () => ({}); page.element('sent').replaceChildren = (...children) => { page.events.children = children; };
   vm.runInNewContext(inline, { window: { ethers: E, addEventListener: (name, fn) => { callbacks[name] = fn; }, dispatchEvent() {} }, document: page.document, Event: class {}, Date });
   callbacks['eip6963:announceProvider']({ detail: { info: { rdns: 'com.nuri.card', name: 'Nuri Card', uuid: 'fixture' }, provider } });

@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = (
     "manifest.json", "background.js", "content.js", "inpage.js", "popup.html",
-    "popup.js", "approve.html", "approve.js", "icon128.png", "test-dapp.html",
+    "popup.js", "approve.html", "approve.js", "ui.css", "icon16.png", "icon32.png", "icon128.png", "test-dapp.html",
     "lib/hashing.js", "third_party/ethers.umd.min.js", "third_party/ethers.LICENSE.md",
 )
 
