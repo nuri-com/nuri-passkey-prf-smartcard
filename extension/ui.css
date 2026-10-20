@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body { margin: 0; padding: 24px; font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif; color: #2C232E; background: #fffdf2; overflow-wrap: anywhere; }
+header { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+header img { width: 48px; height: 48px; }
+h1 { font-size: 30px; line-height: 1.2; font-weight: 600; margin: 0; }
+p { margin: 12px 0; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 17px; overflow-wrap: anywhere; }
+pre { white-space: pre-wrap; margin: 12px 0; padding: 12px 0; border-block: 1px solid #dddac9; }
+.row { margin: 12px 0; }
+.k { color: #615A62; }
+button, input { font: inherit; }
+button { min-height: 48px; padding: 12px 18px; border: 1px solid #2C232E; border-radius: 9px; cursor: pointer; color: #2C232E; background: transparent; }
+button.primary, #approve { background: #BEAAFF; }
+button:disabled { opacity: .4; cursor: default; }
+a { color: #2C232E; text-underline-offset: 3px; }
+button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #7753C6; outline-offset: 3px; }
+.controls { display: grid; gap: 12px; margin-top: 24px; }
+.err, #error { color: #942D1A; white-space: pre-wrap; }
+.sim { background: #FFE2D6; padding: 12px; margin-bottom: 18px; }
+.attestation { margin: 12px 0; }
+details { margin: 24px 0; }
+summary { cursor: pointer; }
+.origin { font-weight: 600; }
+.kind { margin-bottom: 18px; font-weight: 600; }
+.actions { position: sticky; bottom: 0; margin: 24px -24px -24px; padding: 18px 24px; background: #fffdf2; border-top: 1px solid #dddac9; display: flex; gap: 12px; }
+.actions button { flex: 1; }
+#pin { display: block; width: 100%; padding: 12px; margin: 12px 0; border: 1px solid #615A62; border-radius: 9px; color: #2C232E; background: #fff; }
+[hidden] { display: none !important; }

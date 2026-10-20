@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <title>Nuri Card — test dApp</title>
   <style>
-    body { font: 14px/1.5 -apple-system, Helvetica, Arial, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #111; }
-    button { padding: 8px 14px; margin: 4px 4px 4px 0; border-radius: 6px; border: 1px solid #111; background: #fff; cursor: pointer; }
+    body { font: 17px/1.5 -apple-system, Helvetica, Arial, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #2C232E; background: #fffdf2; }
+    h1 { font-size: 30px; }
+    button { font: inherit; min-height: 48px; padding: 8px 14px; margin: 4px 4px 4px 0; border-radius: 6px; border: 1px solid #111; background: #BEAAFF; cursor: pointer; }
     button:disabled { opacity: .4; cursor: default; }
-    pre { background: #f4f4f4; border-radius: 6px; padding: 10px; white-space: pre-wrap; word-break: break-all; font-size: 12px; }
+    pre { background: #f4f4f4; border-radius: 6px; padding: 10px; white-space: pre-wrap; word-break: break-all; font-size: 17px; }
     .ok { color: #070; font-weight: 700; } .bad { color: #b00; font-weight: 700; }
     code { word-break: break-all; }
   </style>
@@ -32,7 +33,7 @@
     const E = window.ethers;
     let provider = null, account = null;
     const $ = (id) => document.getElementById(id);
-    const log = (...a) => { $("log").textContent += a.map((x) => typeof x === "string" ? x : JSON.stringify(x, null, 2)).join(" ") + "\n"; };
+    const log = (...a) => { $("log").append(document.createTextNode(a.map((x) => typeof x === "string" ? x : JSON.stringify(x, null, 2)).join(" ") + "\n")); };
     const logMatch = (recovered) => {
       const ok = recovered.toLowerCase() === account.toLowerCase();
       log(`recovered ${recovered} — ${ok ? "matches" : "MISMATCH"}`);

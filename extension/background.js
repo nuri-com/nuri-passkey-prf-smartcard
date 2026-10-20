@@ -5,6 +5,9 @@ const H = self.NuriHashing;
 const NATIVE_HOST = "com.nuri.card";
 const DEFAULT_CHAIN = "0x2105"; // Base
 
+// Native Chrome side panel; browser preference controls left/right placement.
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+
 // ---------------------------------------------------------------------------
 // State (persisted in chrome.storage.session / local because SW can be killed)
 // ---------------------------------------------------------------------------

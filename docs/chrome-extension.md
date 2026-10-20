@@ -1,5 +1,8 @@
 # Chrome extension: daily-wallet and stage flow
 
+Version: Chrome extension 0.2.0; repository 1.0.2 unreleased.
+Updated 2026-10-20 by Hermes Agent; UI changes tracked in PR #28.
+
 ```mermaid
 flowchart LR
   D[HTTP or HTTPS dApp] --> B[MV3 worker: construct immutable digest]
@@ -14,6 +17,60 @@ flowchart LR
   R --> T[Transaction hash + explorer link]
   A -->|close, reject, 120-second timeout, disconnect| X[Cancel: no released signature or broadcast]
 ```
+
+## Clean Chrome folder (prototype 0.2.0)
+
+Updated 2026-10-20 by Hermes Agent; repository 1.0.2 unreleased;
+packaging `3639a7c`, side-panel UI and native-IPC fix `ab6a413`.
+
+```sh
+python3 scripts/package-chrome.py "$HOME/Downloads/Nuri Card"
+```
+
+Select **Downloads/Nuri Card** in Chrome's **Load unpacked** picker.
+`manifest.json` is at that folder's root. Selecting the source repository instead
+causes **Manifest file is missing or unreadable**. The adjacent ZIP is the same
+package; extract it before loading. Export refuses to overwrite existing paths.
+Only runtime assets, licence, minimal host files and installation instructions
+are included, not applets, private data, developer worktrees or dependencies.
+
+The macOS `Install Host.command` requires Homebrew Python 3.13, installs host
+Python dependencies and registers `com.nuri.card`. Run only when host setup is
+needed. Legacy demo cards need the explicit `--eth1-demo` terminal argument;
+the default remains fail-closed. No installer provisions/resets a card.
+
+`extension/test/browser_e2e.py` loads that package in a fresh Chromium profile,
+uses an isolated native-host registration and real Python framing in explicit
+software-simulator mode. It checks discovery, connect approval, rejection and
+recovery of message, typed-data and non-broadcast transaction signatures.
+The CI job repeats three times and uploads structured evidence and screenshots.
+These checks do not qualify a real card, ETH2 PIN, readers, recovery or transfers.
+The existing installed host and working browser profile are not modified.
+
+## Side panel, branding and OKX
+
+The toolbar action opens Chrome's native side panel (`manifest.json:12`,
+`background.js:9`). Chrome owns left/right placement; choose **Right** in
+Chrome **Settings → Appearance → Side panel** if it was moved to the left.
+The wallet and approval views share 17px body text and a 30px title in `ui.css`.
+Technical card information and attestation status live in collapsed details;
+real-card mode has no permanent warning banner. Explicit simulator mode remains
+labelled because it uses a publicly known test key.
+
+Icons are exports from the actual Nuri Expo production app icon
+(`assets/app-variants/production/icon.png`); the 32px icon is the exact
+`public/favicon-32.png` file. The EIP-6963 discovery icon embeds those same bytes.
+
+Nuri leaves an existing OKX `window.ethereum` provider unchanged and announces
+itself separately using EIP-6963 (`inpage.js:94`). The provider fixture test proves
+coexistence, not end-to-end OKX integration. Using the Nuri Card **as a hardware
+signer inside OKX Wallet is not implemented**. This UI change adds no Ledger or
+Trezor protocol emulation and imports/exports no card key.
+
+PIN on/off is deferred. ETH2's `pinRequired` is selected during applet
+personalization (`card/eth2/NuriEthSignerV2.java:189-219`); its runtime command
+dispatch has PIN setup/change/unblock but no enable/disable command (`:266-275`).
+No card applet, firmware, PIN policy, installed host or SSH key was changed.
 
 ## Supported flow and boundary
 
@@ -165,6 +222,8 @@ The Node suite mocks Chrome/fetch, executes the actual popup scripts against a
 minimal DOM fixture, and exercises a real framed Python host using its explicit
 public simulator. Host tests use fake PC/SC sessions and verify PIN status mapping,
 identity changes, session closure, log omission, buffers and simulator refusal.
-**UNVERIFIED here:** actual Chrome popup lifecycle/native IPC, physical ETH2 PIN
-signing, physical-reader behavior, live Base RPC/broadcast/receipt and stage UX.
+**Outside these checks:** physical ETH2 PIN signing, physical-reader behavior,
+live Base RPC/broadcast/receipt and stage UX. The separate Chromium acceptance
+above exercises real extension popup lifecycle and native IPC with the explicit
+software simulator, not a physical card.
 No real reader/card was touched; ETH2 was not installed on the owner's demo card.
