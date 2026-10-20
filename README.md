@@ -24,6 +24,32 @@ show or approve the recipient, amount or chain. Do not treat a public source
 release as consumer-funds approval. See [SECURITY.md](SECURITY.md),
 [security advisories](docs/security-advisories.md) and [security model](docs/security-model.md).
 
+## Chrome prototype: clean install folder
+
+Extension version **0.2.0**; repository version **1.0.2**, unreleased.
+Updated 2026-10-20 by Hermes Agent; packaging `3639a7c`, side-panel UI `ab6a413`.
+
+```sh
+python3 scripts/package-chrome.py "$HOME/Downloads/Nuri Card"
+```
+
+Chrome → `chrome://extensions` → Developer mode → **Load unpacked** →
+select **Downloads/Nuri Card**. `manifest.json` is directly inside that folder.
+Do not select the repository root. A ZIP and `START HERE.txt` are also created.
+The exporter refuses to overwrite an existing folder or ZIP.
+
+The toolbar click opens a native side panel, with 17px text, the official
+Nuri app icon and technical details collapsed. Chrome controls its left/right
+placement. Nuri coexists with an existing OKX provider; using the card to sign
+inside OKX itself is not implemented. PIN on/off remains deferred; no applet,
+PIN policy or installed host is changed by this package.
+
+The local native host is a separate installation. The package includes
+`Install Host.command` for macOS; an already-installed host is left unchanged
+until explicitly run. [Host setup and test scope](docs/chrome-extension.md).
+The Chromium CI job tests actual browser approvals and native IPC using the
+explicit software simulator, not a physical card or a mainnet transfer.
+
 ## Feature status
 
 Status describes the exact scope in the first column, not all revisions or clients.

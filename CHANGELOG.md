@@ -9,6 +9,31 @@ flowchart LR
 
 ## Unreleased — launch branch
 
+### 2026-10-20 — Readable Nuri side panel — Hermes Agent
+
+Version: 1.0.2 unreleased; Chrome extension 0.2.0.
+
+- `ab6a413`: native side panel, 17px body/30px title, official production-app
+  icons and collapsed technical/attestation details. Simulator remains labelled.
+- `ab6a413`: preserve OKX's existing injected provider; 34 extension tests pass.
+  Signing inside OKX is not implemented; PIN on/off is deferred, without card changes.
+- `ab6a413`: register the simulator host in the isolated Chromium user-data
+  profile; preserve signature-match DOM nodes when appending test logs.
+  Local Chromium verifies a live SIDE_PANEL context, layout and three recovered
+  signatures. Host suite: 86 tests run, one intentional skip. No physical card,
+  installed host, personal browser profile or production changes.
+
+### 2026-10-20 — Chrome installation package — Hermes Agent
+
+Version: 1.0.2 unreleased; Chrome extension 0.2.0.
+
+- `3639a7c`: create a clean folder with root `manifest.json`, ZIP, START HERE
+  instructions and minimal host installer; refuse to overwrite existing paths.
+- Add actual Chromium UI and Python native-messaging acceptance in explicit
+  simulator mode, repeated three times in cloud CI with downloadable evidence.
+  Physical-card signing, PIN, broadcast and release qualification remain separate.
+- Existing working card, SSH keys, installed host and production remain unchanged.
+
 ### 2026-10-19 — ETH1 acceptance hardening — Hermes Agent
 
 Version: 1.0.2 (unreleased launch changes). Updated: 2026-10-19 CEST.
