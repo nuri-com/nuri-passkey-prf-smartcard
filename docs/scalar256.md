@@ -16,15 +16,28 @@ flowchart LR
 `00ce5b2` introduced the MIT clean-room fixed-iteration software multiply.
 That integration established simulator arithmetic correctness, not hardware
 latency: the software loop was not timed on a physical card at that stage.
-MIT-compatible RSA square-based acceleration is planned separately; this release
-build integration does not itself implement it or qualify its fallback behavior.
-No new real-card times are claimed here.
+The current `RsaMultiply` uses three exact RSA squares with public exponent two
+and modulus `2^768-1`. The largest input is 257 bits, so no square reduces.
+The difference is shifted right once. Fixed byte-product folds use
+`2^256 = c (mod m)` for m=n or p, then a masked conditional subtraction.
+The implementation is independently authored from this identity, not inherited code.
+Unsupported RSA providers fail installation closed. All scratch is transient;
+RSA public key setup occurs at install only.
+
+Five real-card signatures verified, FINALIZE 5164.75–5195.32 ms (median 5194.75),
+GET_NONCES 290–293 ms. This is approximately 14.6x faster than the measured
+75.7 s regression, but does NOT meet the <3 s target. Native EC validation was
+not substituted: the independent field-equation check remains, since native
+scalar-one ECDH alone does not prove point validity. Blinding/double computation
+remain intact. See [proof](proofs/real-card-87E5470B-musig2-aid3-fast.json).
+The detailed W16 sections below describe the historical software algorithm,
+not the current multiplication path.
 
 | Identity | Package AID | Applet AID | Acceptance scope |
 |---|---|---|---|
 | Original | `4E5552494D5547` | `4E5552494D554701` | Historical artifact; not AID3 acceptance |
 | AID2 | `4E5552494D554732` | `4E5552494D55473201` | Historical PIN2 cosign receipt; no latency qualification |
-| AID3 candidate | `4E5552494D554733` | `4E5552494D55473301` | Reproducible-build integration; hardware unverified |
+| AID3 v1.16 | `4E5552494D554733` | `4E5552494D55473301` | Five verified hardware signatures; 5.2 s FINALIZE |
 
 `scripts/build-musig2-aid3.sh` copies current `card/musig2/*.java`, patches only
 its temporary APPLET_AID and normalizes CAP metadata. It leaves tracked Java

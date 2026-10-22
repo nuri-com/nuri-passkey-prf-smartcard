@@ -69,3 +69,5 @@ timings and acceptance do not transfer between identities. See the
 - [Mobile source reference](../mobile/expo-nfc-prf-probe/README.md) — restricted UI dependency and NFC test limits.
 - [Build tool](../tools/README.md) — pinned ant-javacard binary/source provenance.
 - [Changes](../CHANGELOG.md) — historical changes, not fresh acceptance.
+
+[AID3 hardware signature and timing proof](proofs/real-card-87E5470B-musig2-aid3-fast.json).

@@ -44,6 +44,7 @@ public final class Scalar256 {
     // Public operation mode only; never selected from a secret. Non-reentrant.
     private boolean fieldArithmetic;
     private final byte[] scratch;
+    private final RsaMultiply fast = new RsaMultiply();
 
     public Scalar256() {
         scratch = JCSystem.makeTransientByteArray((short)160, JCSystem.CLEAR_ON_DESELECT);
@@ -109,24 +110,7 @@ public final class Scalar256 {
     public void mulMod(byte[] a, short ao, byte[] b, short bo, byte[] out, short oo) {
         load(a, ao, A);
         load(b, bo, B);
-        for (short i = 0; i < SIZE; i++) {
-            scratch[(short)(R + i)] = 0;
-        }
-        // Horner evaluation of B's 256 bits, most significant first:
-        // R <- 2*R mod n; candidate <- R+A mod n; select by the current bit.
-        for (short bit = 0; bit < (short)256; bit++) {
-            addCanonical(R, R, R);
-            addCanonical(R, A, T);
-            short digit = (short)((scratch[(short)(B + (bit >> 3))]
-                >> (7 - (bit & 7))) & 1);
-            short mask = (short)(-digit);
-            for (short i = 0; i < SIZE; i++) {
-                short ri = (short)(R + i);
-                scratch[ri] = (byte)((scratch[ri] & ~mask)
-                    | (scratch[(short)(T + i)] & mask));
-            }
-        }
-        copy(scratch, R, out, oo);
+        fast.multiply(scratch, A, scratch, B, out, oo, fieldArithmetic);
         clear();
     }
 
