@@ -11,13 +11,14 @@
   const binding = response.binding;
   const hash = s.hash || null;
   $("#origin").textContent = req.origin;
-  const titles = { connect: "Connect account", personal_sign: "Sign message", eth_signTypedData_v4: "Sign typed data", eth_signTransaction: "Sign transaction · no broadcast", eth_sendTransaction: "Send transaction" };
+  const titles = { connect: "Connect account", personal_sign: "Sign message", eth_signTypedData_v4: "Sign typed data", eth_signTransaction: "Sign transaction · no broadcast", eth_sendTransaction: "Send transaction", webauthn_create: "Create Nuri wallet key on card", webauthn_get: "Unlock Nuri wallet with card" };
   $("#kind").textContent = titles[req.kind] || req.kind;
   $("#sim").hidden = s.mode !== "sim";
   const rows = [];
   const esc = (str) => String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const row = (key, value) => rows.push(`<div class="row"><span class="k">${esc(key)}:</span> <code>${esc(value)}</code></div>`);
   if (s.address) row("Card address", s.address);
+  if (req.kind.startsWith("webauthn_")) { row("Wallet site", s.rpId); if (s.account) row("Account", s.account); row("Wallet key (PRF)", s.prf ? "yes" : "no"); }
   if (req.kind === "connect") { row("Applet", s.applet); row("Reader", s.reader); row("Mode", s.mode); }
   if (req.kind === "personal_sign") rows.push(`<pre>${esc(s.message)}</pre>`);
   if (req.kind === "eth_signTypedData_v4") {

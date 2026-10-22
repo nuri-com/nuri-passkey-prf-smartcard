@@ -361,7 +361,25 @@ const handlers = {
     await setState({ connectedOrigins: state.connectedOrigins });
     return null;
   },
+
+  // Card-backed WebAuthn (FIDO2 + PRF) for Nuri Connect. Origin comes from
+  // Chrome's sender URL; the host re-checks origin and rp.id. ETH flows above
+  // are untouched and need no ETH applet for these two methods.
+  async nuri_webauthnCreate(params, { origin }) { return cardWebAuthn("create", origin, params); },
+  async nuri_webauthnGet(params, { origin }) { return cardWebAuthn("get", origin, params); },
 };
+
+const WEBAUTHN_ORIGINS = new Set(["https://connect.nuri.com"]);
+async function cardWebAuthn(kind, origin, params) {
+  if (!WEBAUTHN_ORIGINS.has(origin)) throw rpcError(4100, `Card WebAuthn is not enabled for ${origin}`);
+  const publicKey = JSON.parse(JSON.stringify(params?.[0] ?? null));
+  if (!publicKey || typeof publicKey !== "object") throw rpcError(-32602, "publicKey options required");
+  const summary = kind === "create"
+    ? { rpId: publicKey.rp?.id, account: publicKey.user?.name, prf: !!publicKey.extensions?.prf, pinRequired: true }
+    : { rpId: publicKey.rpId, credentials: (publicKey.allowCredentials || []).length, prf: !!publicKey.extensions?.prf?.eval, pinRequired: true };
+  return requestApproval(origin, `webauthn_${kind}`, summary,
+    (pin) => nativeCall(`webauthn_${kind}`, pin === undefined ? { origin, publicKey } : { origin, publicKey, pin }));
+}
 
 const PASSTHROUGH = new Set([
   "eth_blockNumber", "eth_call", "eth_estimateGas", "eth_gasPrice", "eth_getBalance", "eth_getBlockByNumber",

@@ -4,3 +4,4 @@ require('./background.test.js');
 require('./popup.test.js');
 require('./lifecycle.test.js');
 require('./inpage.test.js');
+require('./webauthn.test.js');
