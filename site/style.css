@@ -2,20 +2,22 @@
 * { box-sizing: border-box; }
 body { margin: 0; line-height: 1.6; }
 main { max-width: 1220px; margin: auto; padding: 64px 24px; }
-h1 { color: #586e75; font-size: 48px; line-height: 1.12; font-weight: 500; letter-spacing: -.035em; margin: 0 0 24px; }
-p { margin: 0 0 32px; max-width: 640px; }
+h1 { color: #586e75; font-size: 48px; line-height: 1.12; font-weight: 500; letter-spacing: -.035em; margin: 0 0 32px; }
+p { margin: 0 0 40px; }
 a { color: #268bd2; text-underline-offset: 4px; }
 a:hover { color: #2aa198; }
 a:focus-visible { outline: 2px solid #268bd2; outline-offset: 5px; }
-.features { padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px 28px; margin: 0 0 56px; }
+.features { padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px 28px; margin: 0 0 32px; }
 .features li::before { content: '✓ '; color: #2aa198; }
+.offer { color: #2aa198; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 40px; }
 caption { text-align: left; color: #586e75; font-weight: bold; margin-bottom: 16px; }
 th, td { font-size: 17px; text-align: left; vertical-align: top; padding: 14px 8px; border-bottom: 1px solid #eee8d5; overflow-wrap: anywhere; }
 th { color: #586e75; font-weight: 600; }
 th:first-child { padding-left: 0; }
-.button { display: inline-block; color: #fdf6e3; background: #268bd2; padding: 12px 22px; text-decoration: none; }
-.button:hover { background: #2aa198; color: #fdf6e3; }
+.yes { color: #2aa198; }
+.no { color: #dc322f; }
+td[data-product="Nuri Card"] { color: #2aa198; }
 @media (max-width: 850px) {
   main { padding: 40px 20px; }
   table, tbody, tr, td, th { display: block; }
@@ -25,4 +27,5 @@ th:first-child { padding-left: 0; }
   tbody th { border: 0; padding: 0 0 8px; }
   td { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 8px 0; }
   td::before { content: attr(data-product); color: #586e75; }
+  td[data-product="Nuri Card"]::before { color: #2aa198; }
 }
