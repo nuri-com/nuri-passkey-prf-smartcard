@@ -32,7 +32,7 @@ def package(output):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "extension" / name, target)
     for name in ("LICENSE", "host/install-macos.sh", "host/nuri_card_host.py",
-                 "scripts/nuri_pcsc.py", "scripts/nuri_attest.py"):
+                 "host/webauthn_bridge.py", "scripts/nuri_pcsc.py", "scripts/nuri_attest.py"):
         target = output / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
