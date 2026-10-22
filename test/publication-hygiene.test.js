@@ -24,7 +24,11 @@ test('README evidence labels stay bounded and demo tooling stays explicit', () =
   // Keep room for the restored comparisons, HSM guide and capability reference.
   assert.ok(readme.split('\n').length < 1200, 'README should remain under 1200 lines');
   for (const heading of [
-    'Where it sits vs other hardware wallets',
+    'Compare the card',
+    'Why it beats YubiKey',
+    'Use cases',
+    'For developers',
+    'Wallet architecture reference',
     'The card as a hardware security module',
     'PKCS#11: built and tested, with explicit limits',
     'The vision',
@@ -32,6 +36,11 @@ test('README evidence labels stay bounded and demo tooling stays explicit', () =
     'Capability reference',
   ]) assert.ok(readme.includes(heading), `Missing restored section: ${heading}`);
   assert.match(readme, /```mermaid/);
+  const selling = readme.split('## For developers')[0];
+  assert.match(selling, /Free with a \$1,000\+ BTC deposit, otherwise \$19\.99/);
+  assert.ok(selling.indexOf('## What it does') < selling.indexOf('## Compare the card'));
+  assert.doesNotMatch(selling, /Research stack|no product certification established|no screen|blind signing/);
+  assert.doesNotMatch(readme, /Verify applet PIN; request public nonces/);
   const featureSection = readme.split('## Feature status')[1].split('### Supported readers')[0];
   const rows = featureSection.split('\n').filter(line => /^\| /.test(line)).slice(1);
   const allowed = new Set(['proven on a physical card', 'simulator only', 'planned']);
