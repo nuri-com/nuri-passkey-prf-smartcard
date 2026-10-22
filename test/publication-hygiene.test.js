@@ -21,7 +21,17 @@ test('tracked release files contain no developer-home paths or personal infrastr
 
 test('README evidence labels stay bounded and demo tooling stays explicit', () => {
   const readme = readFileSync(resolve(root, 'README.md'), 'utf8');
-  assert.ok(readme.split('\n').length < 200);
+  // Keep room for the restored comparisons, HSM guide and capability reference.
+  assert.ok(readme.split('\n').length < 1200, 'README should remain under 1200 lines');
+  for (const heading of [
+    'Where it sits vs other hardware wallets',
+    'The card as a hardware security module',
+    'PKCS#11: built and tested, with explicit limits',
+    'The vision',
+    'Roadmap to the vision',
+    'Capability reference',
+  ]) assert.ok(readme.includes(heading), `Missing restored section: ${heading}`);
+  assert.match(readme, /```mermaid/);
   const featureSection = readme.split('## Feature status')[1].split('### Supported readers')[0];
   const rows = featureSection.split('\n').filter(line => /^\| /.test(line)).slice(1);
   const allowed = new Set(['proven on a physical card', 'simulator only', 'planned']);
