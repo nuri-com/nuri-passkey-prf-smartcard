@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Test the NuriEcdsaSigner applet on the real card.
+"""Test the legacy NuriEcdsaSigner (ETH1) demo applet on the real card.
+
+W28: ETH1 has no PIN, so this tool refuses unless env NURI_ALLOW_ETH1_DEMO is
+exactly "1" (checked before any card I/O), refuses when the PIN-gated ETH2
+applet is installed (or its absence cannot be confirmed as SW 6A82), and warns
+on stderr when it does talk to ETH1.
 
 Flow:
 1. SELECT the NURIETH1 applet
@@ -10,25 +15,63 @@ Flow:
 """
 import argparse
 import hashlib
-from smartcard.System import readers
-from smartcard.CardConnection import CardConnection
+import os
+import sys
 
-APPLET_AID = bytes.fromhex("4E55524945544801")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nuri_eth_policy
+import nuri_pcsc
+
+APPLET_AID = bytes.fromhex(nuri_eth_policy.ETH1_AID)
+MUSIG2_AID = bytes.fromhex("4E5552494D554701")  # was a 9-byte typo, the RNG check silently skipped
 
 def transmit(conn, apdu_bytes):
-    res = conn.transmit(list(apdu_bytes))
-    data, sw1, sw2 = res
-    sw = (sw1 << 8) | sw2
+    data, sw = conn.transmit(bytes(apdu_bytes))
     if sw != 0x9000:
-        raise RuntimeError(f"APDU failed: SW={sw:04X}, data={bytes(data).hex()}")
-    return bytes(data)
+        raise RuntimeError(f"APDU failed: SW={sw:04X}, data={data.hex()}")
+    return data
 
 def select(conn):
-    apdu = bytes([0x00, 0xA4, 0x04, 0x00, len(APPLET_AID)]) + APPLET_AID
+    return select_aid(conn, APPLET_AID)
+
+def select_aid(conn, aid):
+    apdu = bytes([0x00, 0xA4, 0x04, 0x00, len(aid)]) + aid
     return transmit(conn, apdu)
 
 def get_version(conn):
     return transmit(conn, bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
+
+def raw_sw(conn, apdu_bytes):
+    return conn.transmit(bytes(apdu_bytes))
+
+def musig2_rng_health_check(conn):
+    """Coldcard Mk3 lesson: TRNG code present in the binary does not prove the
+    TRNG is what actually runs — verify behavior on the physical card. Four
+    independent MuSig2 nonce draws must be unique valid compressed points,
+    and INS_INIT (0x02, removed in applet 1.11) must be rejected. Fails closed."""
+    try:
+        select_aid(conn, MUSIG2_AID)
+    except RuntimeError:
+        print("MuSig2 applet not present; skipping RNG health check")
+        return
+    # NEVER probe INS_INIT (0x02): on applets < 1.11 it is accepted and REPLACES the
+    # master key with sha256(data). Probing it with 32 zero bytes overwrote a real
+    # card's MuSig2 key with a publicly known key on 2026-10-18. Decide by version.
+    ver = transmit(conn, bytes([0x00, 0x01, 0x00, 0x00, 0x00]))
+    if (ver[0], ver[1]) < (1, 11):
+        raise SystemExit(f"MuSig2 applet {ver[0]}.{ver[1]} < 1.11 still has host seed import (INS_INIT). "
+                         "Do not use it for funds; install 1.12+ on a new card.")
+    seen = set()
+    for _ in range(2):
+        resp = transmit(conn, bytes([0x00, 0x40, 0x00, 0x00, 0x00]))
+        for off in (0, 33):
+            point = resp[off:off + 33]
+            if point[0] not in (0x02, 0x03):
+                raise SystemExit(f"RNG health check FAILED: malformed nonce point {point.hex()}")
+            if point in seen:
+                raise SystemExit("RNG health check FAILED: repeated nonce draw — on-card RNG not trusted")
+            seen.add(point)
+    print("RNG health check: 4 unique on-card nonce draws, INS_INIT rejected")
 
 def keygen(conn):
     return transmit(conn, bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
@@ -50,29 +93,14 @@ def main():
     )
     args = parser.parse_args()
 
-    rs = readers()
-    conn = None
-    # Find the reader whose inserted card actually exposes the ETH applet.
-    for i, r in enumerate(rs):
-        candidate = None
-        try:
-            candidate = r.createConnection()
-            # ponytail: OMNIKEY 5422 contact slot fails T=1 transmits; card speaks T=0
-            candidate.connect(CardConnection.T0_protocol)
-            select(candidate)
-            conn = candidate
-            print(f"Reader {i}: {r}")
-            break
-        except Exception:
-            try:
-                if candidate is not None:
-                    candidate.disconnect()
-            except Exception:
-                pass
-            continue
-
-    if conn is None:
-        raise SystemExit("Nuri ETH applet not found on any reader")
+    # ETH1 demo gate (env, ETH2 preferred, confirmed 6A82 only) before keygen/sign.
+    try:
+        conn = nuri_eth_policy.open_eth1_demo(nuri_pcsc)
+    except nuri_eth_policy.EthPolicyError as error:
+        raise SystemExit(f"Refusing ETH1 demo test: {error}") from error
+    except nuri_pcsc.CardError as error:
+        raise SystemExit(f"Nuri ETH1 applet not found on any reader ({error})") from error
+    print(f"Reader: {conn.reader_name} (protocol {conn.protocol})")
 
     print("\n=== SELECT NURIETH1 ===")
     print("OK")
@@ -82,7 +110,7 @@ def main():
     print(f"Version: {ver[0]}.{ver[1]}, build: {ver[3:7].decode()}")
 
     if args.regenerate:
-        print("\n=== KEYGEN (DESTRUCTIVE) ===")
+        print("\n=== KEYGEN (one-shot, blank cards only) ===")
         pubkey33 = keygen(conn)
     else:
         print("\n=== EXISTING KEY ===")
@@ -90,8 +118,18 @@ def main():
             pubkey33 = get_pubkey(conn)
         except RuntimeError as error:
             raise SystemExit(
-                f"No existing ETH key. Run once with --regenerate on a new/test card: {error}"
+                f"No existing ETH key. Run once with --regenerate on a blank card: {error}"
             ) from error
+        # Applet 1.4+: KEYGEN is one-shot (6989 once keyed). Probing it is DESTRUCTIVE on
+        # applets < 1.4: KEYGEN succeeds and silently replaces the key (this rotated a real
+        # card's ETH key on 2026-10-18). Only probe when the applet reports >= 1.4.
+        if (ver[0], ver[1]) >= (1, 4):
+            _, sw = raw_sw(conn, bytes([0x00, 0x03, 0x00, 0x00, 0x00]))
+            if sw != 0x6989:
+                raise SystemExit(f"KEYGEN on keyed card returned SW={sw:04X}, expected 6989")
+            print("One-shot KEYGEN guard: OK (SW=6989)")
+        else:
+            print(f"One-shot KEYGEN guard: SKIPPED (applet {ver[0]}.{ver[1]} < 1.4 has no guard; probing would replace the key)")
     print(f"Compressed pubkey: {pubkey33.hex()}")
 
     # Derive Ethereum address (host-side keccak256)
@@ -130,6 +168,12 @@ def main():
     print("Tap the card if required...")
 
     sig = sign(conn, test_hash)
+    if len(sig) != 65 or sig[64] not in (0, 1):
+        conn.close()
+        raise SystemExit(
+            f"Malformed ETH1 signature: expected r||s||v (65 bytes, v in 0/1), "
+            f"got {len(sig)} bytes ending in {sig[-1] if sig else 'none'}: {sig.hex()}"
+        )
     r = sig[:32]
     s = sig[32:64]
     v = sig[64]
@@ -141,13 +185,16 @@ def main():
     # ECDSA recover: given (r, s, v, hash), find Q
     def ecrecover(r_val, s_val, v_val, msg_hash):
         """Recover public key from ECDSA signature."""
-        # r, s are ints
         r_int = r_val
         s_int = s_val
+        if not (0 < r_int < N and 0 < s_int < N):
+            raise ValueError("r and s must satisfy 0 < r,s < secp256k1 order")
 
         # R = (r, y) where y is determined by v
         y_sq = (pow(r_int, 3, P) + 7) % P
         y = pow(y_sq, (P + 1) // 4, P)
+        if pow(y, 2, P) != y_sq:
+            raise ValueError("r does not identify a secp256k1 point")
         if (y & 1) != v_val:
             y = P - y
         R = (r_int, y)
@@ -192,7 +239,14 @@ def main():
     s_int = int.from_bytes(s, "big")
     v_int = v
 
-    recovered = ecrecover(r_int, s_int, v_int, test_hash)
+    try:
+        recovered = ecrecover(r_int, s_int, v_int, test_hash)
+    except (ValueError, ZeroDivisionError, OverflowError) as error:
+        conn.close()
+        raise SystemExit(
+            f"ETH1 ECDSA signature malformed (recovery raised {type(error).__name__}: {error})"
+        ) from error
+
     if recovered:
         rx, ry = recovered
         print(f"\nRecovered pubkey:")
@@ -209,10 +263,19 @@ def main():
             print("\n❌ MISMATCH — recovered pubkey does not match card pubkey")
             print(f"  card:     {pubkey33.hex()}")
             print(f"  recovered:{recovered_pub.hex()}")
+            conn.close()
+            raise SystemExit(
+                "ETH1 ECDSA signature MISMATCH: recovered pubkey does not match card pubkey"
+            )
     else:
         print("\n❌ ECDSA recovery failed (point at infinity)")
+        conn.close()
+        raise SystemExit("ETH1 ECDSA recovery failed (point at infinity)")
 
-    conn.disconnect()
+    print("\n=== MUSIG2 RNG HEALTH CHECK ===")
+    musig2_rng_health_check(conn)
+
+    conn.close()
     print("\n=== DONE ===")
 
 if __name__ == "__main__":

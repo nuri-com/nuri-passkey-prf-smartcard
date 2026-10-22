@@ -22,6 +22,8 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
 import { bech32m } from '@scure/base';
 
+import { requireCardResult, requireCardSubprocess } from '../src/signer-policy.js';
+
 export const PY = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 export const TWEAKED = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 export const PRF_SCRIPT = process.env.NURI_CARD_PRF_SCRIPT || 'scripts/card-prf-backup.py';
@@ -53,10 +55,11 @@ export function nuriDerive(clientPk33Hex, cardPk33Hex, network) {
 }
 
 export function execPy(args) {
+  requireCardSubprocess(args);
   return new Promise((res, rej) => {
     execFile(PY, args, { cwd: process.cwd(), timeout: 120000, maxBuffer: 1 << 20 }, (err, out, errout) => {
       if (err) return rej(new Error(`${err.message}\n${errout || out}`.trim()));
-      try { res(JSON.parse(out)); } catch (e) { rej(new Error(`bad JSON: ${e.message}\n${out}`)); }
+      try { res(requireCardResult(JSON.parse(out))); } catch (e) { rej(new Error(`bad JSON: ${e.message}\n${out}`)); }
     });
   });
 }
@@ -66,6 +69,7 @@ export function execPy(args) {
 // call, HKDF-stretched to 32 bytes, and used as the secp256k1 client secret.
 // card-cosign-tweaked.py normalizes it to even-y internally, so the raw seed is fine.
 export function derivePrfSeed(prfProfile = DEFAULT_PRF_PROFILE, salt = DEFAULT_PRF_SALT) {
+  requireCardSubprocess([PRF_SCRIPT]);
   return new Promise((res, rej) => {
     execFile(PY, [PRF_SCRIPT, 'derive', '--profile', prfProfile, '--salt', salt, '--raw'],
       { cwd: process.cwd(), timeout: 60000, maxBuffer: 1 << 20 }, (err, out, errout) => {
@@ -79,7 +83,7 @@ export function derivePrfSeed(prfProfile = DEFAULT_PRF_PROFILE, salt = DEFAULT_P
 
 export function profilePath(network) { return resolve(WALLET_DIR, `${network}.json`); }
 export async function loadProfile(network) {
-  try { return JSON.parse(await readFile(profilePath(network), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  try { return requireCardResult(JSON.parse(await readFile(profilePath(network), 'utf8'))); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
 }
 export async function saveProfile(network, p) {
   await mkdir(dirname(resolve(profilePath(network))), { recursive: true });
@@ -105,7 +109,7 @@ export async function provisionAddress(networkName, opts = {}) {
   if (!net) throw new Error(`unknown network: ${networkName}`);
   const existing = await loadProfile(networkName);
   // Client key source: either a caller-supplied seed (browser passkey PRF, already
-  // HKDF+BIP86-derived the nuri-expo way) or the card's own FIDO2 PRF over PC/SC.
+  // HKDF+BIP86-derived the companion wallet way) or the card's own FIDO2 PRF over PC/SC.
   const prfProfile = opts.prfProfile || existing?.client_prf_profile || DEFAULT_PRF_PROFILE;
   const prfSalt = opts.prfSalt || existing?.client_prf_salt || DEFAULT_PRF_SALT;
   const seedHex = opts.clientSeedHex || await derivePrfSeed(prfProfile, prfSalt);
@@ -116,6 +120,7 @@ export async function provisionAddress(networkName, opts = {}) {
     throw new Error(`output key mismatch: node ${nuri.outputXOnly} vs card ${r.tweaked_output_xonly32}`);
   }
   const profile = {
+    mode: 'card',
     network: networkName,
     key_origin: opts.clientSeedHex
       ? 'client=browser_passkey_prf_hkdf_bip86__cosigner=card_musig2'
@@ -187,6 +192,7 @@ export async function buildAndSignSpend(networkName, opts) {
   tx.finalize();
 
   const result = {
+    mode: 'card',
     status: broadcast ? 'NURI_CARD_TX_BROADCAST' : 'NURI_CARD_TX_READY',
     network: networkName,
     source_address: profile.address,
@@ -224,6 +230,7 @@ if (isMain) {
       else if (arg === '--include-unconfirmed') a.includeUnconfirmed = true;
       else if (arg === '--broadcast') a.broadcast = true;
       else if (!arg.startsWith('-') && !a.command) a.command = arg;
+      else throw new Error(`unknown argument: ${arg}; wallet requires a physical card`);
     }
     if (!NETWORKS[a.network]) throw new Error(`unknown network: ${a.network}`);
     return a;
@@ -249,7 +256,7 @@ if (isMain) {
       }), null, 2));
     }
   } catch (e) {
-    console.error(`error: ${e.message}`);
+    console.error(JSON.stringify({ mode: 'card', error: e.message }));
     process.exit(1);
   }
 }

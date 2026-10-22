@@ -3,17 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DS_REF="${NURI_DESIGN_SYSTEM_REF:-73c64a07e85cf086d750629a82af2b8a7527b43a}"
-DS_URL="${NURI_DESIGN_SYSTEM_URL:-https://github.com/nuri-com/nuri-design-system.git}"
-DS_DIR="${NURI_DESIGN_SYSTEM_DIR:-$ROOT/.build/nuri-design-system}"
+DS_URL="${NURI_DESIGN_SYSTEM_URL:-}"
+DS_DIR="${NURI_DESIGN_SYSTEM_DIR:-$ROOT/.build/ui-dependency}"
 
 mkdir -p "$(dirname "$DS_DIR")"
 if [[ ! -d "$DS_DIR/.git" ]]; then
-  local_checkout="$ROOT/../nuri-design-system-official"
-  if [[ -d "$local_checkout/.git" ]]; then
-    git clone --no-hardlinks "$local_checkout" "$DS_DIR"
-  else
-    git clone "$DS_URL" "$DS_DIR"
-  fi
+  : "${DS_URL:?Set NURI_DESIGN_SYSTEM_URL to your authorized UI dependency repository}"
+  git clone "$DS_URL" "$DS_DIR"
 fi
 
 if ! git -C "$DS_DIR" cat-file -e "$DS_REF^{commit}" 2>/dev/null; then

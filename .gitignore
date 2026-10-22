@@ -1,9 +1,15 @@
-node_modules/
+node_modules
 vendor/
 # Confidential vendor material. Keep the Feitian BioCARD NDA SDK local only.
 # Do not force-add files from either path.
 vendor/feitian-nda-sdk/
 docs/feitian/nda/
+# Omitted vendor assets and build wrapper: see THIRD_PARTY_NOTICES.md.
+docs/feitian/*.pdf
+third_party/fido2-applet/mds.json
+third_party/fido2-applet/gradlew
+third_party/fido2-applet/gradlew.bat
+third_party/fido2-applet/gradle/wrapper/
 .build/
 __pycache__/
 *.py[cod]
@@ -29,3 +35,5 @@ card/3.0.4
 card/**/3.0.4
 .nuri-card-wallet/
 card/dist/
+# SSH provider embeds local interpreter/helper paths: build locally, never redistribute.
+dist/nuri-pcsc-sk-provider.so

@@ -7,6 +7,18 @@ WORK="$BUILD_ROOT/work"
 OUT="${CARD_RELEASE_OUT:-$BUILD_ROOT/artifacts}"
 JAVA8_HOME="${JAVA8_HOME:-}"
 
+# Keep the Gradle launcher separate from the pinned CAP compiler/converter JVM.
+GRADLE_JAVA_HOME="${JAVA17_HOME:-${JAVA_HOME:-}}"
+if [[ -z "$GRADLE_JAVA_HOME" ]] && [[ -x /usr/libexec/java_home ]]; then
+  GRADLE_JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+fi
+if [[ -n "$GRADLE_JAVA_HOME" ]]; then
+  export JAVA_HOME="$GRADLE_JAVA_HOME"
+fi
+
+source "$ROOT/scripts/require-system-gradle.sh"
+require_system_gradle
+
 if [[ -z "$JAVA8_HOME" ]] && [[ -x "${JAVA_HOME:-}/bin/java" ]] && \
    "$JAVA_HOME/bin/java" -version 2>&1 | head -1 | grep -Eq 'version "1\.8\.'; then
   JAVA8_HOME="$JAVA_HOME"
@@ -53,7 +65,10 @@ build_fido() {
   done
   (
     cd "$build_dir"
-    JC_HOME="$JC305" ./gradlew clean buildJavaCard --no-daemon
+    # The upstream plugin runs ant-javacard in-process: it needs JDK 8 for
+    # Java Card 3.0.5's legacy source/target and byte-identical CAP output.
+    JAVA_HOME="${GRADLE_JAVA_HOME:-$JAVA8_HOME}" JC_HOME="$JC305" \
+      "$GRADLE_BIN" -Dorg.gradle.java.home="$JAVA8_HOME" clean buildJavaCard --no-daemon
   )
   cp "$build_dir/build/javacard/FIDO2.cap" "$OUT/raw/$name.cap"
 }
@@ -66,12 +81,20 @@ build_fido FIDO2-up \
 ant -f "$ROOT/card/musig2/build.xml" \
   -Djckit.path="$JC304" \
   -Dcap.output="$OUT/raw/nuri-musig2-v20-keygen.cap" build
+JC_KIT="$JC304" ANT_JAVACARD="$ROOT/tools/ant-javacard-proven.jar" JAVA8_HOME="$JAVA8_HOME" \
+  CAP_OUT="$OUT/raw/nuri-musig2-v20-keygen-aid2.cap" "$ROOT/scripts/build-musig2-aid2.sh"
 ant -f "$ROOT/card/totp/build.xml" \
   -Djckit.path="$JC304" \
   -Dcap.output="$OUT/raw/nuri-oath-totp.cap" build
 ant -f "$ROOT/card/eth/build.xml" \
   -Djckit.path="$JC304" \
   -Dcap.output="$OUT/raw/nuri-eth-signer.cap" build
+ant -f "$ROOT/card/eth2/build.xml" \
+  -Djckit.path="$JC304" \
+  -Dcap.output="$OUT/raw/nuri-eth2-signer.cap" build
+ant -f "$ROOT/card/vault/build.xml" \
+  -Djckit.path="$JC304" \
+  -Dcap.output="$OUT/raw/nuri-vault.cap" build
 
 for cap in "$OUT"/raw/*.cap; do
   name="$(basename "$cap")"
@@ -81,7 +104,8 @@ done
 (
   cd "$OUT"
   shasum -a 256 FIDO2.cap FIDO2-up.cap nuri-musig2-v20-keygen.cap \
-    nuri-oath-totp.cap nuri-eth-signer.cap >SHA256SUMS
+    nuri-oath-totp.cap nuri-eth-signer.cap nuri-eth2-signer.cap nuri-vault.cap \
+    nuri-musig2-v20-keygen-aid2.cap >SHA256SUMS
 )
 
 {
@@ -92,6 +116,8 @@ done
   printf '%s\n' "javacard_sdk_ref=e2df471e04d86f33de69a947f44766fbef1d9d69"
   printf '%s\n' "ant_javacard_sha256=def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2"
   printf 'java=%s\n' "$($JAVA_HOME/bin/java -version 2>&1 | head -1)"
+  printf 'gradle=%s\n' "$GRADLE_VERSION"
+  printf 'gradle_launcher_java_home=%s\n' "${GRADLE_JAVA_HOME:-$JAVA8_HOME}"
 } >"$OUT/BUILD-PROVENANCE.txt"
 
 cat "$OUT/SHA256SUMS"

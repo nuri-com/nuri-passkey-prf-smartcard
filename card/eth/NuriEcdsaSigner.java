@@ -7,7 +7,7 @@ import javacard.security.*;
  * NuriEcdsaSigner — secp256k1 ECDSA signing for Ethereum/EVM.
  *
  * Uses Satochip's Biginteger class for RSA-accelerated modular arithmetic
- * (same as the MuSig2 applet). The private key is generated on-card and
+ * (the current MuSig2 applet uses independent Scalar256). The private key is generated on-card and
  * never leaves the secure element.
  *
  * ECDSA: r = (k·G).x mod n
@@ -28,20 +28,18 @@ public class NuriEcdsaSigner extends Applet {
     // 1.3: fixed BigIntegerWrapper.addMod/subMod aliasing — result==b clobbered b
     //      before it was read, so addMod(z, rd, rd) computed 2z instead of z+rd,
     //      producing wrong ECDSA s on every signature (zrd and s were wrong).
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x03};
+    // 1.4: removed debug INS 05/06/08 for production; KEYGEN is one-shot (6989
+    //      once keyed). Keys can only be born on-card via ALG_SECURE_RANDOM.
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x04};
 
     private static final byte INS_GET_VERSION = (byte)0x01;
     private static final byte INS_GET_PUBKEY  = (byte)0x02;
     private static final byte INS_KEYGEN      = (byte)0x03;
     private static final byte INS_SIGN        = (byte)0x04;
-    // Debug (math only, no key access): card computes on host operands so the
-    // host can diff each primitive against Python. Remove before production.
-    private static final byte INS_DBG_MULMOD  = (byte)0x05; // a(32)||b(32) -> (a*b) mod n
-    private static final byte INS_DBG_MODINV  = (byte)0x06; // a(32) -> a^-1 mod n
-    private static final byte INS_DBG_KG      = (byte)0x08; // k(32) -> len(1)||raw generateSecret(k,G) (debug only)
 
     private static final short SW_NOT_INITIALIZED = (short)0x6986;
     private static final short SW_SIGN_FAILED     = (short)0x6988;
+    private static final short SW_KEY_ALREADY_GENERATED = (short)0x6989;
 
     private static final short LENGTH_EC_FP_256 = (short)256;
     private static final byte ALG_EC_SVDP_DH_PLAIN_XY = (byte)0x06;
@@ -84,6 +82,8 @@ public class NuriEcdsaSigner extends Applet {
     private ECPrivateKey nonceKey;
     private KeyAgreement keyAgreement;
     private RandomData rng;
+    // Persistent: once true, KEYGEN is locked forever.
+    private boolean keyGenerated;
 
     // Buffers
     private byte[] ecdhOut;       // 65 bytes
@@ -156,9 +156,6 @@ public class NuriEcdsaSigner extends Applet {
             case INS_GET_PUBKEY:  getPublicKey(apdu); break;
             case INS_KEYGEN:      keygen(apdu); break;
             case INS_SIGN:        sign(apdu); break;
-            case INS_DBG_MULMOD:  dbgMulMod(apdu); break;
-            case INS_DBG_MODINV:  dbgModInv(apdu); break;
-            case INS_DBG_KG:      dbgKG(apdu); break;
             default: ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
         }
     }
@@ -175,6 +172,8 @@ public class NuriEcdsaSigner extends Applet {
     }
 
     private void keygen(APDU apdu) {
+        // One-shot: the key is born once, on-card. Re-keying = new blank card.
+        if (keyGenerated) ISOException.throwIt(SW_KEY_ALREADY_GENERATED);
         byte[] buffer = apdu.getBuffer();
         do {
             rng.generateData(scratchA, (short)0, (short)32);
@@ -182,6 +181,7 @@ public class NuriEcdsaSigner extends Applet {
         } while (isZero(scratchA, (short)0));
 
         privKey.setS(scratchA, (short)0, (short)32);
+        keyGenerated = true;
 
         keyAgreement.init(privKey);
         short outLen = keyAgreement.generateSecret(SECP256K1, OFF_G, (short)65, ecdhOut, (short)0);
@@ -199,40 +199,6 @@ public class NuriEcdsaSigner extends Applet {
         short outLen = keyAgreement.generateSecret(SECP256K1, OFF_G, (short)65, ecdhOut, (short)0);
         compressPubkey(ecdhOut, outLen, buffer, (short)0);
         apdu.setOutgoingAndSend((short)0, (short)33);
-    }
-
-    private void dbgMulMod(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
-        short dataLen = apdu.setIncomingAndReceive();
-        if (dataLen != 64) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, scratchA, (short)0, (short)32);
-        Util.arrayCopy(buffer, (short)(ISO7816.OFFSET_CDATA + 32), scratchB, (short)0, (short)32);
-        BigIntegerWrapper.mulMod(scratchA, (short)0, scratchB, (short)0, scratchC, (short)0, mulWorkspace, (short)0, (short)32);
-        Util.arrayCopy(scratchC, (short)0, buffer, (short)0, (short)32);
-        apdu.setOutgoingAndSend((short)0, (short)32);
-    }
-
-    private void dbgModInv(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
-        short dataLen = apdu.setIncomingAndReceive();
-        if (dataLen != 32) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, scratchB, (short)0, (short)32);
-        modInverse(scratchB, (short)0, scratchA, (short)0);
-        Util.arrayCopy(scratchA, (short)0, buffer, (short)0, (short)32);
-        apdu.setOutgoingAndSend((short)0, (short)32);
-    }
-
-    private void dbgKG(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
-        short dataLen = apdu.setIncomingAndReceive();
-        if (dataLen != 32) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA, scratchB, (short)0, (short)32);
-        nonceKey.setS(scratchB, (short)0, (short)32);
-        keyAgreement.init(nonceKey);
-        short outLen = keyAgreement.generateSecret(SECP256K1, OFF_G, (short)65, ecdhOut, (short)0);
-        buffer[0] = (byte)outLen;
-        Util.arrayCopy(ecdhOut, (short)0, buffer, (short)1, outLen);
-        apdu.setOutgoingAndSend((short)0, (short)(outLen + 1));
     }
 
     private void sign(APDU apdu) {

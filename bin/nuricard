@@ -64,7 +64,6 @@ ENTRIES=(
 
   "H|Web / Mobile PRF"
   "Serve browser PRF page|web:prf"
-  "Serve PRF page via ngrok|web:tunnel"
   "Android NFC PRF probe|mobile:android"
   "iOS NFC PRF probe|mobile:ios"
 

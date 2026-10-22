@@ -18,6 +18,39 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  chrome-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright ecdsa pycryptodome
+      - run: python -m playwright install --with-deps chromium
+      - run: node --test extension/test
+      - name: Package and reject accidental overwrite
+        run: |
+          python scripts/package-chrome.py "$RUNNER_TEMP/Nuri Card"
+          if python scripts/package-chrome.py "$RUNNER_TEMP/Nuri Card"; then
+            echo "ERROR: overwrote an existing installation"
+            exit 1
+          fi
+      - name: Real Chromium UI and Python native messaging, explicit simulator
+        run: |
+          for run in 1 2 3; do
+            python extension/test/browser_e2e.py "$RUNNER_TEMP/Nuri Card" "$RUNNER_TEMP/evidence-$run"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nuri-card-chrome-prototype
+          path: |
+            ${{ runner.temp }}/Nuri Card.zip
+            ${{ runner.temp }}/evidence-*
+
   card-release:
     runs-on: ubuntu-latest
     steps:
@@ -26,6 +59,14 @@ jobs:
         with:
           distribution: zulu
           java-version: '8.0.452+9'
+      - run: echo "JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -34,6 +75,7 @@ jobs:
       - run: npm ci
       - run: npm run card:release:verify
       - run: python3 -m py_compile scripts/*.py
+      - run: python3 -m unittest discover -s test -p test_nuri_pcsc.py -v
 
   virtual-card:
     runs-on: ubuntu-latest
@@ -43,6 +85,9 @@ jobs:
         with:
           distribution: zulu
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
       - uses: actions/setup-node@v4
         with:
           node-version: 22

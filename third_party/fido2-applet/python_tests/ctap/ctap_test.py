@@ -113,11 +113,11 @@ class JCardSimTestCase(TestCase, abc.ABC):
             elif jar.startswith('fido2applet-'):
                 main_jars.append(jar)
         if len(main_jars) == 0:
-            raise ValueError("Applet not built - run ./gradlew jar")
+            raise ValueError("Applet not built - run gradle jar")
         elif len(main_jars) > 1:
             raise ValueError("More than one main jar in build/libs - remove all but one")
         if len(test_jars) == 0:
-            raise ValueError("Tests not built - run ./gradlew testJar")
+            raise ValueError("Tests not built - run gradle testJar")
         elif len(test_jars) > 1:
             raise ValueError("More than one test jar in build/libs - remove all but one")
 

@@ -11,8 +11,11 @@ import argparse
 import hashlib
 import json
 import secrets
+import os
 import sys
-from smartcard.System import readers
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nuri_musig2_card  # APDU driver: PC/SC ladder, version gate, PIN, 1.14 FINALIZE
 
 
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -21,7 +24,7 @@ GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 G = (GX, GY)
 
-APPLET_AID = bytes.fromhex("4E5552494D554701")
+APPLET_AID = nuri_musig2_card.APPLET_AID
 
 
 def sha256(data: bytes) -> bytes:
@@ -168,71 +171,15 @@ def partial_verify(partial: bytes, pub_nonce1: bytes, pub_nonce2: bytes, b: byte
     return point_mul(s, G) == rhs
 
 
-class NuriMuSig2Card:
-    def __init__(self):
-        self.conn = None
-        self.reader = None
-
-    def connect(self):
-        select = [0x00, 0xA4, 0x04, 0x00, len(APPLET_AID)] + list(APPLET_AID)
-        for idx, reader in enumerate(readers()):
-            try:
-                conn = reader.createConnection()
-                conn.connect()
-                _, sw1, sw2 = conn.transmit(select)
-                if ((sw1 << 8) | sw2) == 0x9000:
-                    self.conn = conn
-                    self.reader = f"{idx}:{reader}"
-                    return
-                conn.disconnect()
-            except Exception:
-                pass
-        raise RuntimeError("No NuriMuSig2 card found")
-
-    def disconnect(self):
-        if self.conn:
-            self.conn.disconnect()
-
-    def transmit_ok(self, apdu):
-        response, sw1, sw2 = self.conn.transmit(apdu)
-        status = (sw1 << 8) | sw2
-        if status != 0x9000:
-            raise RuntimeError(f"APDU failed: SW={status:04X}")
-        return bytes(response)
+class NuriMuSig2Card(nuri_musig2_card.MuSig2Card):
+    """Shared host driver (scripts/nuri_musig2_card.py): legacy <1.14 without PIN,
+    1.14+ with VERIFY before nonces/finalize and the 231-byte FINALIZE."""
 
     def version(self):
-        response = self.transmit_ok([0x00, 0x01, 0x00, 0x00, 0x00])
-        return {
-            "version": f"{response[0]}.{response[1]}",
-            "build": response[3:7].decode("ascii", errors="ignore"),
-        }
-
-    def init_seed(self, seed: bytes):
-        if len(seed) != 32:
-            raise ValueError("seed must be 32 bytes")
-        self.transmit_ok([0x00, 0x02, 0x00, 0x00, 0x20] + list(seed))
-
-    def pubkey(self) -> bytes:
-        return self.transmit_ok([0x00, 0x03, 0x00, 0x00, 0x00])
-
-    def keygen(self) -> bytes:
-        response = self.transmit_ok([0x00, 0x04, 0x00, 0x00, 0x00])
-        if len(response) != 33:
-            raise RuntimeError(f"unexpected keygen pubkey length: {len(response)}")
-        return response
-
-    def nonces(self):
-        response = self.transmit_ok([0x00, 0x40, 0x00, 0x00, 0x00])
-        if len(response) != 66:
-            raise RuntimeError(f"unexpected nonce response length: {len(response)}")
-        return response[:33], response[33:]
-
-    def finalize(self, coeff: bytes, b: bytes, parity: int, e: bytes) -> bytes:
-        payload = coeff + b + bytes([parity]) + e
-        response = self.transmit_ok([0x00, 0x41, 0x00, 0x00, len(payload)] + list(payload) + [0x20])
-        if len(response) != 32:
-            raise RuntimeError(f"unexpected partial length: {len(response)}")
-        return response
+        # Shape unchanged for existing callers; PIN/protocol state is reported
+        # separately (card_protocol / card_pin_verified in the proof JSON).
+        info = self.version_info()
+        return {"version": info["version"], "build": info["build"]}
 
 
 def key_agg_coefficients(pubkeys33):
@@ -260,37 +207,47 @@ def run(args):
     try:
         version = card.version()
 
-        # Prefer real on-card KEYGEN. Keep INIT(seed) as an explicit fallback for
-        # old v1.9 applets only; production should use KEYGEN. For stable wallet
-        # tests, --use-existing-card-key signs with the current non-exportable
-        # key that was already provisioned on-card.
-        use_init_seed = args.use_init_seed
+        # Key provisioning: on-card KEYGEN only. Applet 1.11 removed INIT(seed)
+        # host import and made KEYGEN one-shot (SW 6989 once a key exists).
+        # On an already-keyed card we sign with the existing non-exportable key.
         use_existing_card_key = args.use_existing_card_key
         card_pubkey = None
         client_secret = None
         client_point = None
         coeffs = None
         aggregate = None
+        key_origin = None
 
         if use_existing_card_key:
             card_pubkey = card.pubkey()
             if len(card_pubkey) != 33:
                 raise RuntimeError(f"unexpected existing card pubkey length: {len(card_pubkey)}")
-            if card_pubkey[0] != 0x02:
-                raise RuntimeError("existing card key is not even-y; reprovision with KEYGEN")
-        elif use_init_seed:
-            for _ in range(128):
-                card.init_seed(secrets.token_bytes(32))
-                candidate_card_pubkey = card.pubkey()
-                if candidate_card_pubkey[0] == 0x02:
-                    card_pubkey = candidate_card_pubkey
-                    break
-            if card_pubkey is None:
-                raise RuntimeError("could not provision even-y card key through INIT(seed)")
+            key_origin = "existing_on_card_non_exportable"
         else:
-            card_pubkey = card.keygen()
-            if card_pubkey[0] != 0x02:
-                raise RuntimeError("KEYGEN did not return an even-y compressed public key")
+            try:
+                card_pubkey = card.keygen()
+                key_origin = "on_card_keygen_non_exportable"
+            except RuntimeError as error:
+                if "SW=6989" not in str(error):
+                    raise
+                card_pubkey = card.pubkey()
+                key_origin = "existing_on_card_non_exportable_one_shot"
+        if card_pubkey[0] != 0x02:
+            raise RuntimeError("card key is not even-y; reprovision on a blank card")
+
+        # RNG health check (Coldcard Mk3 lesson: TRNG code being present does
+        # not prove the TRNG is what actually runs — verify behavior). Four
+        # independent on-card nonce draws must be unique, valid compressed
+        # secp256k1 points. Runs before every proof, fails closed.
+        rng_draws = []
+        for _ in range(2):
+            pub_k1, pub_k2 = card.nonces()
+            rng_draws.extend([pub_k1, pub_k2])
+        for draw in rng_draws:
+            if len(draw) != 33 or draw[0] not in (0x02, 0x03):
+                raise RuntimeError("RNG health check failed: malformed nonce point")
+        if len(set(rng_draws)) != 4:
+            raise RuntimeError("RNG health check failed: repeated nonce draws")
 
         client_secret_source = "random_demo_client_secret"
         if args.client_secret_hex:
@@ -317,24 +274,9 @@ def run(args):
                     aggregate = candidate_aggregate
                     break
         if client_secret is None:
-            if use_init_seed or use_existing_card_key:
-                raise RuntimeError("could not find even-y aggregate proof keys after retries")
-            # A new card key is cheap in this test applet; retry the full keygen
-            # once more if client-only retries did not produce even aggregate.
-            card_pubkey = card.keygen()
-            if card_pubkey[0] != 0x02:
-                raise RuntimeError("KEYGEN retry did not return an even-y compressed public key")
-            for _ in range(128):
-                candidate_client_secret, candidate_client_point = random_secret_even_y()
-                candidate_client_pubkey = compress_point(candidate_client_point)
-                candidate_coeffs, candidate_aggregate = key_agg_coefficients([candidate_client_pubkey, card_pubkey])
-                if candidate_aggregate and candidate_aggregate[1] % 2 == 0:
-                    client_secret = candidate_client_secret
-                    client_point = candidate_client_point
-                    coeffs = candidate_coeffs
-                    aggregate = candidate_aggregate
-                    break
-        if client_secret is None:
+            # KEYGEN is one-shot; the card key cannot change. Odd aggregate is
+            # only a client-side pick issue, and 128 retries miss with
+            # probability 2^-128.
             raise RuntimeError("could not find even-y aggregate proof keys after retries")
 
         client_pubkey = compress_point(client_point)
@@ -357,13 +299,18 @@ def run(args):
         b = tagged_hash("MuSig/noncecoef", r1_x + r2_x + aggregate_xonly + msg32)
         b_int = int_from_bytes(b) % N
         aggregate_r = point_add(r1, point_mul(b_int, r2))
+        if aggregate_r is None:
+            aggregate_r = G  # BIP327: infinity -> G
         parity = 0 if aggregate_r[1] % 2 == 0 else 1
         r_even = aggregate_r if parity == 0 else point_neg(aggregate_r)
         r_even_x = bytes_from_int(r_even[0])
         e = tagged_hash("BIP0340/challenge", r_even_x + aggregate_xonly + msg32)
         e_int = int_from_bytes(e) % N
 
-        card_partial = card.finalize(card_coeff, b, parity, e)
+        # 1.14+: also hand the card the actual aggregate nonce R (pre-negation,
+        # y parity == `parity`) and the aggregate key the challenge commits to.
+        # The search loop above guarantees `aggregate` has even y.
+        card_partial = card.finalize(card_coeff, b, parity, e, r_agg=aggregate_r, p_agg=aggregate)
 
         client_r = (client_k1 + b_int * client_k2) % N
         if parity == 1:
@@ -384,23 +331,17 @@ def run(args):
                 "real-nuri-musig2-v20-existing-key-apdu"
                 if use_existing_card_key
                 else "real-nuri-musig2-v20-keygen-apdu"
-                if not use_init_seed
-                else "real-nuri-musig2-legacy-init-apdu"
             ),
             "card_aid": APPLET_AID.hex().upper(),
             "reader": card.reader,
             "card_version": version,
-            "key_origin": (
-                "existing_on_card_non_exportable"
-                if use_existing_card_key
-                else "host_seed_imported_into_real_card_current_v19_applet"
-                if use_init_seed
-                else "on_card_keygen_non_exportable"
-            ),
+            "card_protocol": card.protocol,
+            "card_pin_verified": card.pin_verified,
+            "key_origin": key_origin,
             "client_secret_source": client_secret_source,
             "demo_client_secret32": bytes_from_int(client_secret).hex() if args.include_demo_client_secret else None,
-            "production_keygen_supported_by_current_applet": not use_init_seed,
-            "keygen_gap": "Using explicit legacy INIT(seed) fallback." if use_init_seed else None,
+            "production_keygen_supported_by_current_applet": True,
+            "keygen_gap": None,
             "msg32": msg32.hex(),
             "client_pk33": client_pubkey.hex(),
             "card_pk33": card_pubkey.hex(),
@@ -428,7 +369,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--message", default="nuri real card cosign proof")
     parser.add_argument("--msg32", default="")
-    parser.add_argument("--use-init-seed", action="store_true", help="legacy fallback for pre-KEYGEN applets")
     parser.add_argument("--use-existing-card-key", action="store_true", help="sign with the current non-exportable card key instead of running KEYGEN")
     parser.add_argument("--client-secret-hex", default="", help="demo-only client secret for stable aggregate-key tests")
     parser.add_argument("--include-demo-client-secret", action="store_true", help="include the generated demo client secret in JSON output for local profile provisioning")

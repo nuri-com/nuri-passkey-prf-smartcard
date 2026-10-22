@@ -7,7 +7,9 @@ cd "$ROOT"
 npm run cli:e2e
 npm run card:arkade:signer:sim
 npm run fido2:test-prf
+npm run card:musig2:test:sim
 scripts/run-card-python.sh scripts/card-totp.py --selfcheck
+scripts/test-totp-sim.sh
 
 echo "CARD_V1_VIRTUAL_TESTS_OK"
 echo "ETH and Java Card hardware behavior still require a qualified physical card."

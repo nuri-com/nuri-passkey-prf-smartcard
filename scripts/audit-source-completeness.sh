@@ -14,6 +14,9 @@ required_files=(
   card/musig2/NuriMuSig2v019.java
   card/totp/NuriOathTotp.java
   card/eth/NuriEcdsaSigner.java
+  card/eth2/NuriEthSignerV2.java
+  card/vault/NuriVault.java
+  card/vault/build.xml
   mobile/expo-nfc-prf-probe/App.tsx
   mobile/expo-nfc-prf-probe/TerminalScreen.tsx
   mobile/expo-nfc-prf-probe/ProfileScreen.tsx
@@ -23,6 +26,8 @@ required_files=(
   dist/nuri-musig2-v20-keygen.cap
   dist/nuri-oath-totp.cap
   dist/nuri-eth-signer.cap
+  dist/nuri-eth2-signer.cap
+  dist/nuri-vault.cap
   dist/SHA256SUMS
   LICENSES/GPL-2.0-or-later.txt
   THIRD_PARTY_NOTICES.md
@@ -36,21 +41,21 @@ for file in "${required_files[@]}"; do
   }
 done
 
-tracked_generated="$(git ls-files 'card/**/3.0.4' 'card/3.0.4')"
+tracked_generated="$(git -C "$ROOT" ls-files 'card/**/3.0.4' 'card/3.0.4')"
 if [[ -n "$tracked_generated" ]]; then
   echo "Generated Java Card converter output must not be tracked:" >&2
   echo "$tracked_generated" >&2
   exit 1
 fi
 
-tracked_nda="$(git ls-files 'vendor/feitian-nda-sdk/**' 'docs/feitian/nda/**')"
+tracked_nda="$(git -C "$ROOT" ls-files 'vendor/feitian-nda-sdk/**' 'docs/feitian/nda/**')"
 if [[ -n "$tracked_nda" ]]; then
   echo "Confidential Feitian NDA SDK material must never be tracked:" >&2
   echo "$tracked_nda" >&2
   exit 1
 fi
 
-if rg -n 'org\.gradle\.java\.home=|/Users/[^/]+/|/private/tmp/nuri-fido2-real-card-venv' \
+if rg -n '/Users/[^/]+/|/private/tmp/nuri-fido2-real-card-venv' \
   package.json scripts card third_party mobile/expo-nfc-prf-probe \
   --glob '!scripts/audit-source-completeness.sh' \
   --glob '!**/node_modules/**' --glob '!**/build/**' --glob '!**/.gradle/**'; then

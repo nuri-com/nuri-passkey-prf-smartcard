@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <script src="/helper-pair.js"></script>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Nuri — localhost passkey → card-cosigned signature</title>
@@ -26,7 +27,7 @@
   <h1>Localhost passkey → card-cosigned Bitcoin signature</h1>
   <p class="lead">
     Proves the <strong>same flow as the Nuri PWA</strong>, fully local: a browser passkey on
-    <code>localhost</code> produces a WebAuthn PRF, which is run through nuri-expo's exact
+    <code>localhost</code> produces a WebAuthn PRF, which is run through companion wallet's exact
     derivation (<code>HKDF(app:nuri.com|wallet|v1)</code> → BIP86 <code>m/86'/0'/0'/0/0</code>) to
     get the client key. The physical card in your reader is the MuSig2 cosigner
     (<code>musig2(client, card)</code> + CSV recovery leaf). The result is a valid BIP340
@@ -50,7 +51,7 @@ const log = (msg, cls = 'step') => { const d = document.createElement('div'); d.
 const clearLog = () => { $('log').innerHTML = ''; $('out').hidden = true; };
 
 const RP_ID = location.hostname;           // "localhost" — the passkey's relying party
-const PRF_SALT = 'nuri-prf-salt-v1';       // identical to nuri-expo config/constants.ts
+const PRF_SALT = 'nuri-prf-salt-v1';       // identical to companion wallet config/constants.ts
 const CRED_KEY = 'nuri-localhost-passkey-credid';
 const enc = new TextEncoder();
 const b64u = {

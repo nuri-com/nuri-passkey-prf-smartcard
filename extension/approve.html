@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nuri Card — approve</title>
+  <link rel="icon" href="icon32.png">
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <header><img src="icon128.png" alt="Nuri"><h1>Nuri Card</h1></header>
+  <div id="sim" class="sim" hidden>Software simulator · public test key. Do not deposit money.</div>
+  <div class="row"><span class="k">Site</span><br><span class="origin" id="origin"></span></div>
+  <div class="kind" id="kind"></div>
+  <main id="body"></main>
+  <div id="pinBox" hidden><label for="pin">Card PIN</label><input id="pin" type="password" autocomplete="off" spellcheck="false" minlength="4" maxlength="16"><div id="tries"></div></div>
+  <div id="error" role="alert"></div>
+  <div class="actions">
+    <button id="reject">Reject</button>
+    <button id="approve">Approve with card</button>
+  </div>
+  <script src="approve.js"></script>
+</body>
+</html>

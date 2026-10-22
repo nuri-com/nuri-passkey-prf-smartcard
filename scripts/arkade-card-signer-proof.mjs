@@ -18,7 +18,7 @@ function fixedSecret(byte) {
 
 function parseArgs(argv) {
   const args = {
-    backend: 'card-sim',
+    backend: null,
     proofCase: 'all',
     json: false,
     scriptRoot32: bytesToHex(sha256Bytes('nuri arkade vtxo script root proof')),
@@ -56,7 +56,11 @@ function parseArgs(argv) {
 }
 
 function makeSigner(backend) {
-  if (backend === 'software-passkey') return new SoftwarePasskeyArkadeSigner(fixedSecret(0x41));
+  if (backend === 'software-passkey') {
+    const signer = new SoftwarePasskeyArkadeSigner(fixedSecret(0x41));
+    signer.mode = 'sim'; // This CLI uses a public test scalar, never a real passkey.
+    return signer;
+  }
   return new SimulatedCardArkadeSigner(new SimulatedMuSig2Card(fixedSecret(0x51)));
 }
 
@@ -80,6 +84,7 @@ async function run(args) {
     }));
   }
   return {
+    mode: 'sim',
     status: 'ARKADE_CARD_CLIENT_SIGNER_PROOF_SUITE_OK',
     backend: args.backend,
     cases,
@@ -88,10 +93,12 @@ async function run(args) {
 
 try {
   const args = parseArgs(process.argv.slice(2));
+  console.error('WARNING: SIMULATOR: public software test keys, NOT a hardware card.');
   const result = await run(args);
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
+    console.log(`mode=${result.mode}`);
     console.log(`status=${result.status}`);
     console.log(`backend=${result.backend}`);
     for (const proof of result.cases) {
@@ -107,6 +114,7 @@ try {
     }
   }
 } catch (error) {
+  if (process.argv.includes('--json')) console.log(JSON.stringify({ mode: process.argv.some(a => a.startsWith('--backend=')) ? 'sim' : 'invalid', error: error?.message || String(error) }));
   console.error(error?.message || String(error));
   process.exit(1);
 }
