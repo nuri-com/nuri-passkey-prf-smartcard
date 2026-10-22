@@ -714,15 +714,25 @@ def handle(request: Any) -> dict[str, Any]:
                 raise HostError("ADDRESS_MISMATCH", "params.address is not the address info reported")
             r, s = signer.verify_pin_and_sign(pin_buf, digest, _INFO)
             return ok_response(req_id, verify_and_recover(signer.pubkey, digest, r, s))
+        if method in ("webauthn_create", "webauthn_get"):
+            if resolve_mode() != "card":
+                raise HostError("CONFIG_ERROR", "card WebAuthn has no sim mode")
+            import webauthn_bridge as wb
+            pin_buf = _pin_buffer(pin) if pin is not None else None
+            pin = None
+            try:
+                return ok_response(req_id, getattr(wb, method)(params, pin_buf))
+            except wb.BridgeError as exc:
+                raise HostError(exc.code, exc.message, **exc.extra)
         raise HostError("BAD_REQUEST", f"unknown method {method!r}")
     except HostError as exc:
         if exc.code == "CARD_CHANGED":
             _reset_session()
         return error_response(req_id, exc.code, exc.message, exc.extra)
     except Exception as exc:  # never leak a traceback as a crash; report it
-        if method == "verify_pin":
+        if method in ("verify_pin", "webauthn_create", "webauthn_get"):
             # The exception text may embed APDU bytes (the PIN): never echo it.
-            return error_response(req_id, "CARD_ERROR", f"internal error during verify_pin ({type(exc).__name__})")
+            return error_response(req_id, "CARD_ERROR", f"internal error during {method} ({type(exc).__name__})")
         return error_response(req_id, "CARD_ERROR", f"{type(exc).__name__}: {exc}")
     finally:
         _wipe(pin_buf)

@@ -50,7 +50,7 @@ if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" != 1 ]]; then
 if [[ ! -x "$VENV/bin/python" ]]; then
   "$PYTHON" -m venv "$VENV"
 fi
-"$VENV/bin/pip" install -q --upgrade "ecdsa>=0.19" "pycryptodome>=3.20" pyscard >/dev/null
+"$VENV/bin/pip" install -q --upgrade "ecdsa>=0.19" "pycryptodome>=3.20" pyscard "fido2[pcsc]>=2.2,<3" >/dev/null
 fi
 
 mkdir -p "$LAUNCH_DIR"
@@ -59,8 +59,9 @@ if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" != 1 ]]; then
   # Preserve the repo layout used by the host to locate its scripts directory.
   mkdir -p "$LAUNCH_DIR/host" "$LAUNCH_DIR/scripts"
   cp "$HERE/nuri_card_host.py" "$LAUNCH_DIR/host/nuri_card_host.py"
+  cp "$HERE/webauthn_bridge.py" "$LAUNCH_DIR/host/webauthn_bridge.py"
   cp "$REPO/scripts/nuri_pcsc.py" "$REPO/scripts/nuri_attest.py" "$LAUNCH_DIR/scripts/"
-  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py scripts/nuri_pcsc.py scripts/nuri_attest.py > SHA256SUMS
+  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py host/webauthn_bridge.py scripts/nuri_pcsc.py scripts/nuri_attest.py > SHA256SUMS
     shasum -a 256 -c SHA256SUMS)
   HOST_PY="$LAUNCH_DIR/host/nuri_card_host.py"
 fi
