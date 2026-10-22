@@ -83,6 +83,8 @@ ant -f "$ROOT/card/musig2/build.xml" \
   -Dcap.output="$OUT/raw/nuri-musig2-v20-keygen.cap" build
 JC_KIT="$JC304" ANT_JAVACARD="$ROOT/tools/ant-javacard-proven.jar" JAVA8_HOME="$JAVA8_HOME" \
   CAP_OUT="$OUT/raw/nuri-musig2-v20-keygen-aid2.cap" "$ROOT/scripts/build-musig2-aid2.sh"
+JC_KIT="$JC304" ANT_JAVACARD="$ROOT/tools/ant-javacard-proven.jar" JAVA8_HOME="$JAVA8_HOME" \
+  CAP_OUT="$OUT/raw/nuri-musig2-v20-keygen-aid3.cap" "$ROOT/scripts/build-musig2-aid3.sh"
 ant -f "$ROOT/card/totp/build.xml" \
   -Djckit.path="$JC304" \
   -Dcap.output="$OUT/raw/nuri-oath-totp.cap" build
@@ -105,7 +107,7 @@ done
   cd "$OUT"
   shasum -a 256 FIDO2.cap FIDO2-up.cap nuri-musig2-v20-keygen.cap \
     nuri-oath-totp.cap nuri-eth-signer.cap nuri-eth2-signer.cap nuri-vault.cap \
-    nuri-musig2-v20-keygen-aid2.cap >SHA256SUMS
+    nuri-musig2-v20-keygen-aid2.cap nuri-musig2-v20-keygen-aid3.cap >SHA256SUMS
 )
 
 {

@@ -7,6 +7,25 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## v1.2.0 — MuSig2 AID3 release candidate
+
+- Add `scripts/build-musig2-aid3.sh`: package `4E5552494D554733`, applet
+  `4E5552494D55473301`, built from the current MuSig2 sources in a temporary
+  tree. The builder normalizes CAP ZIP metadata; release build, manifest,
+  component verification and source inventory include AID3.
+- Repository package and lockfile version: `1.2.0`; Chrome stays `0.2.0`.
+- Regression disclosure: `00ce5b2` replaced inherited scalar multiplication
+  with the MIT clean-room fixed-iteration software loop. Its hardware latency
+  was not timed during that integration; simulator correctness did not establish
+  acceptable physical-card performance. No new real-card times are claimed here.
+- MIT-compatible RSA square-based scalar acceleration is planned work, not
+  hardware-qualified by this build integration. AID3 reserves a separate identity
+  so a candidate can be accepted without overwriting AID1/AID2.
+- AID3 clean-build/hash reproduction and physical acceptance must be recorded
+  against the final integrated scalar source and CAP. Historical AID2 signing
+  receipts do not establish AID3 performance, fault resistance or acceptance.
+  See [scalar boundaries](docs/scalar256.md#v120-aid3-release-boundary).
+
 ## v1.1.0 — 2026-10-22 — Real-card PIN signers — Hermes Agent
 
 Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via

@@ -11,6 +11,43 @@ flowchart LR
   O --> P[MuSig2 partial: nonce plus challenge term]
 ```
 
+## v1.2.0 AID3 release boundary
+
+`00ce5b2` introduced the MIT clean-room fixed-iteration software multiply.
+That integration established simulator arithmetic correctness, not hardware
+latency: the software loop was not timed on a physical card at that stage.
+MIT-compatible RSA square-based acceleration is planned separately; this release
+build integration does not itself implement it or qualify its fallback behavior.
+No new real-card times are claimed here.
+
+| Identity | Package AID | Applet AID | Acceptance scope |
+|---|---|---|---|
+| Original | `4E5552494D5547` | `4E5552494D554701` | Historical artifact; not AID3 acceptance |
+| AID2 | `4E5552494D554732` | `4E5552494D55473201` | Historical PIN2 cosign receipt; no latency qualification |
+| AID3 candidate | `4E5552494D554733` | `4E5552494D55473301` | Reproducible-build integration; hardware unverified |
+
+`scripts/build-musig2-aid3.sh` copies current `card/musig2/*.java`, patches only
+its temporary APPLET_AID and normalizes CAP metadata. It leaves tracked Java
+sources unchanged. With `JC_KIT`, `ANT_JAVACARD` and `JAVA8_HOME` pointing to the
+pinned release toolchain, run:
+
+```sh
+scripts/build-musig2-aid3.sh
+npm run card:release:verify
+```
+
+The default output is `dist/nuri-musig2-v20-keygen-aid3.cap`. The full release
+builder includes that artifact in its manifest and the verifier compares its
+components and hash. Record the final scalar source, CAP hash and build provenance
+together; rebuilding after a scalar change requires updating the distributed CAP
+and checksum. A reserved AID and a successful build do not prove acceleration,
+PIN behavior, card algorithm availability, side-channel resistance or timeout
+suitability. Physical qualification remains a separate, explicitly authorized
+spare-card task. No card is accessed by either build command.
+
+The W16/W20 algorithm, line references, hashes and simulator transcripts below
+are historical records, not measurements of an AID3 acceleration candidate.
+
 ## W20 current boundary (APDU 1.14)
 
 W20 keeps the scalar algorithm and its six official BIP327 fixtures. It adds

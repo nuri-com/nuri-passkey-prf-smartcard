@@ -24,6 +24,9 @@ required_files=(
   dist/FIDO2.cap
   dist/FIDO2-up.cap
   dist/nuri-musig2-v20-keygen.cap
+  dist/nuri-musig2-v20-keygen-aid2.cap
+  dist/nuri-musig2-v20-keygen-aid3.cap
+  scripts/build-musig2-aid3.sh
   dist/nuri-oath-totp.cap
   dist/nuri-eth-signer.cap
   dist/nuri-eth2-signer.cap

@@ -28,6 +28,16 @@ when deliberately checking pre-existing artifacts from a known build.
 Success marker: `CARD_V1_RELEASE_VERIFIED`. This is a build/component verification
 marker, not an applet install or hardware-security certificate.
 
+## AID3 candidate (v1.2.0)
+
+The release build and comparison lists include
+`nuri-musig2-v20-keygen-aid3.cap`, package `4E5552494D554733`, applet
+`4E5552494D55473301`. Its standalone builder normalizes ZIP metadata and does
+not modify tracked Java sources. Build against the final integrated scalar
+source, update `dist/SHA256SUMS`, and retain provenance before declaring the
+candidate reproducible. Hardware acceptance and real-card timings are not
+claimed by this documentation. [Scalar release boundary](scalar256.md#v120-aid3-release-boundary).
+
 ## Inputs and scope
 
 Use [reproduction](reproducing.md) for the toolchain and test entrypoints.
