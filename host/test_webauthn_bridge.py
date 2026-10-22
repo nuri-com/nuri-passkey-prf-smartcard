@@ -25,6 +25,11 @@ ORIGIN = "https://connect.nuri.com"
 CHALLENGE = websafe_encode(b"c" * 32)
 
 
+def _cose_xy(key):
+    n = key.public_key().public_numbers()
+    return n.x.to_bytes(32, "big") + n.y.to_bytes(32, "big")
+
+
 def create_options(**patch):
     o = {
         "rp": {"id": "nuri.com", "name": "Nuri Wallet"},
@@ -95,6 +100,10 @@ class SoftAuthenticatorTests(unittest.TestCase):
         self.assertEqual(reg["clientExtensionResults"]["prf"]["enabled"], True)
         cd = json.loads(websafe_decode(reg["response"]["clientDataJSON"]))
         self.assertEqual((cd["type"], cd["origin"], cd["challenge"]), ("webauthn.create", ORIGIN, CHALLENGE))
+        self.assertEqual(reg["response"]["publicKeyAlgorithm"], -7)
+        spki = websafe_decode(reg["response"]["publicKey"])
+        self.assertEqual(len(spki), 91)  # P-256 SPKI, what Connect's registration check expects
+        self.assertEqual(spki[-64:], _cose_xy(self.dev.creds[websafe_decode(reg["id"])]["key"]))
         cred_id = reg["id"]
 
         auth = self.call("get", get_options(cred_id))

@@ -167,7 +167,17 @@ def _run(params: Any, pin_buf: bytearray | None, kind: str,
             raise
         except Exception as exc:
             raise _map_error(exc, device)
-        return jsonify(dict(response))
+        out = jsonify(dict(response))
+        if kind == "create":
+            # Mirror AuthenticatorAttestationResponse.getPublicKey(): DER SPKI.
+            from cryptography.hazmat.primitives import serialization
+            from fido2.cose import CoseKey
+            cred = response.response.attestation_object.auth_data.credential_data
+            spki = CoseKey.parse(dict(cred.public_key)).public_key().public_bytes(
+                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+            out["response"]["publicKey"] = _b64u(spki)
+            out["response"]["publicKeyAlgorithm"] = cred.public_key.ALGORITHM
+        return out
     finally:
         try:
             device.close()
