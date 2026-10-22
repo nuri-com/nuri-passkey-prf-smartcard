@@ -3,49 +3,99 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Nuri Card: an open-source smartcard prototype for Bitcoin cosigning, Ethereum signing and physical passkeys.">
-  <title>Nuri Card. More than a wallet.</title>
+  <meta name="description" content="Nuri Card at launch: battery-free mobile NFC, biometric and PIN protection, Bitcoin MuSig2, Ethereum, FIDO2, SSH and PKCS#11.">
+  <title>Nuri Card at launch</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main>
-  <h1>Nuri Card.<br>More than a wallet.</h1>
-  <p>A contactless smartcard for money and passkeys.</p>
-  <ul class="features" aria-label="Card features">
-    <li>No battery. No charging.</li>
-    <li>USB reader, laptop ready</li>
-    <li>Android NFC coming</li>
-    <li>On-card PIN protection</li>
-    <li>HSM: keys never leave the chip</li>
-    <li>Bitcoin MuSig2 cosigning</li>
-    <li>Ethereum digest signing</li>
-    <li>Website passkeys. SSH.</li>
-    <li>PKCS#11 coming</li>
-    <li>Phone biometrics coming</li>
+  <h1>Nuri Card v2</h1>
+  <ul class="features" aria-label="Release features">
+    <li>No battery</li>
+    <li>Mobile NFC</li>
+    <li>Biometric + PIN</li>
+    <li>HSM chip</li>
+    <li>Bitcoin MuSig2</li>
+    <li>FIDO2 passkey</li>
+    <li>SSH keys</li>
+    <li>PKCS#11</li>
+    <li>Ethereum</li>
     <li><a href="https://github.com/nuri-com/nuri-passkey-prf-smartcard">Open source</a></li>
-    <li>Free: deposit &gt;$1,000 BTC</li>
-    <li>Otherwise $19.99</li>
   </ul>
+  <p class="offer">Free with &gt;$1,000 BTC deposit.<br>Otherwise $19.99.</p>
+  <!--
+  Comparison researched 2026-10-22. Nuri describes the owner-approved release specification,
+  not a claim that every integration is already implemented or independently audited.
+  Prices are published USD device prices, excluding checkout-specific taxes/shipping.
+  Tangem has no single-card starter kit: show the actual minimum two-card purchase, not
+  an invented per-card purchase price. Bitkey is the original model, not generation two.
+  Price sources:
+  Tangem $54.90 / 2 cards: https://tangem.com/en/learning-hub/post/how-to-gift-crypto/
+  Minimum pack: https://tangem.com/en/pricing/
+  YubiKey 5 NFC $58: https://www.yubico.com/product/yubikey-5-nfc/
+  Bitkey original $150: https://shop.bitkey.world/bitkey/
+  Ledger Nano X $99: https://shop.ledger.com/products/ledger-nano-x
+  Trezor Safe 3 $59: https://trezor.io/trezor-safe-3
+  Ledger and Trezor prices verified in official Product/Offer JSON-LD (USD, in stock).
+
+  Scope: vendor-documented device capabilities, including host bridges/apps. A cross
+  means no documented support, not proof no future or custom integration is possible.
+  Biometric + PIN includes phone biometrics plus card PIN/access code, not necessarily
+  an on-card biometric sensor or simultaneous two-factor enforcement (Nuri, Tangem).
+  HSM chip means protected hardware signing/secure chip, not equal HSM certification.
+  Open-source device code means applets/apps running ON the device or device firmware;
+  underlying chip OS need not be open (Nuri, Ledger). Companion apps alone do not count.
+  YubiKey Ethereum is third-party OpenPGP secp256k1 integration; counted yes rather than
+  falsely claiming Ethereum signing is impossible. Ledger PKCS#11 uses OpenPGP + OpenSC;
+  the vendor example is Nano S Plus, with Nano X supported by the same OpenPGP app.
+  Ledger FIDO2 is supported but resident credentials are currently disabled.
+  Trezor Safe 3 MuSig2 / PKCS#11: no current vendor support established; recheck releases.
+
+  Feature sources:
+  Tangem hardware, biometrics, app/firmware distinction:
+  https://tangem.com/en/help-center/introduction-to-tangem-wallet/tangem-and-security/
+  https://tangem.com/en/blog/post/how-access-code-works
+  https://tangem.com/en/learning-hub/post/how-does-tangem-nfc-work/
+  YubiKey FIDO2, NFC, battery: https://www.yubico.com/product/yubikey-5-nfc/
+  https://developers.yubico.com/SSH/Securing_SSH_with_FIDO2.html
+  https://docs.yubico.com/hardware/yubikey/yk-tech-manual/yk5-apps-piv.html
+  https://developers.yubico.com/PGP/YubiKey_5.2.3_Enhancements_to_OpenPGP_3.4.html
+  https://github.com/stars-labs/crypto-rust-tools
+  Bitkey NFC/battery: https://bitkey.world/blog/how-we-design-our-hardware
+  https://bitkey.world/blog/processing-our-processor-choice
+  https://bitkey.world/learning-hub/how-bitkey-works
+  https://support.bitkey.world/hc/en-us/articles/18843390579860-Do-I-have-to-use-a-fingerprint-to-secure-my-Bitkey-hardware-device
+  https://github.com/proto-at-block/bitkey
+  Ledger hardware: https://shop.ledger.com/products/ledger-nano-x
+  https://www.ledger.com/blog-musig2-ledger-bitcoin-app
+  https://www.ledger.com/blog/strengthen-the-security-of-your-accounts-with-webauthn
+  https://github.com/LedgerHQ/app-openpgp
+  https://github.com/LedgerHQ/app-openpgp/blob/develop/doc/developer/quick-test.md
+  https://www.ledger.com/academy/topics/ledgersolutions/is-ledger-open-source
+  Trezor hardware: https://trezor.io/guides/trezor-devices/trezor-safe-3/trezor-safe-3-faqs
+  https://trezor.io/guides/bonus-tools/using-your-trezor-as-a-security-key-fido-2-and-u2f
+  https://wiki.trezor.io/Apps:SSH_agent
+  https://forum.trezor.io/t/trezor-safe-3-ou-t-sign-in-derivation-87-in-the-nunchuk-app/23847
+  https://github.com/trezor/trezor-firmware
+  -->
   <table>
-    <caption>Compare the cards</caption>
-    <thead><tr><th scope="col">Feature</th><th scope="col"><a href="https://github.com/nuri-com/nuri-passkey-prf-smartcard/blob/main/docs/feature-status.md">Nuri Card</a></th><th scope="col"><a href="https://tangem.com/en/">Tangem</a></th><th scope="col"><a href="https://www.yubico.com/product/yubikey-5-nfc/">YubiKey 5 NFC</a></th><th scope="col"><a href="https://shop.bitkey.world/bitkey/">Bitkey, original</a></th><th scope="col"><a href="https://shop.ledger.com/products/ledger-nano-x">Ledger Nano X</a></th><th scope="col"><a href="https://trezor.io/trezor-safe-3">Trezor Safe 3</a></th></tr></thead>
+    <caption>Release comparison · documented support</caption>
+    <thead><tr><th scope="col">Feature</th><th scope="col">Nuri Card</th><th scope="col">Tangem</th><th scope="col">YubiKey 5 NFC</th><th scope="col">Bitkey original</th><th scope="col">Ledger Nano X</th><th scope="col">Trezor Safe 3</th></tr></thead>
     <tbody>
-      <tr><th scope="row">Price, USD</th><td data-product="Nuri Card">$19.99 / conditional free</td><td data-product="Tangem"><a href="https://tangem.com/en/learning-hub/post/tangem-vs-foundation-passport/">$54.90 / two cards</a></td><td data-product="YubiKey 5 NFC">$58</td><td data-product="Bitkey, original">$150</td><td data-product="Ledger Nano X">$99</td><td data-product="Trezor Safe 3"><a href="https://trezor.io/trezor-safe-3">See price</a></td></tr>
-      <tr><th scope="row">No battery</th><td data-product="Nuri Card">✓</td><td data-product="Tangem">✓</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">No</td><td data-product="Ledger Nano X">No</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">NFC mobile</th><td data-product="Nuri Card">Coming</td><td data-product="Tangem">✓</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">✓</td><td data-product="Ledger Nano X">No</td><td data-product="Trezor Safe 3">No</td></tr>
-      <tr><th scope="row">PIN / code</th><td data-product="Nuri Card">✓</td><td data-product="Tangem">Access code</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">Fingerprint instead</td><td data-product="Ledger Nano X">✓</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">Biometrics</th><td data-product="Nuri Card">Phone, coming</td><td data-product="Tangem"><a href="https://tangem.com/en/help-center/introduction-to-tangem-wallet/tangem-and-security">Phone</a></td><td data-product="YubiKey 5 NFC">No</td><td data-product="Bitkey, original">Fingerprint</td><td data-product="Ledger Nano X">No</td><td data-product="Trezor Safe 3">No</td></tr>
-      <tr><th scope="row">Bitcoin</th><td data-product="Nuri Card">Cosigning proven</td><td data-product="Tangem">✓</td><td data-product="YubiKey 5 NFC">No wallet</td><td data-product="Bitkey, original">✓</td><td data-product="Ledger Nano X">✓</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">Provider multisig</th><td data-product="Nuri Card">2-of-2 with Nuri, Arkade</td><td data-product="Tangem">No</td><td data-product="YubiKey 5 NFC">No</td><td data-product="Bitkey, original">2-of-3</td><td data-product="Ledger Nano X">External wallets</td><td data-product="Trezor Safe 3">External wallets</td></tr>
-      <tr><th scope="row">HSM chip</th><td data-product="Nuri Card">✓</td><td data-product="Tangem">✓</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">✓</td><td data-product="Ledger Nano X">✓</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">PKCS#11</th><td data-product="Nuri Card">Coming</td><td data-product="Tangem">No</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">No</td><td data-product="Ledger Nano X">No</td><td data-product="Trezor Safe 3">No</td></tr>
-      <tr><th scope="row">FIDO2 passkey</th><td data-product="Nuri Card">Bridge</td><td data-product="Tangem">No</td><td data-product="YubiKey 5 NFC">✓</td><td data-product="Bitkey, original">No</td><td data-product="Ledger Nano X"><a href="https://support.ledger.com/article/12350325732893-zd">USB app</a></td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">Ethereum</th><td data-product="Nuri Card">Digest signing</td><td data-product="Tangem">✓</td><td data-product="YubiKey 5 NFC">No wallet</td><td data-product="Bitkey, original">No</td><td data-product="Ledger Nano X">✓</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">Open-source firmware</th><td data-product="Nuri Card">Applets, not OS</td><td data-product="Tangem">No</td><td data-product="YubiKey 5 NFC">No</td><td data-product="Bitkey, original"><a href="https://github.com/proto-at-block/bitkey">✓</a></td><td data-product="Ledger Nano X">Apps, not OS</td><td data-product="Trezor Safe 3">✓</td></tr>
-      <tr><th scope="row">Form</th><td data-product="Nuri Card">Card</td><td data-product="Tangem">Card</td><td data-product="YubiKey 5 NFC">USB key</td><td data-product="Bitkey, original">Hexagon</td><td data-product="Ledger Nano X">USB device</td><td data-product="Trezor Safe 3">USB device</td></tr>
+      <tr><th scope="row">Price · USD</th><td data-product="Nuri Card"><span class="yes">✓ $19.99<br>Free with &gt;$1,000 BTC deposit</span></td><td data-product="Tangem">$54.90 / 2 cards</td><td data-product="YubiKey 5 NFC">$58</td><td data-product="Bitkey original">$150</td><td data-product="Ledger Nano X">$99</td><td data-product="Trezor Safe 3">$59</td></tr>
+      <tr><th scope="row">No battery</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="yes">✓</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="no">✗</td><td data-product="Ledger Nano X" class="no">✗</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
+      <tr><th scope="row">Mobile NFC</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="yes">✓</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="yes">✓</td><td data-product="Ledger Nano X" class="no">✗</td><td data-product="Trezor Safe 3" class="no">✗</td></tr>
+      <tr><th scope="row">Biometric + PIN</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="yes">✓</td><td data-product="YubiKey 5 NFC" class="no">✗</td><td data-product="Bitkey original" class="no">✗</td><td data-product="Ledger Nano X" class="no">✗</td><td data-product="Trezor Safe 3" class="no">✗</td></tr>
+      <tr><th scope="row">HSM chip</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="yes">✓</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="yes">✓</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
+      <tr><th scope="row">Bitcoin MuSig2</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="no" aria-label="No documented MuSig2 support">✗</td><td data-product="YubiKey 5 NFC" class="no" aria-label="No documented MuSig2 support">✗</td><td data-product="Bitkey original" class="no" aria-label="No documented MuSig2 support">✗</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="no" aria-label="No documented MuSig2 support">✗</td></tr>
+      <tr><th scope="row">FIDO2 passkey</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="no" aria-label="No documented FIDO2 support">✗</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="no" aria-label="No documented FIDO2 support">✗</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
+      <tr><th scope="row">SSH keys</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="no" aria-label="No documented SSH integration">✗</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="no" aria-label="No documented SSH integration">✗</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
+      <tr><th scope="row">PKCS#11</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="no" aria-label="No documented PKCS#11 integration">✗</td><td data-product="YubiKey 5 NFC" class="yes">✓</td><td data-product="Bitkey original" class="no" aria-label="No documented PKCS#11 integration">✗</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="no" aria-label="No documented PKCS#11 integration">✗</td></tr>
+      <tr><th scope="row">Ethereum</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="yes">✓</td><td data-product="YubiKey 5 NFC" class="yes" aria-label="Supported through third-party integration">✓</td><td data-product="Bitkey original" class="no">✗</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
+      <tr><th scope="row">Open-source device code</th><td data-product="Nuri Card" class="yes">✓</td><td data-product="Tangem" class="no">✗</td><td data-product="YubiKey 5 NFC" class="no">✗</td><td data-product="Bitkey original" class="yes">✓</td><td data-product="Ledger Nano X" class="yes">✓</td><td data-product="Trezor Safe 3" class="yes">✓</td></tr>
     </tbody>
   </table>
-  <a class="button" href="https://nuri.com">Get your Nuri card</a>
+  <a href="https://nuri.com">Nuri →</a>
 </main>
 </body>
 </html>
