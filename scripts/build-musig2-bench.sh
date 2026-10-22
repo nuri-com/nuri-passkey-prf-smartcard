@@ -20,11 +20,12 @@ needle='    void clear() {'
 assert s.count(needle)==1
 s=s.replace(needle,'''    // Injected only into the temporary, non-release benchmark build.
     void benchInit() { rsa.init(key, Cipher.MODE_ENCRYPT); }
-    void benchSquare() { input[95] = 3; square((short)0); }
+    void benchSquare() { rsa.init(key, Cipher.MODE_ENCRYPT); input[95] = 3; square((short)0); }
     void benchFold(boolean field) {
         Util.arrayFillNonAtomic(work,(short)0,(short)64,(byte)0xa5);
-        fold((short)32, field); fold(field ? (short)5 : (short)17, field);
-        fold((short)2, field); fold((short)1, field); fold((short)1, field);
+        rsa.init(key, Cipher.MODE_ENCRYPT);
+        reduce(field);
+        clear();
     }
 ''' + needle)
 p.write_text(s)

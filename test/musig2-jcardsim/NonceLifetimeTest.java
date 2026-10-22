@@ -56,7 +56,7 @@ public final class NonceLifetimeTest {
     private static void testHappyPathStillSigns() {
         Simulator sim = freshCard();
         byte[] version = ok(sim, apdu(0x01, null));
-        check("version byte is 1.16", version[0] == 0x01 && version[1] == 0x10,
+        check("version byte is 1.17", version[0] == 0x01 && version[1] == 0x11,
               "got " + hex(version));
 
         byte[] pubkey = ok(sim, apdu(0x04, null));
