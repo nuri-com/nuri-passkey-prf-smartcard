@@ -11,6 +11,7 @@ import { base64urlnopad, hex } from '@scure/base';
 import { p256 } from '@noble/curves/p256.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha256.js';
+import { deriveOnchainAddress, validateUtxos } from './onchainWallet';
 import { SoftwareCard } from './softwareCard';
 
 const NURI = 'https://arkade.nuri.com/v4/arkade';
@@ -41,6 +42,9 @@ export interface SoftwareRegistration {
 export interface ArkadeWalletSnapshot {
   arkAddress: string;
   boardingAddress: string;
+  onchainAddress: string;
+  onchainBalance: number;
+  homeBalance: number;
   /** Satoshis: settled + preconfirmed, never includes boarding/recoverable. */
   balance: number;
   total: number;
@@ -63,7 +67,7 @@ export interface ArkadeWalletSnapshot {
   checkedAt: string;
   nuriInfo: Json;
   operatorInfo: Json;
-  sources: { nuri: string; operator: string; indexer: string; onchain: string };
+  sources: { nuri: string; operator: string; indexer: string; onchain: string; directOnchain: string };
   scope: 'current-live-signer-only';
 }
 type SoftwareState = {
@@ -263,7 +267,7 @@ async function scan(scriptHex: string): Promise<VirtualCoin[]> {
  * historical rotated-signer contracts are intentionally outside this snapshot.
  */
 export type ArkadeReceiveWallet = Pick<ArkadeWalletSnapshot,
-  'arkAddress' | 'boardingAddress' | 'clientPubkey' | 'serverPubkey' | 'aggregatePubkey'
+  'arkAddress' | 'boardingAddress' | 'onchainAddress' | 'clientPubkey' | 'serverPubkey' | 'aggregatePubkey'
   | 'arkSignerPubkey' | 'registered' | 'registrationKnown' | 'registrationEvidence'
   | 'offchainScript' | 'boardingScript' | 'nuriInfo' | 'operatorInfo' | 'scope'>;
 
@@ -285,12 +289,13 @@ export async function receiveWallet(clientPubkey: Uint8Array): Promise<ArkadeRec
   const aggregate = keyAggExport(keyAggregate(sortKeys([clientPubkey, server])));
   const offchain = script(aggregate, clientPubkey.slice(1), arkSigner.slice(1), operatorLock(operatorInfo.unilateralExitDelay), nuriCsv);
   const boarding = script(aggregate, clientPubkey.slice(1), arkSigner.slice(1), operatorLock(operatorInfo.boardingExitDelay), nuriCsv);
+  const onchainAddress = deriveOnchainAddress(clientPubkey, aggregate, nuriCsv);
   const arkAddress = offchain.address('ark', arkSigner.slice(1)).encode();
   const boardingAddress = boarding.onchainAddress(NETWORK);
   const offchainScript = hex.encode(offchain.pkScript), boardingScript = hex.encode(boarding.pkScript);
   let registered = false;
   if (state && nuriInfo.recovery?.registered) { verifyRegistration(nuriInfo, client, state); registered = true; }
-  return { arkAddress, boardingAddress, clientPubkey: client,
+  return { arkAddress, boardingAddress, onchainAddress, clientPubkey: client,
     serverPubkey: hex.encode(server), aggregatePubkey: hex.encode(aggregate),
     arkSignerPubkey: hex.encode(arkSigner), registered, registrationKnown: !!state,
     registrationEvidence: registered ? state?.result?.evidence : undefined,
@@ -301,9 +306,12 @@ export async function receiveWallet(clientPubkey: Uint8Array): Promise<ArkadeRec
 export async function openWallet(clientPubkey: Uint8Array): Promise<ArkadeWalletSnapshot> {
   const receive = await receiveWallet(clientPubkey);
   const { offchainScript, boardingScript, boardingAddress } = receive;
-  const [offchainCoins, boardingCoins, onchain] = await Promise.all([
+  const [offchainCoins, boardingCoins, onchain, directOnchain] = await Promise.all([
     scan(offchainScript), scan(boardingScript), boardingUtxosAt(boardingAddress),
+    boardingUtxosAt(receive.onchainAddress),
   ]);
+  const directCoins = validateUtxos(directOnchain.utxos);
+  const onchainBalance = sum(directCoins);
   const utxos = onchain.utxos;
   if (!Array.isArray(utxos)) throw new Error('Invalid onchain UTXO response');
   const utxoMap = new Map<string, Json>();
@@ -326,12 +334,13 @@ export async function openWallet(clientPubkey: Uint8Array): Promise<ArkadeWallet
   const unconfirmed = sum(boardingUtxos.filter(coin => !coin.status.confirmed) as { value: number }[]);
   return {
     ...receive, balance: sats(settled + preconfirmed),
-    total: sats(settled + preconfirmed + recoverable + confirmed + unconfirmed),
+    onchainBalance, homeBalance: sats(settled + preconfirmed + confirmed + unconfirmed + onchainBalance),
+    total: sats(settled + preconfirmed + recoverable + confirmed + unconfirmed + onchainBalance),
     offchainScript, boardingScript, settled, preconfirmed, recoverable,
     boarding: { confirmed, unconfirmed, total: sats(confirmed + unconfirmed) },
     vtxos, boardingUtxos, checkedAt: new Date().toISOString(),
     sources: { nuri: infoUrl(receive.clientPubkey, software.get(receive.clientPubkey)?.credentialId),
-      operator: `${OPERATOR}/v1/info`, indexer: `${OPERATOR}/v1/indexer/vtxos`, onchain: onchain.url },
+      operator: `${OPERATOR}/v1/info`, indexer: `${OPERATOR}/v1/indexer/vtxos`, onchain: onchain.url, directOnchain: directOnchain.url },
     scope: 'current-live-signer-only',
   };
 }
