@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import NfcManager from 'react-native-nfc-manager';
 import { Scroll, View, Text, Button, TextField, TextFieldLabel } from '@nuri/rn';
 import { signCardDemo } from './src/musig2CardPin';
 
@@ -8,7 +9,7 @@ export function DemoScreen() {
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
-  const [status, setStatus] = useState('Enter your PIN, then hold the card to the phone.');
+  const [status, setStatus] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   async function sign() {
     if (locked.current) return;
@@ -17,23 +18,23 @@ export function DemoScreen() {
     setResult(null);
     const pending = signCardDemo(message, pin, setStatus);
     setPin('');
-    try { setResult(await pending); setStatus('Signature verified. You can remove the card.'); }
-    catch (error) { setStatus(error instanceof Error ? error.message : 'Card signing failed.'); }
+    try { setResult(await pending); setStatus(''); }
+    catch (error) { setStatus(error instanceof Error ? error.message : 'Signing failed'); }
     finally { locked.current = false; setBusy(false); }
   }
+  function cancel() { NfcManager.cancelTechnologyRequest({ throwOnError: false }).catch(() => {}); }
   return <Scroll><View padding="lg" gap="lg">
-    <Text size="lg" emphasis>Card signature</Text>
-    <Text size="sm" muted>2-of-2 MuSig2 (BIP327). The second signer is a demo cosigner in app memory, not Nuri server. No payment is sent.</Text>
+    <Text size="lg" emphasis>Sign with card</Text>
     <TextField value={message} onChangeText={setMessage} disabled={busy} accessibilityLabel="Message"><TextFieldLabel>Message</TextFieldLabel></TextField>
-    <TextField value={pin} onChangeText={setPin} secureTextEntry inputMode="numeric" disabled={busy} accessibilityLabel="Card PIN"><TextFieldLabel>Card PIN</TextFieldLabel></TextField>
-    <Button variant="solid" size="lg" disabled={busy || !pin} onPress={sign}>{busy ? 'Signing…' : 'Tap card and sign'}</Button>
-    <Text size="sm">{status}</Text>
+    <TextField value={pin} onChangeText={setPin} secureTextEntry inputMode="numeric" disabled={busy} accessibilityLabel="PIN"><TextFieldLabel>PIN</TextFieldLabel></TextField>
+    {busy
+      ? <Button variant="soft" size="lg" onPress={cancel}>Cancel</Button>
+      : <Button variant="solid" size="lg" disabled={!pin} onPress={sign}>Sign</Button>}
+    {status ? <Text size="md">{status}</Text> : null}
     {result && <View gap="md">
-      <Text emphasis>Valid BIP340 signature: {result.verified ? 'yes' : 'no'}</Text>
-      <Text size="sm">Card public key</Text><Text size="sm">{result.cardPubkey}</Text>
-      <Text size="sm">Aggregate x-only key</Text><Text size="sm">{result.aggregateKey}</Text>
-      <Text size="sm">Message SHA-256</Text><Text size="sm">{result.messageHash}</Text>
-      <Text size="sm">Final signature (64 bytes)</Text><Text size="sm">{result.signature}</Text>
+      <Text size="lg" emphasis>{result.verified ? 'Signature valid' : 'Signature invalid'}</Text>
+      <Text size="md" muted>Signature</Text><Text size="md">{result.signature}</Text>
+      <Text size="md" muted>Card key</Text><Text size="md">{result.cardPubkey}</Text>
     </View>}
   </View></Scroll>;
 }

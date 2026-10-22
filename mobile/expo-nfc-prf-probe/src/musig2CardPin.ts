@@ -48,28 +48,51 @@ async function exchange(ins: number, data: Uint8Array = new Uint8Array(0), p1 = 
 }
 
 export async function signCardDemo(message: string, pin: string, status: (text: string) => void) {
-  if (!/^[\x20-\x7e]{4,12}$/.test(pin)) throw new Error('Enter a 4–12 character ASCII card PIN.');
+  if (!/^[\x20-\x7e]{4,12}$/.test(pin)) throw new Error('PIN must be 4 to 12 characters.');
   const pinBytes = utf8ToBytes(pin);
   pin = '';
   const msg32 = sha256(utf8ToBytes(message));
+  const pinCopy = () => pinBytes.slice();
   try {
     await NfcManager.start();
-    status('Hold the card against the back of the phone until finished.');
-    await NfcManager.requestTechnology(NfcTech.IsoDep, { alertMessage: 'Hold your Nuri card against the phone.' });
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 1; attempt++) {
+      status(attempt === 1 ? 'Hold card to phone' : 'Hold card still');
+      try { return await runOnce(msg32, pinCopy(), status); }
+      catch (error) {
+        lastError = error;
+        if (!(error instanceof Error) || !/lost|transceive|IOException/i.test(error.message)) throw error;
+        await NfcManager.cancelTechnologyRequest({ throwOnError: false }).catch(() => {});
+      }
+    }
+    throw lastError instanceof Error && /lost|transceive/i.test(lastError.message) ? new Error('Card lost. Keep it on the phone and try again.') : lastError;
+  } finally {
+    pinBytes.fill(0);
+    await NfcManager.cancelTechnologyRequest({ throwOnError: false }).catch(() => {});
+  }
+}
+
+async function runOnce(msg32: Uint8Array, pinBytes: Uint8Array, status: (text: string) => void) {
+  try {
+    // Reader mode, NFC-A, skip NDEF probe; slow presence checks so they don't drop the card mid-APDU.
+    const tag = NfcManager.requestTechnology(NfcTech.IsoDep, { isReaderModeEnabled: true, readerModeFlags: 0x1 | 0x80, readerModeDelay: 5000 });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('No card found. Try again.')), 30000); });
+    try { await Promise.race([tag, timeout]); } finally { clearTimeout(timer); }
+    await (NfcManager as any).setTimeout?.(120000)?.catch?.(() => {});
     await exchange(0xa4, new Uint8Array(PIN2_AID.match(/../g)!.map(b => parseInt(b, 16))), 4);
-    status('Verifying card PIN…');
-    try { await exchange(0x20, pinBytes); } finally { pinBytes.fill(0); }
+    status('Checking PIN');
+    await exchange(0x20, pinBytes);
     const cardPubkey = await exchange(0x03);
     if (cardPubkey.length !== 33) throw new Error('Card returned an invalid public key.');
     const nonces = await exchange(0x40);
-    status('Card signing MuSig2 partial…');
+    status("Signing. Keep card on phone, about 80 s");
     const session = prepareDemoSession(cardPubkey, nonces, msg32);
     const partial = await exchange(0x41, session.payload, 0, 0x20);
-    status('Verifying card partial and final BIP340 signature…');
+    status('Verifying');
     const result = session.finish(partial);
     return { cardPubkey: hex(cardPubkey), aggregateKey: hex(result.pubkey), signature: hex(result.signature), verified: result.verified, messageHash: hex(msg32) };
   } finally {
     pinBytes.fill(0);
-    await NfcManager.cancelTechnologyRequest({ throwOnError: false }).catch(() => {});
   }
 }
