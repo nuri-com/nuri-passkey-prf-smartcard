@@ -169,14 +169,17 @@ def _run(params: Any, pin_buf: bytearray | None, kind: str,
             raise _map_error(exc, device)
         out = jsonify(dict(response))
         if kind == "create":
-            # Mirror AuthenticatorAttestationResponse.getPublicKey(): DER SPKI.
+            # Mirror AuthenticatorAttestationResponse.getPublicKey(): DER SPKI (ES256 only).
             from cryptography.hazmat.primitives import serialization
-            from fido2.cose import CoseKey
-            cred = response.response.attestation_object.auth_data.credential_data
-            spki = CoseKey.parse(dict(cred.public_key)).public_key().public_bytes(
-                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+            from cryptography.hazmat.primitives.asymmetric import ec
+            key = response.response.attestation_object.auth_data.credential_data.public_key
+            if key.get(3) != -7 or key.get(-1) != 1:
+                raise BridgeError("CARD_ERROR", "card did not return an ES256 P-256 key")
+            spki = ec.EllipticCurvePublicNumbers(
+                int.from_bytes(key[-2], "big"), int.from_bytes(key[-3], "big"), ec.SECP256R1()
+            ).public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
             out["response"]["publicKey"] = _b64u(spki)
-            out["response"]["publicKeyAlgorithm"] = cred.public_key.ALGORITHM
+            out["response"]["publicKeyAlgorithm"] = -7
         return out
     finally:
         try:
