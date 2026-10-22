@@ -7,7 +7,36 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
-## Unreleased — launch branch
+## v1.1.0 — 2026-10-22 — Real-card PIN signers — Hermes Agent
+
+Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
+`npm run card:release:verify`):
+
+| Applet | Package / applet AID | Version | CAP sha256 |
+|---|---|---|---|
+| ETH signer v2 (PIN) | `4E55524945544832` / `4E5552494554483201` | 2.1.0 | `158088eec670eab578fc81d4621087c3752e4001f7afcf288e8ff48b01f9261e` |
+| MuSig2 PIN2, AID2 | `4E5552494D554732` / `4E5552494D55473201` | v1.15 build, protocol pin-1.14 | `bb28841d923b4a709ac1c688d3c0926753b5abd46aefe8678e9d986dd6f81f8b` |
+
+- Real card `87E5470B` (OMNIKEY 5422), additive installs, no DELETE; FIDO2
+  `A0000006472F0001` and SSH access preserved (`ssh -o BatchMode=yes` checked
+  before/after every step).
+- ETH2: SET_PIN, VERIFY, on-card KEYGEN; SIGN without VERIFY returns `6982`;
+  native host `sign_hash` returns `PIN_REQUIRED` without PIN.
+  Receipt `docs/proofs/real-card-87E5470B-eth2-pin.json`.
+- MuSig2 AID2: `scripts/build-musig2-aid2.sh` (now part of the release build);
+  host scripts select it via `NURI_MUSIG2_AID=4E5552494D55473201`.
+  `REAL_CARD_COSIGN_FLOW_OK`, both partials and BIP340 signature verified;
+  KEYGEN/GET_NONCES without VERIFY return `6982`. Not broadcast, not funded.
+  Receipt `docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json`.
+- Connect WebAuthn+PRF via native host on the real card (`8a8ebbc`).
+- Fix: `scripts/package-chrome.py` now ships `host/webauthn_bridge.py`, which
+  `host/install-macos.sh` requires.
+- README audited claim by claim against code; per-feature evidence moved to
+  `docs/feature-status.md`.
+- Open: live connect.nuri.com browser E2E, on-chain spend from the new MuSig2
+  key, CA attestation (`verified=false`).
+
+## 1.0.2 launch-branch notes
 
 ### 2026-10-20 — Readable Nuri side panel — Hermes Agent
 

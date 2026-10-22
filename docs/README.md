@@ -36,7 +36,10 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [proofs/arkade-card-signer-proof.md](proofs/arkade-card-signer-proof.md) — Bounded source/simulator Arkade signer record, not live settlement.
 - [proofs/hsm-openssl-sim.txt](proofs/hsm-openssl-sim.txt) — Path-normalized OpenSSL simulator transcript; not physical-card evidence.
 - [proofs/real-card-signet-proof.md](proofs/real-card-signet-proof.md) — Retained historical Signet public values; no fresh chain/hardware attribution.
+- [proofs/real-card-87E5470B-eth2-pin.json](proofs/real-card-87E5470B-eth2-pin.json) — 2026-10-22 real-card ETH2 v2.1.0 PIN gate + signing receipt.
+- [proofs/real-card-87E5470B-musig2-aid2-cosign.json](proofs/real-card-87E5470B-musig2-aid2-cosign.json) — 2026-10-22 real-card MuSig2 PIN2 AID2 cosign receipt (not broadcast, not funded).
 - [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and three observed physical reader combinations.
+- [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items (2026-10-22 real-card runs).
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.
 - [release.md](release.md) — Build/component/hash verification, source/binary correspondence and evaluation receipt.
 - [reproducing.md](reproducing.md) — Public-core tests and toolchains; optional mobile dependency is restricted.

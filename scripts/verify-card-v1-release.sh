@@ -14,7 +14,7 @@ fi
   shasum -a 256 -c SHA256SUMS
 )
 
-for name in FIDO2 FIDO2-up nuri-musig2-v20-keygen nuri-oath-totp nuri-eth-signer nuri-eth2-signer nuri-vault; do
+for name in FIDO2 FIDO2-up nuri-musig2-v20-keygen nuri-oath-totp nuri-eth-signer nuri-eth2-signer nuri-vault nuri-musig2-v20-keygen-aid2; do
   python3 "$ROOT/scripts/compare-cap-components.py" \
     "$ROOT/dist/$name.cap" "$ARTIFACTS/$name.cap"
 done
