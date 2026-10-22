@@ -38,7 +38,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nuri_pcsc  # noqa: E402  shared PC/SC: reader + protocol ladder, 61XX/6CXX
 
-APPLET_AID = bytes.fromhex("4E5552494D554701")
+# Default: original instance. A card that keeps its old v1.10 instance runs the
+# PIN applet side by side under 4E5552494D55473201 (NURI_MUSIG2_AID).
+APPLET_AID = bytes.fromhex(os.environ.get("NURI_MUSIG2_AID", "4E5552494D554701"))
 PIN_PROTOCOL_VERSION = (1, 14)
 PIN_ENV = "NURI_CARD_PIN"
 NEW_PIN_ENV = "NURI_CARD_NEW_PIN"
