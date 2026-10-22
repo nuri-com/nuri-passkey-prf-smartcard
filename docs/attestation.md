@@ -6,14 +6,14 @@ sequenceDiagram
   participant C as Applet (ETH2, MuSig2 or vault)
   participant H as Host / enrolment verifier
   C->>C: At install: native P256 identity + random instance ID
-  F->>C: Read identity; initialise PIN, VERIFY, one-shot KEYGEN
-  C->>C: Prepare NHWV1 signature; atomically publish key + binding
+  F->>C: Read identity, initialise PIN, VERIFY, one-shot KEYGEN
+  C->>C: Prepare NHWV1 signature, atomically publish key + binding
   F->>F: CA signs NURI-ATT-V1 certificate message
   F->>C: STORE_ATTESTATION_CERT once, read back, SEAL, read back
   H->>H: Independently pin CA, issue fresh challenge32
   H->>C: GET_ATTESTATION page 0 and page 1, same challenge
   C-->>H: Certificate/identity + signed current key/PIN state + NHWV1
-  H->>H: Verify CA, AID, expected key, response, binding; consume challenge
+  H->>H: Verify CA, AID, expected key, response, binding, consume challenge
 ```
 
 ## What this proves, and what it does not

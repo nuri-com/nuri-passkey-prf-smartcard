@@ -1,6 +1,148 @@
 # Nuri Card
 
-[Nuri Card overview and comparison](https://nuri-com.github.io/nuri-passkey-prf-smartcard/).
+Your Bitcoin wallet, physical passkey and pocket HSM. One battery-free card.
+
+[**Explore Nuri Card →**](https://nuri-com.github.io/nuri-passkey-prf-smartcard/)
+
+**Free with a $1,000+ BTC deposit, otherwise $19.99**
+
+## What it does
+
+The Nuri Card release specification:
+
+- **No battery.** Nothing to charge. Carry it in your wallet.
+- **Mobile NFC.** Tap your phone, or use a USB smartcard reader on your computer.
+- **PIN + phone biometrics.** Familiar phone approval, with separate card PIN protection.
+- **HSM secure chip.** Bitcoin and Ethereum signing keys stay on the card.
+- **Bitcoin MuSig2 2-of-2 with Nuri / Arkade.** On-chip partial signing, with a reported ~2 s fast path.
+- **FIDO2 physical passkey.** Sign in to websites with the card.
+- **OpenSSH keys.** Log in to servers with a hardware-backed security key.
+- **PKCS#11 + OpenSSL.** Put a card-backed signing key behind a standard application interface.
+- **Ethereum signing.** PIN-gated secp256k1 signatures for EVM applications.
+- **On-card OATH TOTP.** Generate the rotating codes used for two-factor authentication.
+- **Open source + updatable applets.** MIT Nuri applet code, with new features after purchase.
+
+## Live today
+
+- **Android NFC wallet:** the operator reports a Samsung S21 displaying the card wallet balance after a tap.
+- **A physical passkey for Nuri:** the operator reports claiming **arkade@nuri.com** with the card's FIDO2 passkey.
+- **Bitcoin signatures:** the operator reports **5/5 BIP340 signatures verified at ~2.0 s** on the newer AID3 fast path.
+- **OpenSSH login:** physical-card login recorded across [three USB readers](docs/reader-compatibility.md#hardware-runs-parent-physical-card).
+- **Released hardware proofs:** [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), packaged in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
+
+The Android balance, username and AID3 speed results are operator reports; their receipts are not included in this checkout. The linked release contains the separately verified AID2 build.
+
+## Why it beats YubiKey
+
+- **A crypto wallet on the chip.** Bitcoin MuSig2 and native Ethereum signing alongside passkeys, OpenSSH and TOTP.
+- **Open + updatable.** Inspect the applet source and add features. YubiKey firmware is closed and [cannot be updated](https://docs.yubico.com/hardware/yubikey/yk-tech-manual/yk5-firmware-overview.html).
+- **About a third of the price.** $19.99 versus $58 for a YubiKey 5 NFC—or free with a $1,000+ BTC deposit.
+
+## Compare the card
+
+Nuri cells describe the release specification above. Competitor cells describe documented support, including host bridges. ✓ means supported; — means unverified; ✗ means no documented support for the named feature, not a claim about future integrations.
+
+| Feature | Nuri Card | YubiKey 5 NFC | YubiHSM 2 | Ledger Nano X | Trezor Safe 3 | Bitkey original | Tangem |
+|---|---|---|---|---|---|---|---|
+| Price · USD | **$19.99 / free with $1,000+ BTC deposit** | $58 | $650¹ | $99 | $59 | $150 | $54.90 / 2 cards |
+| No battery | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
+| Mobile NFC | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ |
+| Phone biometrics + card PIN/access code | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| HSM / secure chip | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Bitcoin MuSig2 2-of-2 on the chip | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| Arkade / Bitcoin wallet app with NFC tap | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Ethereum signing | ✓ native | ✗ native / ✓ bridge² | ✓ secp256k1 API² | ✓ | ✓ | ✗ | ✓ |
+| FIDO2 passkey | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
+| OpenSSH | ✓ | ✓ | ✓ PKCS#11 | ✓ | ✓ | ✗ | ✗ |
+| PKCS#11 HSM interface | ✓ | ✓ | ✓ | ✓ OpenPGP/OpenSC | ✗ | ✗ | ✗ |
+| OATH TOTP codes | ✓ | ✓ | ✓ HMAC + host³ | —³ | —³ | ✗ | ✗ |
+| Open-source device applets / firmware | ✓ MIT⁴ | ✗ | ✗ | ✓ apps⁴ | ✓ firmware | ✓ firmware | ✗ |
+| Updatable applets / device firmware | ✓ applets | ✗ | ✗ | ✓ | ✓ | ✓ | ✗ |
+
+¹ YubiHSM 2: [Yubico's published $650 launch price](https://www.yubico.com/blog/yubihsm-2-providing-root-trust-servers-computing-devices/), not a current checkout quote. Other prices and the original feature cells follow the [product page's vendor-sourced comparison](site/index.html).
+
+² YubiKey has no native Ethereum wallet app, but a third-party OpenPGP secp256k1 bridge exists. YubiHSM 2 exposes secp256k1 signing; that is not an Arkade or MuSig2 wallet integration. [YubiHSM specifications](https://www.yubico.com/product/yubihsm-2/).
+
+³ HMAC-SHA1 plus a host-supplied counter/truncation enables TOTP with YubiHSM 2; it is not a dedicated OATH applet. Nuri also uses host time and truncation. — means support was not established for that specific model; historical Nano S OTP software does not prove Nano X support.
+
+⁴ Nuri-authored applet code is MIT; the legacy ETH1 CAP contains GPL arithmetic. Ledger's open apps do not make its secure-element OS open. See [licences](#licence). Update support does not promise that replacing an applet preserves its keys.
+
+## Use cases
+
+Run commands from the repository root after `npm ci`, with Python 3.10+ for Python examples. Hardware examples assume an already provisioned card; software demos are explicitly labelled. Follow each linked setup guide before enrolling keys or changing host configuration.
+
+### OpenSSH: log in with the card
+
+Install the PC/SC security-key provider, enroll once, authorize the generated public key on your server, then log in. The installer creates a `nuri-card-host` configuration block: set its host/account before the final command. [Setup](docs/ssh-smartcard.md).
+
+```sh
+bash scripts/install-ssh-card-host.sh
+ssh-keygen -t ecdsa-sk -w "$PWD/dist/nuri-pcsc-sk-provider.so" -f "$HOME/.ssh/id_nuri_pcsc_sk" -C nuri-card
+# Add the .pub key to your server's authorized_keys and configure nuri-card-host.
+ssh nuri-card-host
+```
+
+### Pocket HSM: PKCS#11 and OpenSSL
+
+Build `pkcs11-nuri.so` and exercise OpenSSL signing plus independent verification. This example uses the **software simulator**, requires OpenSSL 3, OpenSC and Python `ecdsa`, and does not contact a card. [Hardware mode and setup](docs/hsm.md).
+
+```sh
+bash scripts/build-pkcs11.sh
+NURI_PKCS11_MODE=sim python3 scripts/test-pkcs11-e2e.py
+NURI_PKCS11_MODE=sim bash scripts/hsm-openssl-selftest.sh
+```
+
+**nginx TLS keys:** an integration target, not a working demo today. The adapter currently supports only secp256k1 `CKM_ECDSA`, not P-256/RSA or authenticated ETH2 sessions; ordinary nginx TLS is not established. [Exact HSM limits](docs/hsm.md#limits).
+
+### OATH TOTP: rotating 2FA codes
+
+For an already provisioned TOTP applet, inspect its status and read a code. The self-check is offline. [Provisioning and PIN policy](docs/totp-applet.md).
+
+```sh
+python3 scripts/card-totp.py --selfcheck
+python3 scripts/card-totp.py status
+python3 scripts/card-totp.py code
+```
+
+### FIDO2: a physical passkey for websites
+
+Inspect the card and serve the local WebAuthn/PRF test page. Browser use requires the [native bridge](docs/chrome-extension.md); a PC/SC reader alone is not a browser transport.
+
+```sh
+npm run card:prf:info
+npm run web:prf
+```
+
+### Bitcoin MuSig2 / Arkade: Android NFC
+
+Prepare and verify the native app, then open the Android profile launcher. This requires the authorized UI dependency, an existing credential profile and configured endpoints. Tap the card on the phone. [Mobile setup](mobile/expo-nfc-prf-probe/README.md).
+
+```sh
+npm run mobile:prepare:v1
+npm run mobile:verify:v1
+npm run mobile:android
+```
+
+For an offline, no-hardware MuSig2 demo, run `npm run musig2:demo` or `npm run card:arkade:signer:sim`. A signature or displayed balance is not a settled payment.
+
+### Ethereum: PIN-gated on-chip signatures
+
+Run the **software-only ETH2** suite: PIN authorization, signing and independent signature verification. Requires the documented JDK/Python toolchain. Physical-card receipts are linked under [Live today](#live-today).
+
+```sh
+npm run card:eth2:test:sim
+python3 -m unittest discover -s host -p 'test_host.py' -v
+```
+
+### PGP: a separate roadmap item
+
+There is no OpenPGP/PIV applet or verified GnuPG-to-PKCS#11 path in this release. OpenPGP signing/decryption and nginx-compatible TLS mechanisms belong on the roadmap, not in a working-feature checklist.
+
+## For developers
+
+Release specification and hardware acceptance are different: the sections below retain the exact key boundaries, tested revisions and integration limits.
+
+The card has **no screen** and performs **blind signing**; it is **not externally audited** and **not a certified hardware wallet**. See [SECURITY.md](SECURITY.md) and the [security model](docs/security-model.md).
 
 ```mermaid
 flowchart LR
@@ -14,19 +156,7 @@ flowchart LR
   M --> R
 ```
 
-An open Java Card stack: FIDO2 passkeys with PRF, OpenSSH FIDO2 `sk` keys,
-Ethereum digest signing, Bitcoin MuSig2 cosigning, credential storage and TOTP.
-Host integrations include a Chrome extension wallet, local MCP tools for agents,
-and a secp256k1 PKCS#11/OpenSSL signing adapter. New applets add CA-backed
-attestation; GlobalPlatform management-key rotation has encrypted owner escrow.
-
-**Research-grade: not externally audited, not a certified hardware wallet.**
-The card has **no screen** and performs **blind signing**. It cannot independently
-show or approve the recipient, amount or chain. Do not treat a public source
-release as consumer-funds approval. See [SECURITY.md](SECURITY.md),
-[security advisories](docs/security-advisories.md) and [security model](docs/security-model.md).
-
-## Where it sits vs other hardware wallets
+### Wallet architecture reference
 
 The original comparison is back, with product-specific tradeoffs rather than
 blanket “best” claims. Competitor descriptions below link to vendor material;
@@ -82,22 +212,6 @@ Implementation and key locations:
 Bearer vault secrets intentionally have a reveal path; do not generalize the
 signing-key policy to every secret stored on the card.
 [Vault reveal boundary](card/vault/NuriVault.java#L203-L218).
-
-### Security model: Nuri Card vs other hardware keys
-
-| Device | Intended boundary / interface | Important difference |
-|---|---|---|
-| **Nuri Card** | Non-exporting signer APIs plus FIDO2/PRF; limited host PKCS#11 adapter | Research stack; no trusted display; applet-specific PIN policy; no product certification established |
-| [YubiHSM 2](https://docs.yubico.com/hardware/yubihsm-2/hsm-2-user-guide/hsm2-device-specs.html) | Server HSM with PKCS#11, authenticated secure channel, object policy, wrapping and attestation | Supports **secp256k1**, RSA, AES and Ed25519; generic curve support is not a Nuri MuSig2 integration |
-| [YubiKey 5](https://www.yubico.com/products/yubikey-5-overview/) | FIDO2/U2F, smartcard, OTP and OpenPGP authentication device | Compare authentication protocols and touch/PIN policy, not only wallet branding |
-| [Ledger Nano family](https://www.ledger.com/ledger-nano-x) | Dedicated wallet signer ecosystem | Model-specific screen and transaction-verification UX; this card has no such display |
-| [Trezor Safe 5](https://trezor.io/learn/security-privacy/how-trezor-keeps-you-safe/secure-element-in-trezor-safe-5-and-trezor-safe-3) | Wallet with secure-element-assisted PIN protection | **Has a secure element**; encrypted wallet data remains on the general-purpose chip, not an identical architecture to a card signer |
-| [Bitkey](https://bitkey.world) | Hardware/phone/server wallet and recovery system | Multiple-key custody/recovery design, not a general PKCS#11 HSM |
-| [Tangem](https://tangem.com) | Secure-element wallet with card backups | Encrypted key transfer to backup cards is intentional; “all keys never exportable” is not a valid cross-product row |
-
-Prices, firmware-wide algorithm exclusions and blanket certification checkmarks
-from the old table are intentionally not carried forward. A certified chip,
-a certified finished product and an audited application are different claims.
 
 ### Capability comparison: match the job, not the label
 
@@ -233,7 +347,7 @@ sequenceDiagram
   participant S as Second signer
   H->>F: Optional PRF derivation for standalone client
   F-->>H: PRF output (host-visible)
-  H->>C: Verify applet PIN; request public nonces
+  H->>C: Verify applet PIN, request public nonces
   C-->>H: Public nonces and session token
   H->>S: Prepare second participant transcript
   S-->>H: Second nonce and partial
