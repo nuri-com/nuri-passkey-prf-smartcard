@@ -37,3 +37,6 @@ card/**/3.0.4
 card/dist/
 # SSH provider embeds local interpreter/helper paths: build locally, never redistribute.
 dist/nuri-pcsc-sk-provider.so
+.worktrees/
+# Private, recoverable zero-funds W35 software test keys. Never commit.
+.w35-private/
