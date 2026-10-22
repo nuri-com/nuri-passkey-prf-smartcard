@@ -27,7 +27,7 @@ import javacardx.crypto.*;
 public class NuriMuSig2v019 extends Applet {
 
     // Version 1.14: incompatible nonce/finalize frames; see docs/musig2-pin-and-hardening.md
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x0F};
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x10};
     private static final byte[] APPLET_AID = {
         (byte)0x4E, (byte)0x55, (byte)0x52, (byte)0x49,
         (byte)0x4D, (byte)0x55, (byte)0x47, (byte)0x01

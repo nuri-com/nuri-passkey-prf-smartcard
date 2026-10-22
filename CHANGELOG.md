@@ -7,6 +7,28 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## v1.2.0 — Fast MuSig2 PIN signer
+
+- Add `scripts/build-musig2-aid3.sh`: package `4E5552494D554733`, applet
+  `4E5552494D55473301`, built from the current MuSig2 sources in a temporary
+  tree. The builder normalizes CAP ZIP metadata; release build, manifest,
+  component verification and source inventory include AID3.
+- Repository package and lockfile version: `1.2.0`; Chrome stays `0.2.0`.
+- Regression disclosure: `00ce5b2` replaced inherited scalar multiplication
+  with the MIT clean-room fixed-iteration software loop. Its hardware latency
+  was not timed during that integration; simulator correctness did not establish
+  acceptable physical-card performance. The software path later measured 75.7 s.
+- Independently authored MIT RSA-square acceleration: `2ab=(a+b)^2-a^2-b^2`,
+  768-bit RSA NOPAD exponent two, fixed folding reduction modulo n and p.
+  Unsupported providers fail installation closed. No GPL arithmetic was read or copied.
+- On card `87E5470B`, OMNIKEY 5422: five verified BIP340 signatures;
+  FINALIZE 5164.75 / 5194.75 / 5195.32 ms min/median/max (previously 75.7 s).
+  **The <3 s target is not reached.** GET_NONCES 290–293 ms.
+  Blinding, double computation, PIN/session/nonce protections remain unchanged.
+- New AID3 only; no existing instance deleted. SSH checks passed before/after
+  each card-write step; one wrong PIN returned 63C4, correct PIN restored five tries.
+  Full signatures and timings: [AID3 proof](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json).
+
 ## v1.1.0 — 2026-10-22 — Real-card PIN signers — Hermes Agent
 
 Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
