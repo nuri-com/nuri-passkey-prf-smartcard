@@ -45,7 +45,7 @@ def main():
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
     try:
         reg_challenge, prf_challenge, get_challenge = (os.urandom(32) for _ in range(3))
-        pin = getpass.getpass("Card FIDO2 PIN: ")
+        pin = os.environ.pop("NURI_CARD_PIN", None) or getpass.getpass("Card FIDO2 PIN: ")
         create = {
             "rp": {"id": RP, "name": "Nuri Wallet"},
             "user": {"id": b64u(os.urandom(16)), "name": "nuri-card-proof", "displayName": "nuri-card-proof"},
