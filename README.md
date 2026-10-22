@@ -1,5 +1,7 @@
 # Nuri Card
 
+[Nuri Card overview and comparison](https://nuri-com.github.io/nuri-passkey-prf-smartcard/).
+
 ```mermaid
 flowchart LR
   H[Host applications] --> B[SSH / Chrome extension / local MCP]
