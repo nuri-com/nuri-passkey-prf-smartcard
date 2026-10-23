@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const screens = [
+  'DemoScreen.tsx',
   'TerminalScreen.tsx',
   'ApproveScreen.tsx',
   'ProfileScreen.tsx',
