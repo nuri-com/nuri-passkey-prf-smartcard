@@ -14,6 +14,8 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 ## Guides and protocols
 
 - [acceptance.md](acceptance.md) — Blank-card and host acceptance procedure; the bundle remains an ETH1 demo installer.
+- [arkade-card-e2e.md](arkade-card-e2e.md) — W35 zero-funds live registration/address/balance proof; spend-approval blocker and unexecuted card bridge.
+- [proofs/w35-arkade-e2e.json](proofs/w35-arkade-e2e.json) — public live zero-funds receipt, distinct from local signature proof.
 - [arkade-lightning.md](arkade-lightning.md) — Arkade signer interfaces and the boundary between signatures, broadcast and settlement.
 - [attestation.md](attestation.md) — CA trust, per-applet identity/key binding, wire format and blank-spare personalization.
 - [card-capability-summary.md](card-capability-summary.md) — Interface directory pointing to the canonical feature status and security model.

@@ -1,0 +1,82 @@
+{
+  "timestamp": "2026-10-22T12:08:49.225Z",
+  "mode": "SOFTWARE_ONLY_NO_SATS_MOVED",
+  "registration": {
+    "status": 200,
+    "readback_registered": true,
+    "credential_id": "7-JYNt3pN-AGRe4-svCnGXktUCWTee18innq3jFVa2I",
+    "client_pk33": "021c6d799543a1d7fd943328667341ecb89c9ed4fdc340f9710c1101025c901e5c",
+    "rp_id": "nuri.com",
+    "origin": "https://nuri.com,https://passkey.nuri.com,https://confirm.nuri.com,https://arkade.nuri.com,https://pwa.nuri.com,android:apk-key-hash:_DnWSgwK4taz7yL3g_mlwFdCtJOXYTosjQuiD9JPhG4,android:apk-key-hash:BVpN_NjxiFfc9L_WFucGhTbuIVJV71eZmfWNieEVZTY,android:apk-key-hash:mcWit-izLf43FTWpqaPOTM7Q6VSXc6KNZFHolK7yNno,android:apk-key-hash:YIUQsDMYv-D18zghQECDes6-XwMsSBBg-MscXPaFMOg,android:apk-key-hash:8dgIBX-3GYipJlce-sciedebRYdyDaFWpZIVE6UAvtE,android:apk-key-hash:-sYXRdwJA3hvue3mKpYrOZ9zSPC7b4mbgzJmdZEDO5w,https://banking.nuri.com,https://wirex.nuri.com,https://connect.nuri.com,https://pwa2.nuri.com,https://app.nuri.com,https://agentchat.nuri.com,https://apptest.nuri.com"
+  },
+  "deployment": {
+    "nuri": 34,
+    "server_version": "nuri-server-api-v4.2.0-one-server-test",
+    "server_sdk": "0.5.0-rc.19",
+    "operator": "v0.9.22"
+  },
+  "addresses": {
+    "client_pk33": "021c6d799543a1d7fd943328667341ecb89c9ed4fdc340f9710c1101025c901e5c",
+    "server_pk33": "02434bf452b019cd3d6ae84dd99969cc2431256fc76f75e5ebf33876f985626ac7",
+    "aggregate_pk33": "02b9286e49230ca50fcc916407acb4693a206958e0658f92847134b3ff3bcaf977",
+    "ark_address": "ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameehwjd9p2zphnx4hmrwpnl6vaj8fu34kngvks8xk6swh8mcamyrvd03v4sh",
+    "boarding_address": "bc1pyehl0cd2ej2uxxga8yjvf49047xu9lnq36eahuw37lhy7lhvyt4s7ykzy9",
+    "offchain_script": "5120ddd26942a106f3356fb1b833fe99d91d3c8d6d3432d039ada83ae7de3bb20d8d",
+    "boarding_script": "5120266ff7e1aacc95c3191d3924c4d4afaf8dc2fe608eb3dbf1d1f7ee4f7eec22eb"
+  },
+  "comparison": {
+    "client_pk33": "02a0d209ad2861d00e527376db77810865a5284879e029ec07f4d29a26e1475e96",
+    "server_pk33": "03ad4fbb3f767966998015316b840ffd13c70712d36356dfc92c2a58864773835b",
+    "aggregate_pk33": "034697a4aa239864d46b699cde185e67aa66ac071df9e08871ed274548760b32ba",
+    "ark_address": "ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameestt87ajw7jzpul22tqrcg455q72ps04qqfgcq35gna6czkpx4wr3l6526",
+    "boarding_address": "bc1pn0cjhhhxpp0vs7sud2qlnuuuxjv495flfzk95jdfxnuhxc8d8ggs9ps2v3",
+    "offchain_script": "5120c16b3fbb277a420f3ea52c03c22b4a03ca0c1f500128c023444fbac0ac1355c3",
+    "boarding_script": "51209bf12bdee6085ec87a1c6a81f9f39c349952d13f48ac5a49a934f97360ed3a11"
+  },
+  "balances": {
+    "software": {
+      "vtxos": [],
+      "page": null,
+      "boarding_utxos": [],
+      "offchain_sats": 0,
+      "boarding_sats": 0
+    },
+    "existing_card": {
+      "vtxos": [],
+      "page": null,
+      "boarding_utxos": [],
+      "offchain_sats": 0,
+      "boarding_sats": 0
+    }
+  },
+  "live_sign": {
+    "status": 403,
+    "data": {
+      "error": "approval token required"
+    }
+  },
+  "live_tree_nonce": {
+    "status": 403,
+    "data": {
+      "error": "approval token or challenge_token required"
+    }
+  },
+  "local_card_semantics": {
+    "scope": "LOCAL_SOFTWARE_COUNTERPARTY_NOT_LIVE_SERVER",
+    "finalize_bytes": 231,
+    "client_pk33": "021c6d799543a1d7fd943328667341ecb89c9ed4fdc340f9710c1101025c901e5c",
+    "aggregate_xonly": "6b4b61d7fc2d40cc6b1d4ecf9633fa89609b24fca5937611eca72943f1ad586e",
+    "msg32": "b617201d2ab8cf32da0da3695cd6ae5791f5c55077bc4288ec917d321b88f0e3",
+    "signature64": "54b7e5cab2aeb40369fff129e935d304cf1d6ab085bfbaf28b98b3cb3f4297cc937e48aeff01cd21c1e170305d206c1627d5b920f6d6b9cc4af79c5429e56538",
+    "bip340_verified": true
+  },
+  "not_executed": [
+    "card / PCSC / phone",
+    "funding",
+    "intent registration",
+    "settle",
+    "send",
+    "broadcast",
+    "operator cooperative signing (needs approved funded transaction)"
+  ]
+}
