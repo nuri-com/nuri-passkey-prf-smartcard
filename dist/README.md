@@ -15,7 +15,7 @@ attestation and vault CAPs are simulator only. [Feature status](../README.md#fea
 |---|---|---|---|---|---|
 | `FIDO2.cap` | `third_party/fido2-applet/ + patch 0001` | `A0000006472F0001` | 0.4, advertises up:false | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
 | `FIDO2-up.cap` | `third_party/fido2-applet/ + patches 0001/0002` | `A0000006472F0001` | 0.4, advertises up:true; no physical touch check | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
-| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.17 (`APPLET_VERSION` 0x0111), package 2.2; PIN/token/attestation | MIT | `1e0916541ca6da1721336473c77a7ae83de515b9a4d92e7fd56121b3a94e4c65` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.17 (`APPLET_VERSION` 0x0111), package 2.2; PIN/token/attestation | MIT | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
 | `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / SIGN; demo, no PIN | GPL-2.0-or-later combined | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
 | `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; transactional SET/CHANGE/UNBLOCK; hardware tear unverified | MIT | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
@@ -57,13 +57,13 @@ not transfer to a new CAP. [Scalar boundary](../docs/scalar256.md#v120-aid3-rele
 
 The three MuSig2 CAPs were imported from a pinned cloud build, not built on a
 maintainer host, after the tracked copies went stale against `card/musig2/`
-source (`Scalar256`, PIN sessions, RSA-product reduction) and the release
-verifier reported `CAP_COMPONENTS_DIFFER` on every component of all three.
+source. This refresh includes the transient lazy-KAT buffer fix in
+`RsaMultiply`. The release verifier caught the stale CAP components.
 
-- Run [`40668112399`](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40668112399),
-  artifact `nuri-card-release-37fb1050f947668d2d7815fb9af3b1d7aa547a9d` (id
-  `12807156503`), built by CI job `card-release`.
-- `BUILD-PROVENANCE.txt` in that artifact: `source_commit=37fb1050f947668d2d7815fb9af3b1d7aa547a9d`,
+- Run [`40671053336`](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40671053336),
+  artifact `nuri-card-release-53f295466d550c3a114c094b5998b2fdbb096c35` (id
+  `12808212313`), built by CI job `card-release`.
+- `BUILD-PROVENANCE.txt` in that artifact: `source_commit=53f295466d550c3a114c094b5998b2fdbb096c35`,
   `source_dirty=0`, `fido2_nuri_ref=4f318197cc08f316ce784a89bdf29dc73cca7fcf`,
   `javacard_sdk_ref=e2df471e04d86f33de69a947f44766fbef1d9d69`,
   `ant_javacard_sha256=def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`,
