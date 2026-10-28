@@ -129,7 +129,7 @@ function findCommitmentInput(tx, coin) {
 }
 
 /** Requests for EVERY commitment input, exactly as the server derives them. */
-function commitmentRequests(tx, ctx) {
+export function commitmentRequests(tx, ctx) {
  const prev = [];
  for (let i = 0; i < tx.inputsLength; i++) {
   const input = tx.getInput(i);
@@ -152,7 +152,13 @@ function commitmentRequests(tx, ctx) {
   }
   if (!matched) {
    const msg = tx.preimageWitnessV1(i, prev.map(v => v.script), sighash, prev.map(v => v.amount));
-   requests.push({ kind: 'direct', input_index: i, msg32: hex(msg), ours: false, tweak32: null });
+   // Server derives a key-path request for every input it does not own, with
+   // tweak32 = TapTweak(aggregate_xonly, tapMerkleRoot?) (nuri-server
+   // src/arkade-sign-requests.js:158-166); the approval keys must match exactly.
+   const root = input.tapMerkleRoot?.length === 32 ? Buffer.from(input.tapMerkleRoot) : Buffer.alloc(0);
+   const tag = createHash('sha256').update('TapTweak').digest();
+   const tweak32 = createHash('sha256').update(Buffer.concat([tag, tag, Buffer.from(ctx.aggregate_xonly, 'hex'), root])).digest('hex');
+   requests.push({ kind: 'direct', input_index: i, msg32: hex(msg), ours: false, tweak32 });
   }
  }
  return requests;
@@ -197,8 +203,11 @@ export async function runBoard(options = {}, deps = {}) {
  await update('planned');
  try {
   bridge ??= await (deps.bridgeFactory ?? (() => new Bridge({ env })))();
+  let cardKey = null;
   const card = {
-   getPublicKey: () => bridge.getPublicKey(),
+   // Key read once, before any nonce session (an open GET_NONCES session makes
+   // GET_PUBKEY return a short status, seen live); finalizeSession reads it per call.
+   getPublicKey: async () => (cardKey ??= await bridge.getPublicKey()),
    getNonces: () => bridge.getNonces(),
    finalize: payload => bridge.finalize(payload),
   };
@@ -222,7 +231,7 @@ export async function runBoard(options = {}, deps = {}) {
   assert(origins.includes(ORIGIN), 'server does not allow the card claim origin');
   log('FIDO2 assertion');
   const assertion = await bridge.request('assert', { challenge: auth.challenge, rp_id: auth.rp_id, origin: ORIGIN, credential: CREDENTIAL });
-  assert.equal(hex(await bridge.getPublicKey()), client, 'wrong card key');
+  assert.equal(hex(await card.getPublicKey()), client, 'wrong card key');
   // The server only knows boarding UTXOs of a registered boarding address,
   // loaded from Esplora on receive/sync (src/ArkadeServer.js:4398-4425, 4549).
   // Same order as the app: nuri-expo services/arkade/internal/walletSummary.ts:436.
@@ -375,7 +384,7 @@ export async function runBoard(options = {}, deps = {}) {
     const requests = commitmentRequests(settlement, first.ctx);
     const ours = requests.filter(r => r.ours);
     assert.equal(ours.length, first.plan.inputs.length, 'boarding inputs missing from commitment');
-    const finalApproval = await approve(settlement, requests, receipt.sessionToken);
+    const finalApproval = await approve(settlement, requests, receipt.session_token);
     const signIt = async (msg32, clientPubNonce) => http('/v4/arkade/sign', { ...signBody({ msg32 }), approval_token: finalApproval.approval_token, client_pub_nonce: clientPubNonce });
     for (const request of ours) {
      const leaf = first.ctx.leaf;
