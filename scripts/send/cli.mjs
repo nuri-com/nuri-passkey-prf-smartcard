@@ -29,8 +29,8 @@ export function parseArgs(argv = []) {
 // The existing bridge validates its own execution guard. Never rewrite that
 // environment variable to bypass a Python guard or export it in a receipt.
 export class Bridge {
- constructor({ python, env = process.env, spawnChild = spawn } = {}) {
-  this.queue = []; this.ended = false;
+ constructor({ python, env = process.env, spawnChild = spawn, timeoutMs = 180000 } = {}) {
+  this.queue = []; this.ended = false; this.timeoutMs = timeoutMs;
   this.child = spawnChild(python ?? env.PYTHON_BIN ?? 'python3', [fileURLToPath(new URL('./bridge.py', import.meta.url))], { stdio: ['pipe', 'pipe', 'inherit'], env });
   const fail = () => {
    this.ended = true;
@@ -41,12 +41,14 @@ export class Bridge {
    try { const value = JSON.parse(line); if (value.error) throw new Error('card operation failed; no retry'); q.resolve(value); }
    catch { q.reject(new Error('card bridge response failed; no retry')); fail(); }
   });
+  this.fail = fail;
   this.child.on('error', fail); this.child.on('exit', fail); this.child.stdin.on('error', fail);
  }
  request(op, payload) {
   if (this.ended) return Promise.reject(new Error('card bridge ended; no retry'));
   return new Promise((resolve, reject) => {
-   this.queue.push({ resolve, reject });
+   const timer = setTimeout(() => { this.fail(); this.child.kill(); }, this.timeoutMs);
+   this.queue.push({ resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
    this.child.stdin.write(JSON.stringify({ op, payload }) + '\n');
   });
  }
@@ -142,8 +144,8 @@ export async function runSend(options = {}, deps = {}) {
  // Explicit amount guards fail before even public network reads. For the
  // operator-dependent default, resolve the floor and guard before card/POST.
  if (amount !== undefined) guard(execute, env.NURI_SEND_CONFIRM, to, amount);
- const logPath = resolve(options.logPath ?? env.NURI_SEND_LOG ?? `_launch/out/arkade-card/send-${Date.now()}.jsonl`);
- const receiptPath = resolve(options.receiptPath ?? env.NURI_RECEIPT_PATH ?? '_launch/out/arkade-card/receipt.json');
+ const logPath = resolve(options.logPath ?? env.NURI_SEND_LOG ?? `_launch/out/send/send-${Date.now()}.jsonl`);
+ const receiptPath = resolve(options.receiptPath ?? env.NURI_RECEIPT_PATH ?? '_launch/out/send/receipt.json');
  const log = deps.log ?? (async (event, data = {}) => {
   await mkdir(dirname(logPath), { recursive: true, mode: 0o700 });
   await appendFile(logPath, JSON.stringify({ at: new Date().toISOString(), event, ...data }) + '\n', { mode: 0o600 });
@@ -180,7 +182,7 @@ export async function runSend(options = {}, deps = {}) {
   return { recipient, operator, info, derived, coins, summary };
  };
  const first = await snapshot();
- const summary = { ...first.summary, to, mode: execute ? 'execute' : 'dry-run', receipt_file: receiptPath, log_file: logPath };
+ const summary = { ...first.summary, registration: { username: first.info.username, registered: first.info.recovery.registered, server_pubkey: first.info.server_pubkey }, to, mode: execute ? 'execute' : 'dry-run', receipt_file: receiptPath, log_file: logPath };
  if (summary.status === 'needs_funding') { await log('needs_funding', summary); return summary; }
  const tx = makeTransaction(first.coins, summary, first.info, first.operator, first.derived);
  summary.unsigned_ark_txid = tx.unsigned.arkTx.id;
@@ -237,8 +239,9 @@ export async function runSend(options = {}, deps = {}) {
   await update('completed'); return receipt;
  } catch (error) {
   // Provider exceptions may embed request bodies. Persist only a fixed status.
-  receipt.failure_stage = submitted ? 'submission may have occurred; DO NOT RESEND' : 'before operator submission; inspect before a new operation';
-  await update(submitted ? 'failed_unknown_outcome' : 'failed_before_submission');
+  const confirmed = receipt.indexer_verified === true;
+  receipt.failure_stage = confirmed ? 'send confirmed on indexer, only send/complete failed; DO NOT RESEND' : submitted ? 'submission may have occurred; DO NOT RESEND' : 'before operator submission; inspect before a new operation';
+  await update(confirmed ? 'failed_completion_only' : submitted ? 'failed_unknown_outcome' : 'failed_before_submission');
   throw new Error(receipt.failure_stage); // never propagate token-bearing provider errors
  } finally { if (!deps.bridge) bridge?.close(); }
 }

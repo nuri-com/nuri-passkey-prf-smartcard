@@ -22,7 +22,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("arkade_card_bridge", ROOT / "scripts/arkade-card/bridge.py")
+SPEC = importlib.util.spec_from_file_location("arkade_card_bridge", ROOT / "scripts/send/bridge.py")
 assert SPEC is not None and SPEC.loader is not None
 bridge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bridge)
@@ -50,7 +50,7 @@ class BridgeTests(unittest.TestCase):
         output = io.StringIO()
         level = logging.root.manager.disable
         self.addCleanup(logging.disable, level)
-        with patch.dict(os.environ, {"NURI_SEND_CONFIRM": "emino-7118", "NURI_FIDO_PIN": PIN, **env}), \
+        with patch.dict(os.environ, {"NURI_SEND_CONFIRM": "@emino-546", "NURI_FIDO_PIN": PIN, **env}), \
                 patch.object(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests))), \
                 patch.object(sys, "stdout", output):
             code = bridge.main()

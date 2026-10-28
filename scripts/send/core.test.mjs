@@ -252,7 +252,7 @@ test('Bridge preserves Python nonces/finalize interface and original guard witho
   child.stdout.write(JSON.stringify(response) + '\n');
  });
  const env = { NURI_SEND_CONFIRM: `${SOURCE}-546` };
- const bridge = new Bridge({ env, spawnChild: (python,args,options) => { assert.equal(options.env, env); assert(args[0].endsWith('/arkade-card/bridge.py')); return child; } });
+ const bridge = new Bridge({ env, spawnChild: (python,args,options) => { assert.equal(options.env, env); assert(args[0].endsWith('/send/bridge.py')); return child; } });
  const nonce = await bridge.getNonces(); assert.equal(nonce.publicNonce.length, 66); assert.equal(nonce.token.length, 4);
  assert.equal((await bridge.finalize(bytes('aa'))).length, 32);
  assert.deepEqual(payloads, [{ op: 'nonces' }, { op: 'finalize', payload: 'aa' }]); bridge.close();

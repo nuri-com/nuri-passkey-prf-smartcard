@@ -98,7 +98,7 @@ def select_reader(all_readers, wanted):
 
 def chosen_reader():
     from smartcard.System import readers
-    return select_reader(readers(), os.environ.get("NURI_READER", "OMNIKEY"))
+    return select_reader(readers(), os.environ.get("NURI_READER", "HID Global OMNIKEY 5422 Smartcard Reader"))
 
 
 def open_fido():
@@ -288,7 +288,7 @@ def fido_operation(op, payload, pin):
 def main():
     card = None
     try:
-        if os.environ.get("NURI_SEND_CONFIRM") != "emino-7118":
+        if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9-]{0,62}|ark1[0-9a-z]+)-(?:all|[1-9][0-9]*)", os.environ.get("NURI_SEND_CONFIRM", "")):
             raise RuntimeError("confirmation required")
         # Explicitly disable transport logging (APDUs/extension data may contain
         # secrets). No logging configuration or hardware imports at import time.
