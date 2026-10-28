@@ -19,6 +19,8 @@ final class RsaMultiply {
     private final byte[] squares;
     private final byte[] work;
     private static final byte[] TWO = {2};
+    private final byte[] kat;
+    private boolean verified;
     // Big endian, c = 2^256 - modulus; c < 2^129 for both moduli.
     private static final byte[] CN = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
@@ -47,8 +49,10 @@ final class RsaMultiply {
         clear();
         // (m-1)^2 = 1: exercises full-width carries, both reduction constants,
         // and canonical subtraction through exactly the installed provider path.
-        byte[] kat = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
-        selfTest(false,kat); selfTest(true,kat);
+        // Known-answer tests run lazily on first use (fail closed, every call
+        // until they pass): running them inside INSTALL returned 6985 on the
+        // real card, while the identical tests pass at APDU time.
+        kat = new byte[32];
     }
     private void selfTest(boolean field, byte[] kat) {
         byte[] c=field?CP:CN;
@@ -95,6 +99,12 @@ final class RsaMultiply {
     }
     void multiply(byte[] a, short ao, byte[] b, short bo, byte[] out, short oo, boolean field) {
         // Output may overlap inputs. Only this method initializes the RSA engine.
+        if(!verified) {
+            verified=true;
+            boolean ok=false;
+            try { selfTest(false,kat); selfTest(true,kat); ok=true; }
+            finally { if(!ok) verified=false; }
+        }
         try {
             rsa.init(key,Cipher.MODE_ENCRYPT);
             product(a,ao,b,bo);
