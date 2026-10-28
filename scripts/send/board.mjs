@@ -66,12 +66,13 @@ const sha256Hex = value => createHash('sha256').update(value).digest('hex');
 /** Public, card-free read of the wallet's live and static state. */
 async function snapshot(options, deps, log) {
  const fetchImpl = deps.fetch ?? fetch;
+ const client = deps.client ?? CLIENT;
  const operator = deps.operator ?? await getJson(`${OPERATOR}/v1/info`);
- const info = await request(deps, `/v4/arkade/info?client_pk33=${CLIENT}&client_signer_pubkey=${CLIENT}&cred_id_b64u=${CREDENTIAL}`, undefined, log);
- assert.equal(info.server_pubkey, SERVER, 'server key changed');
+ const info = await request(deps, `/v4/arkade/info?client_pk33=${client}&client_signer_pubkey=${client}&cred_id_b64u=${CREDENTIAL}`, undefined, log);
+ assert.equal(info.server_pubkey, deps.server ?? SERVER, 'server key changed');
  assert.equal(info.recovery?.registered, true, 'card credential not registered');
  assert.equal(info.username, 'arkade', 'card alias/credential linkage changed');
- const ctx = boardingContext(CLIENT, info, operator);
+ const ctx = boardingContext(client, info, operator);
  if (options.expect) assert.equal(ctx.address, options.expect, 'boarding address changed');
  const floor = Math.max(Number(operator.vtxoMinAmount), Number(operator.dust));
  const raw = deps.esplora ? await deps.esplora(ctx.address) : await (await fetchImpl(`${ESPLORA}/address/${ctx.address}/utxo`, { signal: AbortSignal.timeout(30000) })).json();
@@ -112,10 +113,10 @@ async function request(deps, path, body, log = () => {}) {
 }
 
 /** Output script of the destination VTXO (our own offchain script). */
-function offchainScript(arkAddress) {
+function offchainScript(arkAddress, expected = SCRIPT) {
  const decoded = sdk.ArkAddress.decode(arkAddress);
  assert.equal(decoded.hrp, 'ark', 'mainnet ark address required');
- assert.equal(hex(decoded.pkScript), SCRIPT, 'destination script is not the card source script');
+ assert.equal(hex(decoded.pkScript), expected, 'destination script is not the card source script');
  return decoded.pkScript;
 }
 
@@ -157,7 +158,9 @@ function commitmentRequests(tx, ctx) {
  return requests;
 }
 
-const signBody = row => ({ kind: 'direct', msg32: row.msg32, client_pk33: CLIENT, input_index: row.input_index, ...(row.tweak32 ? { tweak32: row.tweak32 } : {}) });
+const signBodyWith = client => row => ({ kind: row.kind ?? 'direct', msg32: row.msg32, client_pk33: client,
+ ...(row.input_index === undefined ? {} : { input_index: row.input_index }),
+ ...(row.txid ? { txid: row.txid } : {}), ...(row.tweak32 ? { tweak32: row.tweak32 } : {}) });
 
 export async function runBoard(options = {}, deps = {}) {
  optionsFetch = deps.fetch ?? fetch;
@@ -171,12 +174,17 @@ export async function runBoard(options = {}, deps = {}) {
  });
  const persist = deps.persistReceipt ?? ((receipt, opts) => saveReceipt(receiptPath, receipt, opts));
 
+ const client = deps.client ?? CLIENT;
+ const server = deps.server ?? SERVER;
+ const arkAddress = deps.arkAddress ?? SOURCE;
+ const script = deps.script ?? SCRIPT;
+ const signBody = signBodyWith(client);
  const first = await snapshot(options, deps, log);
  const summary = { ...first.summary, mode: execute ? 'execute' : 'dry-run', receipt_file: receiptPath, log_file: logPath, confirmation: confirmToken(first.plan.vtxo_sats) };
  if (first.plan.status !== 'planned') { await log('stopped', summary); return { ...summary, utxos: first.rows }; }
  guardBoard(execute, env.NURI_SEND_CONFIRM, first.plan.vtxo_sats);
  if (!execute) {
-  const proof = buildProof(registerMessage({ cosigners: [CLIENT] }), first.plan.inputs, [{ amount: BigInt(first.plan.vtxo_sats), script: offchainScript(SOURCE) }], first.ctx);
+  const proof = buildProof(registerMessage({ cosigners: [first.ctx.aggregate_pk33] }), first.plan.inputs, [{ amount: BigInt(first.plan.vtxo_sats), script: offchainScript(arkAddress, script) }], first.ctx);
   const requests = directRequests(proof.tx, first.ctx.aggregate_xonly);
   await log('plan', summary);
   return { ...summary, utxos: first.rows, register_proof_id: proof.tx.id, register_proof_inputs: proof.tx.inputsLength,
@@ -190,6 +198,7 @@ export async function runBoard(options = {}, deps = {}) {
  try {
   bridge ??= await (deps.bridgeFactory ?? (() => new Bridge({ env })))();
   const card = {
+   getPublicKey: () => bridge.getPublicKey(),
    getNonces: () => bridge.getNonces(),
    finalize: payload => bridge.finalize(payload),
   };
@@ -207,20 +216,20 @@ export async function runBoard(options = {}, deps = {}) {
   // for the register proof, then re-minted prompt-free from the returned
   // boarding sweep session token for the tree and the commitment (server token
   // mode, src/ArkadeServer.js:4850).
-  const auth = await http('/v4/arkade/auth', { cred_id_b64u: CREDENTIAL, client_signer_pubkey: CLIENT });
+  const auth = await http('/v4/arkade/auth', { cred_id_b64u: CREDENTIAL, client_signer_pubkey: client });
   assert(auth.challenge && auth.token, 'auth challenge missing');
   const origins = Array.isArray(auth.origin) ? auth.origin : String(auth.origin).split(',').map(s => s.trim());
   assert(origins.includes(ORIGIN), 'server does not allow the card claim origin');
   log('FIDO2 assertion');
   const assertion = await bridge.request('assert', { challenge: auth.challenge, rp_id: auth.rp_id, origin: ORIGIN, credential: CREDENTIAL });
-  assert.equal(hex(await bridge.getPublicKey()), CLIENT, 'wrong card key');
+  assert.equal(hex(await bridge.getPublicKey()), client, 'wrong card key');
 
   const approve = async (psbt, requests, sessionToken) => {
    const body = sessionToken
     ? { boarding_sweep_session_token: sessionToken }
     : { token: auth.token, client_data_b64u: assertion.client_data_b64u, auth_data_b64u: assertion.auth_data_b64u, sig_b64u: assertion.sig_b64u };
    const response = await http('/api/arkade/receive/boarding/sweep/approve', {
-    ...body, client_pk33: CLIENT,
+    ...body, client_pk33: client,
     selected_outpoints: first.plan.inputs.map(i => `${i.txid}:${i.vout}:${i.value}`),
     selected_total_sats: first.plan.gross_sats,
     psbt_b64: Buffer.from(psbt.toPSBT()).toString('base64'),
@@ -238,15 +247,15 @@ export async function runBoard(options = {}, deps = {}) {
   const signCount = max => ({ signed: 0, get full() { return this.signed >= max; } });
 
   // 1. Register intent. Two proof inputs: the BIP322 message input and the coin.
-  const proof = buildProof(registerMessage({ cosigners: [CLIENT] }), first.plan.inputs,
-   [{ amount: BigInt(first.plan.vtxo_sats), script: offchainScript(SOURCE) }], first.ctx);
+  const proof = buildProof(registerMessage({ cosigners: [first.ctx.aggregate_pk33] }), first.plan.inputs,
+   [{ amount: BigInt(first.plan.vtxo_sats), script: offchainScript(arkAddress, script) }], first.ctx);
   const proofRequests = directRequests(proof.tx, first.ctx.aggregate_xonly);
   const approval = await approve(proof.tx, proofRequests, null);
   receipt.register_proof_id = proof.tx.id;
   receipt.register_proof_inputs = proof.tx.inputsLength;
   const sendSign = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: approval.approval_token, client_pub_nonce: clientPubNonce });
   for (const request of proofRequests) {
-   const { signature, proof: evidence } = await signDirect({ card, client: CLIENT, server: SERVER, aggregate: first.ctx.aggregate_pk33, msg32: request.msg32, sign: sendSign, log });
+   const { signature, proof: evidence } = await signDirect({ card, client, server, aggregate: first.ctx.aggregate_pk33, msg32: request.msg32, sign: sendSign, log });
    applyDirectSignature(proof.tx, request, first.ctx.aggregate_xonly, signature);
    receipt.proofs.push({ ...evidence, input_index: request.input_index, scope: 'register_intent' });
    await update('register_proof_signed');
@@ -273,38 +282,39 @@ export async function runBoard(options = {}, deps = {}) {
     return { skip: false };
    },
    async onTreeSigningStarted(event, vtxoTree) {
-    ourPubkey = CLIENT;
-    const xOnly = hex(bytes(CLIENT).slice(1));
+    ourPubkey = first.ctx.aggregate_pk33;
+    const xOnly = hex(bytes(first.ctx.aggregate_pk33).slice(1));
     assert(event.cosignersPublicKeys.some(k => hex(bytes(k)).slice(-64) === xOnly), 'card key not in tree cosigners');
     const commitment = sdk.Transaction.fromPSBT(Buffer.from(event.unsignedCommitmentTx, 'base64'));
-    const sweepTapscript = sdk.CSVMultisigTapscript.encode({ timelock: event.batchExpiry, pubkeys: [bytes(first.operator.forfeitPubkey)] }).script;
+    const sweepTapscript = sdk.CSVMultisigTapscript.encode({ timelock: event.batchExpiry, pubkeys: [bytes(first.operator.forfeitPubkey).slice(-32)] }).script;
     const sweepRoot = tapLeafHash(sweepTapscript);
     const rootAmount = commitment.getOutput(0)?.amount;
     assert(rootAmount, 'commitment shared output missing');
-    sdk.validateVtxoTxGraph(vtxoTree, commitment, sweepRoot);
+    (deps.validateTree ?? sdk.validateVtxoTxGraph)(vtxoTree, commitment, sweepRoot);
     const nodes = [...vtxoTree.iterator()];
     treeCount = nodes.length;
     const messages = nodes.map(node => ({ node, message: treeMessage(vtxoTree, node, { scriptRoot: sweepRoot, rootAmount }) }));
+    if (process.env.NURI_BOARD_DEBUG) console.error('NODES', nodes.map(n => [n.txid, typeof n.txid, n.root?.id]));
     receipt.tree_txs = treeCount;
     receipt.card_sessions_actual = cardSessions({ inputs: first.plan.inputs.length, treeTxs: treeCount });
     receipt.estimated_ms_actual = estimatedMs(receipt.card_sessions_actual);
     if (options.treeLimit) assert(treeCount <= options.treeLimit, `tree has ${treeCount} txs, limit ${options.treeLimit}`);
     for (const { message } of messages) expectedNonces.set(message.txid, message.cosigners.length);
-    const treeRequests = messages.map(({ message }) => ({ kind: 'tree', txid: message.txid, msg32: message.msg32, client_pk33: CLIENT, tweak32: message.tweak32 }));
+    const treeRequests = messages.map(({ message }) => ({ kind: 'tree', txid: message.txid, msg32: message.msg32, client_pk33: client, tweak32: message.tweak32 }));
     for (const input of first.plan.inputs) {
      const index = commitment.inputsLength && findCommitmentInput(commitment, input);
      assert(index !== undefined && index >= 0, 'boarding input missing from commitment');
      commitment.updateInput(index, { tapLeafScript: [first.ctx.leaf] });
     }
     const treeApproval = await approve(commitment, commitmentRequests(commitment, first.ctx).concat(treeRequests), receipt.session_token);
-    const session = await http('/arkade/tree/session-init', { approval_token: treeApproval.approval_token, client_pk33: CLIENT, txids: messages.map(m => m.message.txid) });
+    const session = await http('/arkade/tree/session-init', { approval_token: treeApproval.approval_token, client_pk33: client, txids: messages.map(m => m.message.txid) });
     assert(session.session_id, 'missing tree session id');
     for (const { message } of messages) {
      const nonce = await bridge.getNonces();
-     const { signature, proof: evidence } = await signTree({ card, client: CLIENT, server: SERVER, message, nonce, log,
+     const { signature, proof: evidence } = await signTree({ card, client, server, aggregate: first.ctx.aggregate_pk33, message, nonce, log,
       sign: {
-       async nonce(msg, clientPubNonce) { return http('/arkade/tree/nonce', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: CLIENT, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
-       async sign(msg, clientPubNonce) { return http('/arkade/tree/sign', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: CLIENT, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
+       async nonce(msg, clientPubNonce) { return http('/arkade/tree/nonce', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
+       async sign(msg, clientPubNonce) { return http('/arkade/tree/sign', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
       } });
      treeSignatures.set(message.txid, signature);
      pendingNonces.set(message.txid, { pubNonce: bytes(evidence.client_public_nonce) });
@@ -327,16 +337,20 @@ export async function runBoard(options = {}, deps = {}) {
    },
    async onBatchFinalization(event) {
     let settlement = sdk.Transaction.fromPSBT(Buffer.from(event.commitmentTx, 'base64'));
+    for (const coin of first.plan.inputs) {
+     const index = findCommitmentInput(settlement, coin);
+     assert(index >= 0, `boarding input ${coin.txid}:${coin.vout} missing from commitment`);
+     settlement.updateInput(index, { tapLeafScript: [first.ctx.leaf] });
+    }
     const requests = commitmentRequests(settlement, first.ctx);
     const ours = requests.filter(r => r.ours);
     assert.equal(ours.length, first.plan.inputs.length, 'boarding inputs missing from commitment');
-    for (const request of ours) settlement.updateInput(request.input_index, { tapLeafScript: [first.ctx.leaf] });
     const finalApproval = await approve(settlement, requests, receipt.sessionToken);
     const signIt = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: finalApproval.approval_token, client_pub_nonce: clientPubNonce });
     for (const request of ours) {
      const leaf = first.ctx.leaf;
      const request2 = { ...request, leaf_script: leaf[1].slice(0, -1), leaf_version: leaf[1].at(-1), leaf_hash: hex(tapLeafHash(leaf[1].slice(0, -1), leaf[1].at(-1))) };
-     const { signature, proof: evidence } = await signDirect({ card, client: CLIENT, server: SERVER, aggregate: first.ctx.aggregate_pk33, msg32: request2.msg32, sign: signIt, log });
+     const { signature, proof: evidence } = await signDirect({ card, client, server, aggregate: first.ctx.aggregate_pk33, msg32: request2.msg32, sign: signIt, log });
      applyDirectSignature(settlement, request2, first.ctx.aggregate_xonly, signature);
      receipt.proofs.push({ ...evidence, input_index: request2.input_index, scope: 'boarding_input' });
      await update('boarding_input_signed');
@@ -351,15 +365,15 @@ export async function runBoard(options = {}, deps = {}) {
 
   const receiptsNonces = new Map();
   const expectedNonces = new Map();
-  const stream = operator.getEventStream(abort.signal, [CLIENT, ...first.plan.inputs.map(i => `${i.txid}:${i.vout}`)]);
+  const stream = operator.getEventStream(abort.signal, [first.ctx.aggregate_pk33, ...first.plan.inputs.map(i => `${i.txid}:${i.vout}`)]);
   try {
    const commitmentTxid = await sdk.Batch.join(stream, handler, { abortController: abort });
    receipt.commitment_txid ??= commitmentTxid;
    await update('finalized');
    // Reconcile: the VTXO must exist at our own script and the boarding coins be spent.
    const indexer = deps.indexer ?? new sdk.RestIndexerProvider(OPERATOR);
-   const script = hex(offchainScript(SOURCE));
-   const vtxos = (await indexer.getVtxos({ scripts: [script], spendableOnly: true })).vtxos ?? [];
+   const destination = hex(offchainScript(arkAddress, script));
+   const vtxos = (await indexer.getVtxos({ scripts: [destination], spendableOnly: true })).vtxos ?? [];
    const settled = vtxos.find(v => Number(v.value) === first.plan.vtxo_sats && !v.isSpent && !v.isSwept);
    assert(settled, 'settled VTXO not found at the card script; DO NOT RESEND');
    receipt.vtxo = { txid: settled.txid, vout: settled.vout, value: Number(settled.value) };
@@ -371,6 +385,7 @@ export async function runBoard(options = {}, deps = {}) {
   const confirmed = receipt.indexer_verified === true;
   receipt.failure_stage = confirmed ? 'settled on indexer; only bookkeeping failed; DO NOT RESEND'
    : submitted ? 'submission may have occurred; DO NOT RESEND' : 'before operator submission; re-check boarding outpoints before a new attempt';
+  if (process.env.NURI_BOARD_DEBUG) console.error(error.stack);
   await update(confirmed ? 'failed_completion_only' : submitted ? 'failed_unknown_outcome' : 'failed_before_submission');
   throw new Error(`${receipt.failure_stage} (${error.message})`);
  } finally { if (!deps.bridge) bridge?.close(); }

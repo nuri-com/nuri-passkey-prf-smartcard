@@ -272,35 +272,49 @@ export function treeMessage(graph, node, { scriptRoot, rootAmount }) {
  * partial ArkadeRemoteSignerSession.computeNestedClientOuterPartial computes
  * with the private key in memory (ArkadeRemoteSignerSession.ts:130-165).
  */
-export function nestedPayload({ message, clientNonce, serverNonce, client, server }) {
- const aggNonce = musig.nonceAggregate([clientNonce.publicNonce, bytes(serverNonce)]);
+export function nestedPayload({ message, clientNonce, serverNonce, client, server, aggregate }) {
+ const serverNonceBytes = typeof serverNonce === 'string' ? bytes(serverNonce) : serverNonce;
+ const aggNonce = musig.nonceAggregate([clientNonce.publicNonce, serverNonceBytes]);
  const outer = new musig.Session(aggNonce, message.outerKeys, bytes(message.msg32), [bytes(message.tweak32)], [true]);
  const inner = new musig.Session(aggNonce, musig.sortKeys([bytes(client), bytes(server)]), bytes(message.msg32));
+ // The outer cosigner key is the aggregate (client+server): ArkadeRemoteIdentity
+ // .compressedPublicKey returns aggregatedPk33 (ArkadeRemoteIdentity.ts:2300).
+ const aggregatePoint = point(bytes(aggregate));
  const clientPoint = point(bytes(client));
- assert(outer.getSessionKeyAggCoeff(clientPoint) !== 0n, 'client not an outer cosigner');
- const a = modN(outer.getSessionKeyAggCoeff(clientPoint) * inner.getSessionKeyAggCoeff(clientPoint));
- const session = { Q: outer.Q, R: outer.R, b: outer.b, e: outer.e, gAcc: outer.gAcc, getSessionKeyAggCoeff: () => a };
- return { session, aggNonce };
+ assert(outer.getSessionKeyAggCoeff(aggregatePoint) !== 0n, 'aggregate not an outer cosigner');
+ // FINALIZE itself applies the R parity to the nonce term and the Q parity +
+ // gAcc to `a`, so `a` is only outerCoeff * innerCoeff. The server's share
+ // carries the parity/global factor (computeNestedServerOuterPartial,
+ // src/ArkadeServer.js:2871); the two shares sum to the verifier's expectation.
+ const a = modN(outer.getSessionKeyAggCoeff(aggregatePoint) * inner.getSessionKeyAggCoeff(clientPoint));
+ const session = {
+  Q: outer.Q, R: outer.R, b: outer.b, e: outer.e, gAcc: outer.gAcc,
+  getSessionKeyAggCoeff: () => a,
+  partialSigVerifyInternal: (...args) => outer.partialSigVerifyInternal(...args),
+  partialSigAgg: sigs => outer.partialSigAgg(sigs),
+ };
+ return { session, aggNonce, outer };
 }
 
 /** Sign one tree node through the card and the Nuri cosigner. */
-export async function signTree({ card, client, server, message, nonce, sign, log = () => {} }) {
+export async function signTree({ card, client, server, aggregate, message, nonce, sign, log = () => {} }) {
  log('nuri tree nonce');
  const nonceResponse = await sign.nonce(message, hex(nonce.publicNonce));
  assert.equal(String(nonceResponse.server_pubkey).toLowerCase(), server, 'tree cosigner key changed');
  const serverNonce = nonceResponse.server_pub_nonce66;
  assert(/^[0-9a-f]{132}$/.test(serverNonce), 'invalid server tree nonce');
- const { session } = nestedPayload({ message, clientNonce: nonce, serverNonce, client, server });
+ const { session, aggNonce, outer } = nestedPayload({ message, clientNonce: nonce, serverNonce, client, server, aggregate });
  log('card FINALIZE (tree)');
  const { partial } = await finalizeSession(card, nonce, session);
- const clientPoint = point(bytes(client));
- assert(session.partialSigVerifyInternal(partial, nonce.publicNonce, clientPoint), 'invalid card tree partial');
  log('nuri tree sign');
  const signResponse = await sign.sign(message, hex(nonce.publicNonce), serverNonce);
  assert.equal(String(signResponse.server_pubkey).toLowerCase(), server, 'tree cosigner key changed');
  const serverPartial = bytes(signResponse.server_partial32);
- assert(session.partialSigVerifyInternal(serverPartial, bytes(serverNonce), bytes(server)), 'invalid server tree partial');
- const signature = session.partialSigAgg([partial, serverPartial]);
+ // The client share and the server share add up to the ONE outer participant's
+ // share (ArkadeRemoteSignerSession.ts:757-800): verify the sum, then aggregate it.
+ const combined = scalarOf(modN(scalarValue(partial) + scalarValue(serverPartial)));
+ assert(outer.partialSigVerify(combined, [aggNonce], 0), 'invalid combined tree partial');
+ const signature = outer.partialSigAgg([combined]);
  assert(schnorr.verify(signature, bytes(message.msg32), session.Q.toBytes(true).slice(1)), 'invalid tree aggregate signature');
  return { txid: message.txid, signature, proof: {
   txid: message.txid, msg32: message.msg32, tweak32: message.tweak32, client_public_nonce: hex(nonce.publicNonce),
@@ -308,3 +322,6 @@ export async function signTree({ card, client, server, message, nonce, sign, log
   aggregate_signature: hex(signature), card_partial_verified: true, server_partial_verified: true, bip340_verified: true,
  } };
 }
+
+function scalarValue(bytes32) { return BigInt('0x' + Buffer.from(bytes32).toString('hex')); }
+function scalarOf(value) { return bytes(value.toString(16).padStart(64, '0')); }
