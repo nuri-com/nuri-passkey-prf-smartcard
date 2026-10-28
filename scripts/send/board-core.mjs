@@ -241,13 +241,18 @@ export async function signProof(tx, aggregateXonly, deps) {
  * the prevout from the graph - exactly what TreeSignerSession.signPartial does
  * (dist chunk-ZTGTQP2W.js:202-262).
  */
-export function treeMessage(graph, node, { scriptRoot, rootAmount }) {
+export function treeMessage(graph, node, { scriptRoot, rootAmount, expectRootScript }) {
  const tx = node.root;
  assert(tx?.inputsLength === 1, 'tree node must have exactly one input');
  const cosigners = sdk.getArkPsbtFields(tx, 0, sdk.CosignerPublicKey).map(c => c.key);
  assert(cosigners.length > 0, 'tree node has no cosigners');
  const outerKeys = musig.sortKeys(cosigners);
- const finalKey = musig.keyAggregate(outerKeys, [scriptRoot], [true]).aggPublicKey.toBytes(true);
+ // TapTweak(untweaked x-only, scriptRoot), exactly as the SDK's aggregateKeys /
+ // createSession (@arkade-os/sdk chunk-ZTGTQP2W.js:38-43, :94-100). The raw
+ // scriptRoot is NOT the tweak (live attempt 16: operator INVALID_SIGNATURE).
+ const preTweaked = musig.keyAggregate(outerKeys).aggPublicKey.toBytes(true);
+ const tweakBytes = sha256(new Uint8Array([...TAP_TWEAK_TAG, ...TAP_TWEAK_TAG, ...preTweaked.slice(1), ...scriptRoot]));
+ const finalKey = musig.keyAggregate(outerKeys, [tweakBytes], [true]).aggPublicKey.toBytes(true);
  const prev = [];
  for (let i = 0; i < tx.inputsLength; i++) {
   let amount, script;
@@ -264,8 +269,8 @@ export function treeMessage(graph, node, { scriptRoot, rootAmount }) {
   prev.push({ amount, script });
  }
  const msg = tx.preimageWitnessV1(0, prev.map(p => p.script), 0, prev.map(p => p.amount));
- const tweak = sha256(new Uint8Array([...TAP_TWEAK_TAG, ...TAP_TWEAK_TAG, ...finalKey.slice(1), ...scriptRoot]));
- return { txid: node.txid, msg32: hex(msg), tweak32: hex(tweak), cosigners: cosigners.map(c => hex(c)), outerKeys };
+ if (node.txid === graph.txid && expectRootScript) assert.equal(hex(prev[0].script), hex(expectRootScript), 'tree root key does not match the commitment batch output');
+ return { txid: node.txid, msg32: hex(msg), tweak32: hex(tweakBytes), cosigners: cosigners.map(c => hex(c)), outerKeys };
 }
 
 /**

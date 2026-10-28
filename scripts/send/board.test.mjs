@@ -5,7 +5,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { sdk, musig, SoftwareCardSigner, deriveAddresses, finalizeSession, schnorr, hex, bytes } from './deps.mjs';
+import { sdk, musig, SoftwareCardSigner, deriveAddresses, finalizeSession, schnorr, hex, bytes, tapLeafHash } from './deps.mjs';
 import { runBoard, parseArgs } from './board.mjs';
 import {
  boardingContext, boardingCandidates, planSweep, buildProof, registerMessage, directRequests,
@@ -176,7 +176,10 @@ function batch({ client, aggregate, ctx, sweepRoot, operatorKey }) {
  const commitment = new sdk.Transaction({ version: 2, lockTime: 0 });
  commitment.addInput({ txid: bytes(BOARDING_TXID), index: 0, sighashType: 0,
   witnessUtxo: { amount: 7499n, script: bytes(ctx.script) } });
- const finalKey = musig.keyAggregate(musig.sortKeys([bytes(client)]), [sweepRoot], [true]).aggPublicKey.toBytes(true);
+ // Independent of board-core: BIP341 tagged hash via @noble schnorr, as the SDK does.
+ const outerKeys = musig.sortKeys(operatorKey ? [aggregate, operatorKey] : [aggregate]);
+ const pre = musig.keyAggregate(outerKeys).aggPublicKey.toBytes(true);
+ const finalKey = musig.keyAggregate(outerKeys, [schnorr.utils.taggedHash('TapTweak', pre.slice(1), sweepRoot)], [true]).aggPublicKey.toBytes(true);
  commitment.addOutput({ amount: 7499n, script: p2tr(finalKey.slice(1)) });
  commitment.addOutput({ amount: 0n, script: anchor });
  const node = new sdk.Transaction({ version: 2, lockTime: 0 });
@@ -247,7 +250,8 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
  const { card, client, server, serverSecret, info, ctx, keys, aggregate, arkAddress, script } = await fixture();
  const dir = await mkdtemp(join(tmpdir(), 'nuri-board-'));
  const state = { approvals: new Map(), next: 1, seen: [], vtxos: [], forfeits: null };
- const sweepRoot = sha256('sweep');
+ // arkd's real sweep leaf: CSV(batchExpiry) + forfeit key (same inputs the tool reads).
+ const sweepRoot = tapLeafHash(sdk.CSVMultisigTapscript.encode({ timelock: { type: 'seconds', value: 604672n }, pubkeys: [bytes(OPERATOR.forfeitPubkey).slice(-32)] }).script);
  // A second outer cosigner (the operator) as on mainnet: its nonce arrives in
  // tree_nonces and the outer partial must verify against BOTH keys.
  const opSecret = new SoftwareCardSigner().secret, opKey = musig.IndividualPubkey(opSecret);

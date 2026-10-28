@@ -333,7 +333,7 @@ export async function runBoard(options = {}, deps = {}) {
     (deps.validateTree ?? sdk.validateVtxoTxGraph)(vtxoTree, commitment, sweepRoot);
     const nodes = [...vtxoTree.iterator()];
     treeCount = nodes.length;
-    const messages = nodes.map(node => ({ node, message: treeMessage(vtxoTree, node, { scriptRoot: sweepRoot, rootAmount }) }));
+    const messages = nodes.map(node => ({ node, message: treeMessage(vtxoTree, node, { scriptRoot: sweepRoot, rootAmount, expectRootScript: commitment.getOutput(0)?.script }) }));
     if (process.env.NURI_BOARD_DEBUG) console.error('NODES', nodes.map(n => [n.txid, typeof n.txid, n.root?.id]));
     receipt.tree_txs = treeCount;
     receipt.card_sessions_actual = cardSessions({ inputs: first.plan.inputs.length, treeTxs: treeCount });
