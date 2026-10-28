@@ -277,9 +277,12 @@ export function treeMessage(graph, node, { scriptRoot, rootAmount }) {
  * partial ArkadeRemoteSignerSession.computeNestedClientOuterPartial computes
  * with the private key in memory (ArkadeRemoteSignerSession.ts:130-165).
  */
-export function nestedPayload({ message, clientNonce, serverNonce, client, server, aggregate }) {
+export function nestedPayload({ message, clientNonce, serverNonce, client, server, aggregate, outerAggNonce }) {
  const serverNonceBytes = typeof serverNonce === 'string' ? bytes(serverNonce) : serverNonce;
- const aggNonce = musig.nonceAggregate([clientNonce.publicNonce, serverNonceBytes]);
+ // With other outer cosigners (the operator) the session nonce is the aggregate
+ // over ALL outer participants (ArkadeRemoteSignerSession.ts:580-650); alone it
+ // is just card+server.
+ const aggNonce = outerAggNonce ?? musig.nonceAggregate([clientNonce.publicNonce, serverNonceBytes]);
  const outer = new musig.Session(aggNonce, message.outerKeys, bytes(message.msg32), [bytes(message.tweak32)], [true]);
  const inner = new musig.Session(aggNonce, musig.sortKeys([bytes(client), bytes(server)]), bytes(message.msg32));
  // The outer cosigner key is the aggregate (client+server): ArkadeRemoteIdentity
@@ -325,6 +328,68 @@ export async function signTree({ card, client, server, aggregate, message, nonce
   txid: message.txid, msg32: message.msg32, tweak32: message.tweak32, client_public_nonce: hex(nonce.publicNonce),
   server_public_nonce: serverNonce, card_partial: hex(partial), server_partial: hex(serverPartial),
   aggregate_signature: hex(signature), card_partial_verified: true, server_partial_verified: true, bip340_verified: true,
+ } };
+}
+
+/**
+ * Round 1 of a tree node: card nonce + Nuri server nonce. The pair aggregate is
+ * this client's ONE outer nonce, submitted to the operator
+ * (ArkadeRemoteSignerSession.getNonces, :509-560).
+ */
+export async function treeNonce({ server, message, nonce, sign, log = () => {} }) {
+ log('nuri tree nonce');
+ const res = await sign.nonce(message, hex(nonce.publicNonce));
+ assert.equal(String(res.server_pubkey).toLowerCase(), server, 'tree cosigner key changed');
+ assert(/^[0-9a-f]{132}$/.test(res.server_pub_nonce66), 'invalid server tree nonce');
+ const outerPubNonce = musig.nonceAggregate([nonce.publicNonce, bytes(res.server_pub_nonce66)]);
+ return { serverNonce: res.server_pub_nonce66, outerPubNonce };
+}
+
+/**
+ * Outer aggregate nonce from the operator's tree_nonces event: every cosigner
+ * (x-only keyed) in PSBT order, ours replaced by our own pair aggregate
+ * (ArkadeRemoteSignerSession.aggregatedNonces, :580-650).
+ */
+export function outerAggregate(message, eventNonces, aggregate, outerPubNonce) {
+ const mine = hex(bytes(aggregate).slice(1));
+ const byKey = new Map();
+ const entries = eventNonces instanceof Map ? [...eventNonces] : Object.entries(eventNonces ?? {});
+ for (const [k, v] of entries) { const n = v?.pubNonce ?? v; byKey.set(String(k).toLowerCase().slice(-64), typeof n === "string" ? bytes(n) : Uint8Array.from(n)); }
+ byKey.set(mine, outerPubNonce);
+ const byPk33 = new Map();
+ const ordered = message.cosigners.map(pk => {
+  const n = byKey.get(pk.slice(-64));
+  if (!n) return null;
+  byPk33.set(pk, n);
+  return n;
+ });
+ if (ordered.some(n => !n)) return null;
+ return { aggNonce: musig.nonceAggregate(ordered), byPk33 };
+}
+
+/**
+ * Round 2: card FINALIZE + server nested partial under the outer aggregate
+ * nonce; their sum is our outer participant's partial, verified against the
+ * outer session before it goes to the operator (ArkadeRemoteSignerSession.sign, :660-845).
+ */
+export async function treeSign({ card, client, server, aggregate, message, nonce, serverNonce, outer: agg, sign, log = () => {} }) {
+ const { session, outer } = nestedPayload({ message, clientNonce: nonce, serverNonce, client, server, aggregate, outerAggNonce: agg.aggNonce });
+ log('card FINALIZE (tree)');
+ const { partial } = await finalizeSession(card, nonce, session);
+ log('nuri tree sign');
+ const res = await sign.sign(message, hex(nonce.publicNonce), hex(agg.aggNonce));
+ assert.equal(String(res.server_pubkey).toLowerCase(), server, 'tree cosigner key changed');
+ const serverPartial = bytes(res.server_partial32);
+ const combined = scalarOf(modN(scalarValue(partial) + scalarValue(serverPartial)));
+ const keys = message.outerKeys.map(k => hex(k));
+ const index = keys.indexOf(aggregate);
+ assert(index >= 0, 'aggregate not in outer keys');
+ const ordered = keys.map(k => agg.byPk33.get(k));
+ assert(outer.partialSigVerify(combined, ordered, index), 'invalid combined tree partial');
+ return { txid: message.txid, partial: combined, proof: {
+  txid: message.txid, msg32: message.msg32, tweak32: message.tweak32, client_public_nonce: hex(nonce.publicNonce),
+  server_public_nonce: serverNonce, outer_agg_nonce: hex(agg.aggNonce), outer_cosigners: keys.length,
+  card_partial: hex(partial), server_partial: hex(serverPartial), combined_partial: hex(combined), combined_partial_verified: true,
  } };
 }
 

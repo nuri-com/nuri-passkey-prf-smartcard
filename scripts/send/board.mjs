@@ -15,7 +15,7 @@ import { CLIENT, SERVER, SCRIPT, SOURCE, CREDENTIAL } from './core.mjs';
 import { Bridge, saveReceipt } from './cli.mjs';
 import {
  boardingContext, boardingCandidates, planSweep, buildProof, registerMessage, deleteMessage,
- directRequests, applyDirectSignature, signDirect, signProof, treeMessage, signTree,
+ directRequests, applyDirectSignature, signDirect, signProof, treeMessage, treeNonce, outerAggregate, treeSign,
  cardSessions, DELETE_PROOF_SESSIONS, estimatedMs, guardBoard, confirmToken, CARD_SESSION_MS, CARD_NONCE_MS,
 } from './board-core.mjs';
 
@@ -303,7 +303,8 @@ export async function runBoard(options = {}, deps = {}) {
 
   const abort = new AbortController();
   const treeSignatures = new Map();
-  const treeNonces = new Map();
+  const treeState = new Map();
+  let treeSign_;
   const pendingNonces = new Map();
   let ourPubkey;
   let treeCount = 0, batchExpiry = null;
@@ -338,7 +339,6 @@ export async function runBoard(options = {}, deps = {}) {
     receipt.card_sessions_actual = cardSessions({ inputs: first.plan.inputs.length, treeTxs: treeCount });
     receipt.estimated_ms_actual = estimatedMs(receipt.card_sessions_actual);
     if (options.treeLimit) assert(treeCount <= options.treeLimit, `tree has ${treeCount} txs, limit ${options.treeLimit}`);
-    for (const { message } of messages) expectedNonces.set(message.txid, message.cosigners.length);
     const treeRequests = messages.map(({ message }) => ({ kind: 'tree', txid: message.txid, msg32: message.msg32, client_pk33: client, tweak32: message.tweak32 }));
     for (const input of first.plan.inputs) {
      const index = commitment.inputsLength && findCommitmentInput(commitment, input);
@@ -348,28 +348,36 @@ export async function runBoard(options = {}, deps = {}) {
     const treeApproval = await approve(commitment, commitmentRequests(commitment, first.ctx).concat(treeRequests), receipt.session_token);
     const session = await http('/v4/arkade/tree/session-init', { approval_token: treeApproval.approval_token, client_pk33: client, txids: messages.map(m => m.message.txid) });
     assert(session.session_id, 'missing tree session id');
+    const base = msg => ({ approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, tweak32: msg.tweak32 });
+    treeSign_ = {
+     nonce: (msg, clientPubNonce) => http('/v4/arkade/tree/nonce', { ...base(msg), client_pub_nonce: clientPubNonce }),
+     sign: (msg, clientPubNonce, outerAgg) => http('/v4/arkade/tree/sign', { ...base(msg), client_pub_nonce: clientPubNonce, outer_agg_nonce66: outerAgg, outer_pubkeys33: msg.cosigners }),
+    };
+    // The card holds ONE nonce slot (card/musig2/NuriMuSig2v019.java:92-96), and the
+    // nonce must stay open from round 1 (submitTreeNonces) to round 2 (tree_nonces).
+    assert.equal(messages.length, 1, `tree has ${messages.length} txs; card holds one open nonce, only 1 supported`);
     for (const { message } of messages) {
      const nonce = await bridge.getNonces();
-     const { signature, proof: evidence } = await signTree({ card, client, server, aggregate: first.ctx.aggregate_pk33, message, nonce, log,
-      sign: {
-       async nonce(msg, clientPubNonce) { return http('/v4/arkade/tree/nonce', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
-       async sign(msg, clientPubNonce) { return http('/v4/arkade/tree/sign', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
-      } });
-     treeSignatures.set(message.txid, signature);
-     pendingNonces.set(message.txid, { pubNonce: bytes(evidence.client_public_nonce) });
-     receipt.proofs.push({ ...evidence, scope: 'tree' });
-     await update('tree_signed');
+     const r1 = await treeNonce({ server, message, nonce, log, sign: treeSign_ });
+     treeState.set(message.txid, { message, nonce, ...r1 });
+     pendingNonces.set(message.txid, { pubNonce: r1.outerPubNonce });
+     await update('tree_nonce_submitted');
     }
     await operator.submitTreeNonces(event.id, ourPubkey, pendingNonces);
     return { skip: false };
    },
    async onTreeNonces(event) {
-    if (!treeSignatures.has(event.txid)) return { fullySigned: false };
-    const row = receiptsNonces.get(event.txid) ?? new Set();
-    for (const key of Object.keys(event.nonces ?? {})) row.add(key);
-    receiptsNonces.set(event.txid, row);
-    const complete = [...treeSignatures.keys()].every(txid => (receiptsNonces.get(txid)?.size ?? 0) >= (expectedNonces.get(txid) ?? 1));
-    if (!complete) return { fullySigned: false };
+    const st = treeState.get(event.txid);
+    if (!st) return { fullySigned: false };
+    if (!treeSignatures.has(event.txid)) {
+     const agg = outerAggregate(st.message, event.nonces, first.ctx.aggregate_pk33, st.outerPubNonce);
+     if (!agg) return { fullySigned: false };
+     const { partial, proof: evidence } = await treeSign({ card, client, server, aggregate: first.ctx.aggregate_pk33, message: st.message, nonce: st.nonce, serverNonce: st.serverNonce, outer: agg, sign: treeSign_, log });
+     treeSignatures.set(event.txid, partial);
+     receipt.proofs.push({ ...evidence, scope: 'tree' });
+     await update('tree_signed');
+    }
+    if (treeSignatures.size !== treeState.size) return { fullySigned: false };
     const signatures = new Map([...treeSignatures].map(([txid, sig]) => [txid, { encode: () => sig }]));
     await operator.submitTreeSignatures(event.id, ourPubkey, signatures);
     return { fullySigned: true };
@@ -402,8 +410,6 @@ export async function runBoard(options = {}, deps = {}) {
    async onBatchFinalized(event) { receipt.batch_txid = event.txid; return; },
   };
 
-  const receiptsNonces = new Map();
-  const expectedNonces = new Map();
   const stream = operator.getEventStream(abort.signal, [first.ctx.aggregate_pk33, ...first.plan.inputs.map(i => `${i.txid}:${i.vout}`)]);
   try {
    const commitmentTxid = await sdk.Batch.join(stream, handler, { abortController: abort });

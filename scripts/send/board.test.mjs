@@ -172,7 +172,7 @@ test('signDirect rejects a wrong cosigner key and a bad server partial', async (
 });
 
 /** Build a one-node batch tree over the boarding UTXO, like arkd would. */
-function batch({ client, aggregate, ctx, sweepRoot }) {
+function batch({ client, aggregate, ctx, sweepRoot, operatorKey }) {
  const commitment = new sdk.Transaction({ version: 2, lockTime: 0 });
  commitment.addInput({ txid: bytes(BOARDING_TXID), index: 0, sighashType: 0,
   witnessUtxo: { amount: 7499n, script: bytes(ctx.script) } });
@@ -185,6 +185,7 @@ function batch({ client, aggregate, ctx, sweepRoot }) {
  node.addOutput({ amount: 7499n, script: p2tr(aggregate.slice(1)) });
  node.addOutput({ amount: 0n, script: anchor });
  sdk.setArkPsbtField(node, 0, sdk.CosignerPublicKey, { index: 0, key: aggregate });
+ if (operatorKey) sdk.setArkPsbtField(node, 0, sdk.CosignerPublicKey, { index: 1, key: operatorKey });
  return { commitment, node, sweepRoot, finalKey };
 }
 
@@ -247,7 +248,11 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
  const dir = await mkdtemp(join(tmpdir(), 'nuri-board-'));
  const state = { approvals: new Map(), next: 1, seen: [], vtxos: [], forfeits: null };
  const sweepRoot = sha256('sweep');
- const built = batch({ client, aggregate, ctx, sweepRoot });
+ // A second outer cosigner (the operator) as on mainnet: its nonce arrives in
+ // tree_nonces and the outer partial must verify against BOTH keys.
+ const opSecret = new SoftwareCardSigner().secret, opKey = musig.IndividualPubkey(opSecret);
+ const built = batch({ client, aggregate, ctx, sweepRoot, operatorKey: opKey });
+ const opNonce = musig.nonceGen(opKey, opSecret);
  const checkApproval = (token, row) => {
   const allowed = state.approvals.get(token);
   assert(allowed, 'unknown approval token');
@@ -268,7 +273,6 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
     assert(body.token === 'sess'); assert(body.sig_b64u === 'sig'); assert(body.psbt_b64);
    } else assert.equal(body.boarding_sweep_session_token, 'sweep-session');
    const token = `approval-${state.next++}`;
-   console.error('APPROVE ROWS', JSON.stringify(body.sign_requests.map(r => [r.kind, r.txid, r.msg32?.slice(0,8), r.tweak32?.slice(0,8)])));
    state.approvals.set(token, new Set(body.sign_requests.map(row => [row.kind ?? 'direct', row.txid ?? '', row.msg32, row.client_pk33, row.tweak32 ?? ''].join('|'))));
    return { approval_token: token, approval_scope: 'boarding_sweep', boarding_sweep_session_token: 'sweep-session', boarding_sweep_session_expires_at_ms: Date.now() + 600000 };
   }
@@ -287,9 +291,9 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
    assert.equal(body.session_id, 'tree-session');
    // Nested tree share, exactly like computeNestedServerOuterPartial.
    const share = (k1, k2) => {
-    const clientPubNonce = bytes(body.client_pub_nonce);
-    const aggNonce = musig.nonceAggregate([clientPubNonce, state.treeNonce[body.txid]]);
-    const outer = new musig.Session(aggNonce, musig.sortKeys([bytes(hex(aggregate))]), bytes(body.msg32), [bytes(body.tweak32)], [true]);
+    assert(body.outer_agg_nonce66 && body.outer_pubkeys33?.length, 'tree/sign needs outer_agg_nonce66 + outer_pubkeys33');
+    const aggNonce = bytes(body.outer_agg_nonce66);
+    const outer = new musig.Session(aggNonce, musig.sortKeys(body.outer_pubkeys33.map(k => bytes(k))), bytes(body.msg32), [bytes(body.tweak32)], [true]);
     const inner = new musig.Session(aggNonce, keys, bytes(body.msg32));
     const aAgg = outer.getSessionKeyAggCoeff(pointOf(bytes(hex(aggregate))));
     const aS = inner.getSessionKeyAggCoeff(pointOf(bytes(server)));
@@ -308,14 +312,28 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
   }
   throw new Error(`unexpected route ${path}`);
  };
- let release;
+ let release, release2;
  const registered = new Promise(resolve => { release = resolve; });
+ const noncesIn = new Promise(resolve => { release2 = resolve; });
  const operator = {
   async registerIntent(intent) { assert(intent.proof); assert.equal(typeof intent.message, 'object', 'registerIntent wants the raw message'); release(); return 'intent-1'; },
   async deleteIntent() { return true; },
   async confirmRegistration(id) { assert.equal(id, 'intent-1'); },
-  async submitTreeNonces(id, pk, nonces) { assert.equal(id, 'batch-1'); assert.equal(pk, hex(aggregate)); assert.equal(nonces.size, 1); },
-  async submitTreeSignatures(id, pk, sigs) { assert.equal(pk, hex(aggregate)); state.sigs = sigs; },
+  async submitTreeNonces(id, pk, nonces) { assert.equal(id, 'batch-1'); assert.equal(pk, hex(aggregate)); assert.equal(nonces.size, 1); state.ourOuterNonce = [...nonces.values()][0].pubNonce; release2(); },
+  async submitTreeSignatures(id, pk, sigs) {
+   assert.equal(pk, hex(aggregate)); state.sigs = sigs;
+   // operator side: full 2-party outer MuSig2 must yield a valid BIP340 sig
+   const msg = state.seen.find(([p]) => p === '/v4/arkade/tree/sign')[1];
+   const outerKeys = musig.sortKeys([aggregate, opKey]);
+   const nonceOf = k => hex(k) === hex(aggregate) ? state.ourOuterNonce : opNonce.public;
+   const agg = musig.nonceAggregate(outerKeys.map(nonceOf));
+   const sess = new musig.Session(agg, outerKeys, bytes(msg.msg32), [bytes(msg.tweak32)], [true]);
+   const opPartial = sess.sign(opNonce.secret, opSecret);
+   const ours = [...sigs.values()][0].encode();
+   const sig = sess.partialSigAgg(outerKeys.map(k => hex(k) === hex(aggregate) ? ours : opPartial));
+   assert(schnorr.verify(sig, bytes(msg.msg32), sess.Q.toBytes(true).slice(1)), 'operator-aggregated tree signature must verify');
+   state.treeSigOk = true;
+  },
   async submitSignedForfeitTxs(forfeits, psbt) {
    assert.deepEqual(forfeits, []);
    state.forfeits = psbt;
@@ -330,7 +348,8 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
     yield { type: 'batch_started', id: 'batch-1', intentIdHashes: [intentHash], batchExpiry: 604672n };
     yield { type: 'tree_tx', batchIndex: 0, chunk };
     yield { type: 'tree_signing_started', id: 'batch-1', cosignersPublicKeys: [hex(aggregate)], unsignedCommitmentTx: Buffer.from(built.commitment.toPSBT()).toString('base64') };
-    yield { type: 'tree_nonces', id: 'batch-1', txid: built.node.id, nonces: { [hex(aggregate)]: { pubNonce: state.treeNonce[built.node.id] } } };
+    await noncesIn;
+    yield { type: 'tree_nonces', id: 'batch-1', txid: built.node.id, nonces: new Map([[hex(aggregate.slice(1)), { pubNonce: state.ourOuterNonce }], [hex(opKey.slice(1)), { pubNonce: opNonce.public }]]) };
     yield { type: 'batch_finalization', id: 'batch-1', commitmentTx: Buffer.from(built.commitment.toPSBT()).toString('base64') };
     yield { type: 'batch_finalized', txid: 'commitment-1', commitmentTxid: built.commitment.id };
     void signal;
@@ -358,11 +377,12 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
  assert.equal(receipt.tree_txs, 1);
  assert.equal(receipt.proofs.filter(p => p.scope === 'tree').length, 1);
  assert.equal(receipt.proofs.filter(p => p.scope === 'boarding_input').length, 1);
- assert(receipt.proofs.every(p => p.bip340_verified));
+ assert(receipt.proofs.every(p => p.scope === 'tree' ? p.combined_partial_verified : p.bip340_verified));
  assert(state.forfeits);
  const saved = JSON.parse(await readFile(join(dir, 'receipt.json'), 'utf8').catch(() => 'null')) ?? state.receipt;
  assert.equal(saved.status, 'indexer_verified');
  assert.equal(state.sigs.size, 1);
+ assert.equal(state.treeSigOk, true);
  await rm(dir, { recursive: true, force: true });
 });
 
