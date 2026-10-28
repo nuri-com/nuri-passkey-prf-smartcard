@@ -35,7 +35,7 @@ Nonempty install parameters must have the exact GP layout `Li || instanceAID || 
 
 These are application-data values, **not** a raw alternative to the GP envelope. For example, a full GP envelope for the demo is `09 4E5552494554483201 00 02 0100`. Unknown modes, `0000`, demo data carrying a PIN, mismatched lengths and alternate AIDs are rejected ([`personalize`](../card/eth2/NuriEthSignerV2.java)).
 
-The PIN has five attempts; the optional 16-byte PUK has three. Validation is session-wide, not per-signature approval. Reselection, deselection and reset clear authorization. CHANGE_PIN checks the old PIN inline and validates the replacement; UNBLOCK_PIN resets the PIN without validating it. A blocked SIGN returns `6982`; VERIFY of a blocked PIN returns `6983` ([`select`, `deselect`, `verifyPin`, `changePin`, `unblockPin`](../card/eth2/NuriEthSignerV2.java)). There is no touch, biometric or trusted transaction-display check.
+The PIN has five attempts; the optional 16-byte PUK has three. Validation is session-wide, not per-signature approval. Reselection, deselection and reset clear authorization. CHANGE_PIN checks the old PIN inline and validates the replacement; UNBLOCK_PIN resets the PIN without validating it. A blocked SIGN returns `6982`; VERIFY of a blocked PIN returns `6983` ([`select`, `deselect`, `verifyPin`, `changePin`, `unblockPin`](../card/eth2/NuriEthSignerV2.java)). There is no touch, biometric or trusted transaction-display check. SET/CHANGE/UNBLOCK write the PIN inside a Java Card transaction so a power loss aborts to the previous state; see [tear-safety.md](tear-safety.md).
 
 ## Command contract
 
