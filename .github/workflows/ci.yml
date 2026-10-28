@@ -19,6 +19,10 @@ jobs:
       - name: Live read-only proof, no card or signing credentials
         run: node scripts/send/e2e-proof.mjs --dry-run
       - run: for run in 1 2 3; do npm test; done
+      - name: Validate README and proof diagrams with negative control
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund mermaid@11.12.0 jsdom@26.1.0
+          node scripts/validate-proof-mermaid.mjs "$RUNNER_TEMP/mermaid" "$RUNNER_TEMP/mermaid-proof.json"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
