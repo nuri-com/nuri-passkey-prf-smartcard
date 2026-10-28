@@ -77,3 +77,62 @@ npm test
 ```
 
 No local executable tests/builds or hardware access were performed for this port. Historical source-tool proof claims are not carried over as verification of this implementation.
+
+## Boarding sweep (onboard)
+
+Confirmed onchain boarding UTXOs sit outside the Arkade wallet until they are settled into a VTXO. `board.mjs` does that the way the app does it (`ramps.onboard` -> `wallet.settle`): one register-intent proof, one boarding-sweep approval, a batch tree signature, then the boarding input signature on the commitment transaction.
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant Card
+    participant Nuri
+    participant Operator
+    participant Esplora
+    Host->>Esplora: GET boarding utxos
+    Host->>Card: FIDO2 assertion for the auth challenge
+    Host->>Nuri: POST sweep approve with the register proof requests
+    Nuri-->>Host: approval token and sweep session token
+    Host->>Card: MuSig2 nonces and FINALIZE per proof input
+    Host->>Operator: registerIntent
+    Operator-->>Host: TreeSigningStarted
+    Host->>Nuri: session approve for the tree requests
+    Host->>Card: MuSig2 nonces and FINALIZE per tree node
+    Host->>Nuri: tree nonce and tree sign per node
+    Host->>Operator: submitTreeNonces and submitTreeSignatures
+    Operator-->>Host: BatchFinalization
+    Host->>Card: MuSig2 FINALIZE for the boarding input
+    Host->>Operator: submitSignedForfeitTxs with the commitment
+    Host->>Esplora: reconcile the settled VTXO
+```
+
+The default dry run reads only public endpoints. It prints the boarding UTXOs with height and confirmation state, the plan after operator intent fees, the card signature count, and the register proof requests the server will derive.
+
+```sh
+node scripts/send/board.mjs
+node scripts/send/board.mjs --outpoint <txid>:<vout> --tree-limit 7
+NURI_SEND_CONFIRM=board-7499 node scripts/send/board.mjs --execute
+```
+
+`--expect <bc1p...>` pins the derived boarding address. `--outpoint` sweeps one UTXO, otherwise every confirmed one. `--tree-limit` refuses a batch whose tree exceeds the affordable node count. As with a send, the PIN comes only from `NURI_FIDO_PIN` or the owned mode-600 file, and `NURI_SEND_CONFIRM=board-<sats>` is re-checked after the live re-read that precedes intent registration.
+
+### Card cost of one sweep
+
+The card signs sequentially, so the count is what matters, not the size of a signature:
+
+| Step | Card sessions | Why |
+| --- | --- | --- |
+| register intent proof | 2 | BIP322 message input plus one input per boarding coin |
+| delete intent proof | 2 | only signed lazily, when a registration has to be undone |
+| boarding inputs | N | commitment transaction inputs, signed at finalization |
+| vtxo tree nodes | T | every node this client is a cosigner of |
+
+Measured on the physical card: `GET_NONCES` about 0.29 s, `FINALIZE` about 2.06 s, so roughly 2.4 s per session plus one HTTP round trip. The operator runs a single `sessionDuration` budget per round, split 1/6 for registration and then a third each for nonces, signatures and finalization (arkd `internal/core/application/round_timing.go`). With the operator's advertised 60 s that leaves about 16 s of signature phase, so the tree is the binding term: roughly six to seven nodes, everything else fits with room to spare. A larger batch is not lost, the round dies and the next attempt starts a fresh one.
+
+The operator cannot take the tree over on its own. The tree leaves pay the `aggregate(client, server)` key and the Nuri server only holds half of it (`usesInnerAgg` in `src/ArkadeServer.js:4050`), so the two parties form one outer cosigner together. That is why the card signs the tree with the inner (client plus server) aggregate scaled into the outer session rather than a plain key path spend.
+
+### Executing
+
+Execution uses one passkey assertion. The sweep approval is bound to the selected outpoints, the total and every request key, then re-minted prompt-free from the returned `boarding_sweep_session_token` for the tree round and the commitment. Every server partial and every aggregate BIP340 signature is verified before it is applied. Receipts go to `_launch/out/board/receipt.json` (`NURI_BOARD_RECEIPT_PATH`), logs to `_launch/out/board/*.jsonl` (`NURI_BOARD_LOG`); receipts omit assertions, PINs, nonces and tokens.
+
+A failed or ambiguous run must not be resent. The receipt records `failed_before_submission`, `failed_unknown_outcome` or `failed_completion_only`, and a leftover intent can block the same outpoint with a duplicated-input refusal until the operator clears the registration.

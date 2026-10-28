@@ -288,7 +288,7 @@ def fido_operation(op, payload, pin):
 def main():
     card = None
     try:
-        if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9-]{0,62}|ark1[0-9a-z]+)-(?:all|[1-9][0-9]*)", os.environ.get("NURI_SEND_CONFIRM", "")):
+        if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9-]{0,62}|ark1[0-9a-z]+|board)-(?:all|[1-9][0-9]*)", os.environ.get("NURI_SEND_CONFIRM", "")):
             raise RuntimeError("confirmation required")
         # Explicitly disable transport logging (APDUs/extension data may contain
         # secrets). No logging configuration or hardware imports at import time.
@@ -316,15 +316,34 @@ def main():
             else:
                 if card is None:
                     card = open_musig(pin)
-                if op == "pubkey":
-                    response = {"pubkey": card.pubkey().hex()}
-                elif op == "nonces":
-                    if card._token is not None:
+                if op in ("pubkey", "nonces"):
+                    # Idempotent ops: the reader can drop an idle connection during the
+                    # operator's batch wait (~50 s; live attempts 9 and 13). Reconnect
+                    # once. A dropped card has lost its CLEAR_ON_RESET nonce anyway.
+                    # FINALIZE never retries.
+                    if op == "nonces" and card._token is not None:
                         raise ValueError("nonce session already exists")
-                    k1, k2 = card.nonces()
-                    if card._token is None or len(card._token) != 4:
-                        raise ValueError("nonce token missing")
-                    response = {"publicNonce": (k1 + k2).hex(), "token": card._token.hex()}
+                    for attempt in (0, 1):
+                        try:
+                            if op == "pubkey":
+                                response = {"pubkey": card.pubkey().hex()}
+                            else:
+                                k1, k2 = card.nonces()
+                                if card._token is None or len(card._token) != 4:
+                                    raise ValueError("nonce token missing")
+                                response = {"publicNonce": (k1 + k2).hex(), "token": card._token.hex()}
+                            break
+                        except ValueError:
+                            raise
+                        except Exception:
+                            if attempt:
+                                raise
+                            try:
+                                card.close()
+                            except Exception:
+                                pass
+                            card = None
+                            card = open_musig(pin)
                 else:
                     if finalize_payload is None:
                         raise ValueError("FINALIZE payload missing")
@@ -335,6 +354,9 @@ def main():
             print(json.dumps(response), flush=True)
         return 0
     except (Exception, KeyboardInterrupt):
+        if os.environ.get("NURI_BRIDGE_DEBUG"):
+            import traceback
+            traceback.print_exc()
         # Never serialize transport/provider exceptions, PIN, PRF or private key.
         print(json.dumps(ERROR), flush=True)
         return 1

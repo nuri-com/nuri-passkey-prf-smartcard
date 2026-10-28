@@ -7,6 +7,15 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased
+
+- Add `scripts/send/board.mjs`: settle confirmed onchain boarding UTXOs into a
+  card-owned Arkade VTXO. Dry run is GET-only and prints the boarding UTXOs,
+  the operator-fee plan and the exact approval requests; `--execute` needs
+  `NURI_SEND_CONFIRM=board-<sats>`. One passkey assertion, then card MuSig2 for
+  the proof, the batch tree and the boarding input. Software-card tests cover
+  the nested tree share end to end.
+
 ## v1.2.0 — Fast MuSig2 PIN signer
 
 - Add `scripts/build-musig2-aid3.sh`: package `4E5552494D554733`, applet

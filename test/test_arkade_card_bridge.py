@@ -127,6 +127,17 @@ class BridgeTests(unittest.TestCase):
         read.assert_not_called()
         fido.assert_not_called()
 
+    def test_boarding_confirmation_passes_the_gate(self):
+        # A boarding sweep confirms the swept amount as board-<sats>; the gate
+        # must let it through to card work, not refuse it up front.
+        with patch.object(bridge, "fido_operation", return_value={"ok": True}) as operation:
+            code, responses = self.run_main(
+                [{"op": "assert", "payload": {**PAYLOAD, "challenge": bridge.b64(bytes(range(32))),
+                  "rp_id": "nuri.com", "origin": "https://arkade.nuri.com"}}],
+                NURI_SEND_CONFIRM="board-7499")
+        self.assertEqual((code, responses), (0, [{"ok": True}]))
+        operation.assert_called_once()
+
     def test_eof_does_not_read_pin_or_hardware(self):
         with patch.object(bridge, "read_pin") as read, patch.object(bridge, "open_musig") as musig:
             self.assertEqual(self.run_main([]), (0, []))

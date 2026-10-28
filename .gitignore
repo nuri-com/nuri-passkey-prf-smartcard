@@ -40,3 +40,6 @@ dist/nuri-pcsc-sk-provider.so
 .worktrees/
 # Private, recoverable zero-funds W35 software test keys. Never commit.
 .w35-private/
+
+# board/send run artifacts (absolute local paths)
+_launch/
