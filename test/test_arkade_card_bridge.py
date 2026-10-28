@@ -132,7 +132,8 @@ class BridgeTests(unittest.TestCase):
         # must let it through to card work, not refuse it up front.
         with patch.object(bridge, "fido_operation", return_value={"ok": True}) as operation:
             code, responses = self.run_main(
-                [{"op": "assert", "payload": {**PAYLOAD, "challenge": bridge.b64(bytes(range(32)))}}],
+                [{"op": "assert", "payload": {**PAYLOAD, "challenge": bridge.b64(bytes(range(32))),
+                  "rp_id": "nuri.com", "origin": "https://arkade.nuri.com"}}],
                 NURI_SEND_CONFIRM="board-7499")
         self.assertEqual((code, responses), (0, [{"ok": True}]))
         operation.assert_called_once()

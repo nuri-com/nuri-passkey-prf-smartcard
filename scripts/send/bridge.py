@@ -335,6 +335,9 @@ def main():
             print(json.dumps(response), flush=True)
         return 0
     except (Exception, KeyboardInterrupt):
+        if os.environ.get("NURI_BRIDGE_DEBUG"):
+            import traceback
+            traceback.print_exc()
         # Never serialize transport/provider exceptions, PIN, PRF or private key.
         print(json.dumps(ERROR), flush=True)
         return 1
