@@ -251,6 +251,7 @@ export async function runBoard(options = {}, deps = {}) {
    [{ amount: BigInt(first.plan.vtxo_sats), script: offchainScript(arkAddress, script) }], first.ctx);
   const proofRequests = directRequests(proof.tx, first.ctx.aggregate_xonly);
   const approval = await approve(proof.tx, proofRequests, null);
+  receipt.session_token = approval.boarding_sweep_session_token;
   receipt.register_proof_id = proof.tx.id;
   receipt.register_proof_inputs = proof.tx.inputsLength;
   const sendSign = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: approval.approval_token, client_pub_nonce: clientPubNonce });
@@ -264,7 +265,22 @@ export async function runBoard(options = {}, deps = {}) {
   receipt.intent_txid = proof.tx.id;
   await revalidate();
   await update('registering_intent');
-  const intentId = await operator.registerIntent(intent);
+  let intentId;
+  try {
+   intentId = await operator.registerIntent(intent);
+  } catch (error) {
+   // A refused registration leaves no intent, so the delete proof is only
+   // needed now (the SDK signs it up front and uses it in the same place,
+   // dist chunk-ZTGTQP2W.js:15756-15763).
+   const proofDelay = buildProof(deleteMessage(), first.plan.inputs, [], first.ctx);
+   const deleteApproval = await approve(proofDelay.tx, directRequests(proofDelay.tx, first.ctx.aggregate_xonly), receipt.session_token);
+   const sendDelete = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: deleteApproval.approval_token, client_pub_nonce: clientPubNonce });
+   const signedDelete = await signProof(proofDelay.tx, first.ctx.aggregate_xonly, { card, client, server, aggregate: first.ctx.aggregate_pk33, sign: sendDelete, log });
+   const deleteIntent = { proof: Buffer.from(signedDelete.tx.toPSBT()).toString('base64'), message: proofDelay.message };
+   await operator.deleteIntent(deleteIntent).catch(e => { if (process.env.NURI_BOARD_DEBUG) console.error('DELETE FAILED', e.message); });
+   receipt.delete_proof = true;
+   throw error;
+  }
   assert(intentId, 'missing intent id');
   receipt.intent_id = intentId;
 

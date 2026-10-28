@@ -373,3 +373,50 @@ test('runBoard execute refuses a wrong confirmation before any card work', async
  await assert.rejects(out, /NURI_SEND_CONFIRM=board-7499 required/);
  assert.equal(calls, 1);
 });
+
+test('a refused registration signs and sends the delete proof', async () => {
+ const { card, client, server, serverSecret, info, ctx, keys, arkAddress, script, aggregate } = await fixture();
+ const state = { approvals: new Map(), next: 1, deleted: null, requested: [] };
+ const request = async (path, body) => {
+  if (path.startsWith('/v4/arkade/info')) return info;
+  if (path === '/v4/arkade/auth') return { token: 'sess', challenge: 'chal', rp_id: 'nuri.com', origin: 'https://arkade.nuri.com' };
+  if (path === '/api/arkade/receive/boarding/sweep/approve') {
+   const token = `approval-${state.next++}`;
+   state.approvals.set(token, new Set(body.sign_requests.map(row => row.msg32)));
+   state.requested.push(body.sign_requests.length);
+   return { approval_token: token, approval_scope: 'boarding_sweep', boarding_sweep_session_token: 'sweep-session' };
+  }
+  if (path === '/arkade/sign') {
+   assert(state.approvals.get(body.approval_token).has(body.msg32), 'unapproved sign');
+   const other = musig.deterministicSign(serverSecret, bytes(body.client_pub_nonce), keys, bytes(body.msg32));
+   return { server_pub_nonce66: hex(other.publicNonce), server_partial32: hex(other.partialSig), server_pubkey: server };
+  }
+  throw new Error(`unexpected ${path}`);
+ };
+ const operator = {
+  async registerIntent() { const error = new Error('duplicated input'); throw error; },
+  async deleteIntent(intent) {
+   assert(intent.proof);
+   // The delete proof must carry real signatures on both of its inputs.
+   const tx = sdk.Transaction.fromPSBT(Buffer.from(intent.proof, 'base64'));
+   for (let i = 0; i < tx.inputsLength; i++) assert.equal(tx.getInput(i).tapScriptSig.length, 1);
+   state.deleted = intent.message;
+   return true;
+  },
+ };
+ const bridge = {
+  async request() { return { client_data_b64u: 'cd', auth_data_b64u: 'ad', sig_b64u: 'sig' }; },
+  async getPublicKey() { return bytes(client); },
+  getNonces: () => card.getNonces(),
+  finalize: payload => card.finalize(payload),
+  close() {},
+ };
+ await assert.rejects(runBoard({ execute: true }, {
+  env: { NURI_SEND_CONFIRM: 'board-7499', NURI_BOARD_RECEIPT_PATH: join(tmpdir(), `del-${Date.now()}.json`) },
+  bridge, client, server, script, arkAddress, operator: OPERATOR, request, esplora: async () => [utxo],
+  arkProvider: operator, validateTree: () => {}, log: () => {}, persistReceipt: async () => {},
+ }), /before operator submission/);
+ assert.equal(state.deleted, '{"type":"delete","expire_at":0}');
+ assert.deepEqual(state.requested, [2, 2]);
+ void aggregate;
+});
