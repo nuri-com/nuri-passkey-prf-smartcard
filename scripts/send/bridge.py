@@ -288,7 +288,7 @@ def fido_operation(op, payload, pin):
 def main():
     card = None
     try:
-        if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9-]{0,62}|ark1[0-9a-z]+)-(?:all|[1-9][0-9]*)", os.environ.get("NURI_SEND_CONFIRM", "")):
+        if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9-]{0,62}|ark1[0-9a-z]+|board)-(?:all|[1-9][0-9]*)", os.environ.get("NURI_SEND_CONFIRM", "")):
             raise RuntimeError("confirmation required")
         # Explicitly disable transport logging (APDUs/extension data may contain
         # secrets). No logging configuration or hardware imports at import time.
