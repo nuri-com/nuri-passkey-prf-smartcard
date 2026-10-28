@@ -27,6 +27,19 @@ using [SSH setup](../docs/ssh-smartcard.md); locally generated absolute paths mu
 not be redistributed. The PKCS#11 module is a separate native artifact, not a CAP;
 its source/platform correspondence is checked separately.
 
+## MuSig2 additive identities
+
+| Identity | Package AID | Applet AID | Artifact / scope |
+|---|---|---|---|
+| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; hash in `SHA256SUMS`, historical PIN2 receipt |
+| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; candidate built from final integrated source |
+
+AID3 build integration is included in repository version 1.2.0. Before release,
+generate the candidate from the final scalar source, add its normalized CAP/hash
+to this inventory and `SHA256SUMS`, and run the complete release verifier. No
+AID3 real-card times or physical acceptance are claimed here; AID2 evidence does
+not transfer to a new CAP. [Scalar boundary](../docs/scalar256.md#v120-aid3-release-boundary).
+
 ## Build inputs and reproduction
 
 - FIDO2 fork `4f318197cc08f316ce784a89bdf29dc73cca7fcf`, upstream v2.0.5

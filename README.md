@@ -411,7 +411,7 @@ not installation instructions for this release. See [Arkade boundaries](docs/ark
 
 ## Chrome prototype: clean install folder
 
-Extension version **0.2.0**; repository package version **1.1.0** (release `v1.1.0`).
+Extension version **0.2.0**; repository package version **1.2.0** (release `v1.2.0`).
 
 ```sh
 python3 scripts/package-chrome.py "$HOME/Downloads/Nuri Card"
@@ -452,6 +452,7 @@ client, reader or transaction flow. Latest physical runs: 2026-10-22, card CPLC
 | PKCS#11 fail-closed defaults and ETH2 discovery preference | simulator only |
 | PRF-encrypted disk credential vault put/run/rm | proven on a physical card |
 | MuSig2 v1.15 PIN2, protocol pin-1.14, additive AID2 cosigning | proven on a physical card |
+| MuSig2 AID3 (`4E5552494D55473301`), 5.2 s FINALIZE | proven on a physical card |
 | On-card credential vault PIN/HMAC/bearer storage | simulator only |
 | TOTP calculation and software-HMAC fallback | simulator only |
 | Chrome Ethereum wallet approval binding, PIN flow and Base send | simulator only |

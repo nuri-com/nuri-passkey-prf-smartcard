@@ -36,7 +36,7 @@ public final class Scalar256Test {
         "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16);
     private static final BigInteger MAX = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
     private static final long SEED = 0x5343414C41523256L;
-    private static final int RANDOM_CASES = 256;
+    private static final int RANDOM_CASES = 1024;
     private static final String AID = "4E5552495343414C01";
     private static final X9ECParameters CURVE = SECNamedCurves.getByName("secp256k1");
     private static Scalar256 scalar;
@@ -61,6 +61,16 @@ public final class Scalar256Test {
         sim.installApplet(AIDUtil.create(AID), Harness.class);
         check(sim.selectApplet(AIDUtil.create(AID)), "scalar harness select");
         discoverScratch();
+        BigInteger p = new BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F",16);
+        Random fieldRandom = new Random(SEED);
+        BigInteger[] edge = {BigInteger.ZERO, BigInteger.ONE, N.subtract(BigInteger.ONE), p.subtract(BigInteger.ONE), MAX};
+        for (int i=0;i<1050;i++) {
+            BigInteger a=i<25?edge[i/5]:new BigInteger(256,fieldRandom);
+            BigInteger b=i<25?edge[i%5]:new BigInteger(256,fieldRandom);
+            byte[] result=new byte[32];
+            scalar.fieldMultiply(bytes(a),(short)0,bytes(b),(short)0,result,(short)0);
+            check(new BigInteger(1,result).equals(a.multiply(b).mod(p)),"field multiply oracle " + i);
+        }
         BigInteger[] boundaries = {
             BigInteger.ZERO, BigInteger.ONE, N.subtract(BigInteger.ONE),
             N, N.add(BigInteger.ONE), MAX
