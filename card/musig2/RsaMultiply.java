@@ -18,8 +18,8 @@ final class RsaMultiply {
     private final byte[] input;
     private final byte[] squares;
     private final byte[] work;
-    private static final byte[] TWO = {2};
     private final byte[] kat;
+    private static final byte[] TWO = {2};
     private boolean verified;
     // Big endian, c = 2^256 - modulus; c < 2^129 for both moduli.
     private static final byte[] CN = {
@@ -34,6 +34,10 @@ final class RsaMultiply {
         input = JCSystem.makeTransientByteArray((short)96, JCSystem.CLEAR_ON_DESELECT);
         squares = JCSystem.makeTransientByteArray((short)288, JCSystem.CLEAR_ON_DESELECT);
         work = JCSystem.makeTransientByteArray((short)128, JCSystem.CLEAR_ON_DESELECT);
+        // KAT operand/result buffer. Transient like every other scratch array:
+        // it holds (m-1) then the reduced result, so nothing may leak into
+        // EEPROM. selfTest rewrites all 32 bytes, so clearing it is enough.
+        kat = JCSystem.makeTransientByteArray((short)32, JCSystem.CLEAR_ON_DESELECT);
         key = (RSAPublicKey)KeyBuilder.buildKey(KeyBuilder.TYPE_RSA_PUBLIC, (short)768, false);
         Util.arrayFillNonAtomic(input,(short)0,(short)96,(byte)0xff);
         key.setModulus(input,(short)0,(short)96);
@@ -52,7 +56,6 @@ final class RsaMultiply {
         // Known-answer tests run lazily on first use (fail closed, every call
         // until they pass): running them inside INSTALL returned 6985 on the
         // real card, while the identical tests pass at APDU time.
-        kat = new byte[32];
     }
     private void selfTest(boolean field, byte[] kat) {
         byte[] c=field?CP:CN;
@@ -61,6 +64,7 @@ final class RsaMultiply {
         short bad=0;
         for(short i=0;i<31;i++) bad |= kat[i];
         bad |= (short)(kat[31]^1);
+        // Erase after the verdict (clear() cannot do it: kat is our output).
         Util.arrayFillNonAtomic(kat,(short)0,(short)32,(byte)0);
         clear();
         if(bad!=0) javacard.framework.ISOException.throwIt((short)0x6f31);
@@ -151,6 +155,9 @@ final class RsaMultiply {
         work[31]=(byte)carry;
     }
     void clear() {
+        // kat is deliberately excluded: it can be multiply()'s output buffer,
+        // so wiping it here would erase the KAT result before selfTest checks
+        // it. selfTest erases kat itself once the verdict is computed.
         Util.arrayFillNonAtomic(input,(short)0,(short)96,(byte)0);
         Util.arrayFillNonAtomic(squares,(short)0,(short)288,(byte)0);
         Util.arrayFillNonAtomic(work,(short)0,(short)128,(byte)0);
