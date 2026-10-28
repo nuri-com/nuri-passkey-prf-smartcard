@@ -15,7 +15,7 @@ import { HDKey } from '@scure/bip32';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/curves/abstract/utils';
+import { bytesToHex } from '@noble/curves/utils.js';
 
 const utf8 = (s) => new TextEncoder().encode(s);
 
