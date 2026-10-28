@@ -316,15 +316,34 @@ def main():
             else:
                 if card is None:
                     card = open_musig(pin)
-                if op == "pubkey":
-                    response = {"pubkey": card.pubkey().hex()}
-                elif op == "nonces":
-                    if card._token is not None:
+                if op in ("pubkey", "nonces"):
+                    # Idempotent ops: the reader can drop an idle connection during the
+                    # operator's batch wait (~50 s; live attempts 9 and 13). Reconnect
+                    # once. A dropped card has lost its CLEAR_ON_RESET nonce anyway.
+                    # FINALIZE never retries.
+                    if op == "nonces" and card._token is not None:
                         raise ValueError("nonce session already exists")
-                    k1, k2 = card.nonces()
-                    if card._token is None or len(card._token) != 4:
-                        raise ValueError("nonce token missing")
-                    response = {"publicNonce": (k1 + k2).hex(), "token": card._token.hex()}
+                    for attempt in (0, 1):
+                        try:
+                            if op == "pubkey":
+                                response = {"pubkey": card.pubkey().hex()}
+                            else:
+                                k1, k2 = card.nonces()
+                                if card._token is None or len(card._token) != 4:
+                                    raise ValueError("nonce token missing")
+                                response = {"publicNonce": (k1 + k2).hex(), "token": card._token.hex()}
+                            break
+                        except ValueError:
+                            raise
+                        except Exception:
+                            if attempt:
+                                raise
+                            try:
+                                card.close()
+                            except Exception:
+                                pass
+                            card = None
+                            card = open_musig(pin)
                 else:
                     if finalize_payload is None:
                         raise ValueError("FINALIZE payload missing")
