@@ -154,6 +154,10 @@ test('signDirect produces a verified aggregate over the proof leaves', async () 
  assert.deepEqual(events, ['card GET_NONCES', 'nuri cosign', 'verify server partial', 'card FINALIZE', 'verify aggregate']);
  applyDirectSignature(proof.tx, request, ctx.aggregate_xonly, signature);
  assert.equal(proof.tx.getInput(1).tapScriptSig.length, 1);
+ const stored = proof.tx.getInput(1).tapScriptSig[0][1];
+ assert.equal(stored.length, 65, 'SIGHASH_ALL tapscript sig is 65 bytes');
+ assert.equal(stored[64], 1, 'sighash byte must be SIGHASH_ALL');
+ assert(schnorr.verify(stored.slice(0, 64), bytes(request.msg32), bytes(ctx.aggregate_xonly)), 'stored sig verifies over the SIGHASH_ALL preimage');
 
 });
 
@@ -254,6 +258,8 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
   state.seen.push([path.split('?')[0], body]);
   if (path.startsWith('/v4/arkade/info')) return info;
   if (path === '/v4/arkade/auth') return { token: 'sess', challenge: 'chal', rp_id: 'nuri.com', origin: 'https://arkade.nuri.com' };
+  if (path === '/api/arkade/receive/boarding-address') return { ok: true, boarding_address: { address: body.boarding_address } };
+  if (path === '/api/arkade/receive/sync') return { ok: true, boarding: [{ txid: BOARDING_TXID, vout: 0, status: "confirmed" }] };
   if (path === '/api/arkade/receive/boarding/sweep/approve') {
    assert(body.client_pk33 === client);
    assert.deepEqual(body.selected_outpoints, [`${BOARDING_TXID}:0:7499`]);
@@ -266,17 +272,17 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
    state.approvals.set(token, new Set(body.sign_requests.map(row => [row.kind ?? 'direct', row.txid ?? '', row.msg32, row.client_pk33, row.tweak32 ?? ''].join('|'))));
    return { approval_token: token, approval_scope: 'boarding_sweep', boarding_sweep_session_token: 'sweep-session', boarding_sweep_session_expires_at_ms: Date.now() + 600000 };
   }
-  if (path === '/arkade/sign') {
+  if (path === '/v4/arkade/sign') {
    checkApproval(body.approval_token, { kind: 'direct', msg32: body.msg32, client_pk33: body.client_pk33 });
    const other = musig.deterministicSign(serverSecret, bytes(body.client_pub_nonce), keys, bytes(body.msg32));
    return { server_pub_nonce66: hex(other.publicNonce), server_partial32: hex(other.partialSig), server_pubkey: server };
   }
-  if (path === '/arkade/tree/session-init') {
+  if (path === '/v4/arkade/tree/session-init') {
    assert.equal(body.client_pk33, client);
    assert.equal(body.txids.length, 1);
    return { session_id: 'tree-session' };
   }
-  if (path === '/arkade/tree/nonce' || path === '/arkade/tree/sign') {
+  if (path === '/v4/arkade/tree/nonce' || path === '/v4/arkade/tree/sign') {
    checkApproval(body.approval_token, { kind: 'tree', txid: body.txid, msg32: body.msg32, client_pk33: body.client_pk33, tweak32: body.tweak32 });
    assert.equal(body.session_id, 'tree-session');
    // Nested tree share, exactly like computeNestedServerOuterPartial.
@@ -305,7 +311,7 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
  let release;
  const registered = new Promise(resolve => { release = resolve; });
  const operator = {
-  async registerIntent(intent) { assert(intent.proof); release(); return 'intent-1'; },
+  async registerIntent(intent) { assert(intent.proof); assert.equal(typeof intent.message, 'object', 'registerIntent wants the raw message'); release(); return 'intent-1'; },
   async deleteIntent() { return true; },
   async confirmRegistration(id) { assert.equal(id, 'intent-1'); },
   async submitTreeNonces(id, pk, nonces) { assert.equal(id, 'batch-1'); assert.equal(pk, hex(aggregate)); assert.equal(nonces.size, 1); },
@@ -321,9 +327,9 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
    const intentHash = createHash('sha256').update('intent-1').digest('hex');
    async function* stream() {
     await registered;
-    yield { type: 'batch_started', id: 'batch-1', intentIdHashes: [intentHash] };
+    yield { type: 'batch_started', id: 'batch-1', intentIdHashes: [intentHash], batchExpiry: 604672n };
     yield { type: 'tree_tx', batchIndex: 0, chunk };
-    yield { type: 'tree_signing_started', id: 'batch-1', cosignersPublicKeys: [hex(aggregate)], unsignedCommitmentTx: Buffer.from(built.commitment.toPSBT()).toString('base64'), batchExpiry: { type: 'seconds', value: 512n } };
+    yield { type: 'tree_signing_started', id: 'batch-1', cosignersPublicKeys: [hex(aggregate)], unsignedCommitmentTx: Buffer.from(built.commitment.toPSBT()).toString('base64') };
     yield { type: 'tree_nonces', id: 'batch-1', txid: built.node.id, nonces: { [hex(aggregate)]: { pubNonce: state.treeNonce[built.node.id] } } };
     yield { type: 'batch_finalization', id: 'batch-1', commitmentTx: Buffer.from(built.commitment.toPSBT()).toString('base64') };
     yield { type: 'batch_finalized', txid: 'commitment-1', commitmentTxid: built.commitment.id };
@@ -380,13 +386,15 @@ test('a refused registration signs and sends the delete proof', async () => {
  const request = async (path, body) => {
   if (path.startsWith('/v4/arkade/info')) return info;
   if (path === '/v4/arkade/auth') return { token: 'sess', challenge: 'chal', rp_id: 'nuri.com', origin: 'https://arkade.nuri.com' };
+  if (path === '/api/arkade/receive/boarding-address') return { ok: true, boarding_address: { address: body.boarding_address } };
+  if (path === '/api/arkade/receive/sync') return { ok: true, boarding: [{ txid: BOARDING_TXID, vout: 0, status: "confirmed" }] };
   if (path === '/api/arkade/receive/boarding/sweep/approve') {
    const token = `approval-${state.next++}`;
    state.approvals.set(token, new Set(body.sign_requests.map(row => row.msg32)));
    state.requested.push(body.sign_requests.length);
    return { approval_token: token, approval_scope: 'boarding_sweep', boarding_sweep_session_token: 'sweep-session' };
   }
-  if (path === '/arkade/sign') {
+  if (path === '/v4/arkade/sign') {
    assert(state.approvals.get(body.approval_token).has(body.msg32), 'unapproved sign');
    const other = musig.deterministicSign(serverSecret, bytes(body.client_pub_nonce), keys, bytes(body.msg32));
    return { server_pub_nonce66: hex(other.publicNonce), server_partial32: hex(other.partialSig), server_pubkey: server };
@@ -400,7 +408,7 @@ test('a refused registration signs and sends the delete proof', async () => {
    // The delete proof must carry real signatures on both of its inputs.
    const tx = sdk.Transaction.fromPSBT(Buffer.from(intent.proof, 'base64'));
    for (let i = 0; i < tx.inputsLength; i++) assert.equal(tx.getInput(i).tapScriptSig.length, 1);
-   state.deleted = intent.message;
+   state.deleted = sdk.Intent.encodeMessage(intent.message);
    return true;
   },
  };

@@ -223,6 +223,14 @@ export async function runBoard(options = {}, deps = {}) {
   log('FIDO2 assertion');
   const assertion = await bridge.request('assert', { challenge: auth.challenge, rp_id: auth.rp_id, origin: ORIGIN, credential: CREDENTIAL });
   assert.equal(hex(await bridge.getPublicKey()), client, 'wrong card key');
+  // The server only knows boarding UTXOs of a registered boarding address,
+  // loaded from Esplora on receive/sync (src/ArkadeServer.js:4398-4425, 4549).
+  // Same order as the app: nuri-expo services/arkade/internal/walletSummary.ts:436.
+  await http('/api/arkade/receive/boarding-address', { token: auth.token, client_data_b64u: assertion.client_data_b64u, auth_data_b64u: assertion.auth_data_b64u, sig_b64u: assertion.sig_b64u, client_signer_pubkey: client, boarding_address: first.ctx.address, metadata: { source: 'nuri-card-board' } });
+  const synced = await http('/api/arkade/receive/sync', { cred_id_b64u: CREDENTIAL, client_public_key_33_hex: client });
+  const known = new Set((synced.boarding ?? []).map(b => `${b.txid}:${b.vout}`));
+  log('receive sync', { boarding: known.size });
+  for (const i of first.plan.inputs) assert(known.has(`${i.txid}:${i.vout}`), `server does not see boarding outpoint ${i.txid}:${i.vout} after sync`);
 
   const approve = async (psbt, requests, sessionToken) => {
    const body = sessionToken
@@ -254,7 +262,7 @@ export async function runBoard(options = {}, deps = {}) {
   receipt.session_token = approval.boarding_sweep_session_token;
   receipt.register_proof_id = proof.tx.id;
   receipt.register_proof_inputs = proof.tx.inputsLength;
-  const sendSign = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: approval.approval_token, client_pub_nonce: clientPubNonce });
+  const sendSign = async (msg32, clientPubNonce) => http('/v4/arkade/sign', { ...signBody({ msg32 }), approval_token: approval.approval_token, client_pub_nonce: clientPubNonce });
   for (const request of proofRequests) {
    const { signature, proof: evidence } = await signDirect({ card, client, server, aggregate: first.ctx.aggregate_pk33, msg32: request.msg32, sign: sendSign, log });
    applyDirectSignature(proof.tx, request, first.ctx.aggregate_xonly, signature);
@@ -274,7 +282,7 @@ export async function runBoard(options = {}, deps = {}) {
    // dist chunk-ZTGTQP2W.js:15756-15763).
    const proofDelay = buildProof(deleteMessage(), first.plan.inputs, [], first.ctx);
    const deleteApproval = await approve(proofDelay.tx, directRequests(proofDelay.tx, first.ctx.aggregate_xonly), receipt.session_token);
-   const sendDelete = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: deleteApproval.approval_token, client_pub_nonce: clientPubNonce });
+   const sendDelete = async (msg32, clientPubNonce) => http('/v4/arkade/sign', { ...signBody({ msg32 }), approval_token: deleteApproval.approval_token, client_pub_nonce: clientPubNonce });
    const signedDelete = await signProof(proofDelay.tx, first.ctx.aggregate_xonly, { card, client, server, aggregate: first.ctx.aggregate_pk33, sign: sendDelete, log });
    const deleteIntent = { proof: Buffer.from(signedDelete.tx.toPSBT()).toString('base64'), message: proofDelay.message };
    await operator.deleteIntent(deleteIntent).catch(e => { if (process.env.NURI_BOARD_DEBUG) console.error('DELETE FAILED', e.message); });
@@ -289,11 +297,14 @@ export async function runBoard(options = {}, deps = {}) {
   const treeNonces = new Map();
   const pendingNonces = new Map();
   let ourPubkey;
-  let treeCount = 0;
+  let treeCount = 0, batchExpiry = null;
 
   const handler = {
    async onBatchStarted(event) {
     if (!event.intentIdHashes.includes(sha256Hex(new TextEncoder().encode(intentId)))) return { skip: true };
+    // batchExpiry arrives on BatchStarted (sdk dist chunk-ZTGTQP2W.js:15611), not on TreeSigningStarted.
+    batchExpiry = BigInt(event.batchExpiry);
+    assert(batchExpiry >= 86400n, `batch expiry ${batchExpiry} below the 86400 s mainnet floor`);
     await operator.confirmRegistration(intentId);
     return { skip: false };
    },
@@ -302,7 +313,10 @@ export async function runBoard(options = {}, deps = {}) {
     const xOnly = hex(bytes(first.ctx.aggregate_pk33).slice(1));
     assert(event.cosignersPublicKeys.some(k => hex(bytes(k)).slice(-64) === xOnly), 'card key not in tree cosigners');
     const commitment = sdk.Transaction.fromPSBT(Buffer.from(event.unsignedCommitmentTx, 'base64'));
-    const sweepTapscript = sdk.CSVMultisigTapscript.encode({ timelock: event.batchExpiry, pubkeys: [bytes(first.operator.forfeitPubkey).slice(-32)] }).script;
+    // event.batchExpiry is a raw bigint; the SDK wraps and floor-checks it
+    // (sdk dist toTimelock + assertValidBatchExpiry: mainnet >= 86400 s, seconds-typed).
+    assert(batchExpiry, 'tree signing before batch start');
+    const sweepTapscript = sdk.CSVMultisigTapscript.encode({ timelock: { type: 'seconds', value: batchExpiry }, pubkeys: [bytes(first.operator.forfeitPubkey).slice(-32)] }).script;
     const sweepRoot = tapLeafHash(sweepTapscript);
     const rootAmount = commitment.getOutput(0)?.amount;
     assert(rootAmount, 'commitment shared output missing');
@@ -323,14 +337,14 @@ export async function runBoard(options = {}, deps = {}) {
      commitment.updateInput(index, { tapLeafScript: [first.ctx.leaf] });
     }
     const treeApproval = await approve(commitment, commitmentRequests(commitment, first.ctx).concat(treeRequests), receipt.session_token);
-    const session = await http('/arkade/tree/session-init', { approval_token: treeApproval.approval_token, client_pk33: client, txids: messages.map(m => m.message.txid) });
+    const session = await http('/v4/arkade/tree/session-init', { approval_token: treeApproval.approval_token, client_pk33: client, txids: messages.map(m => m.message.txid) });
     assert(session.session_id, 'missing tree session id');
     for (const { message } of messages) {
      const nonce = await bridge.getNonces();
      const { signature, proof: evidence } = await signTree({ card, client, server, aggregate: first.ctx.aggregate_pk33, message, nonce, log,
       sign: {
-       async nonce(msg, clientPubNonce) { return http('/arkade/tree/nonce', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
-       async sign(msg, clientPubNonce) { return http('/arkade/tree/sign', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
+       async nonce(msg, clientPubNonce) { return http('/v4/arkade/tree/nonce', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
+       async sign(msg, clientPubNonce) { return http('/v4/arkade/tree/sign', { approval_token: treeApproval.approval_token, session_id: session.session_id, txid: msg.txid, msg32: msg.msg32, client_pk33: client, client_pub_nonce: clientPubNonce, tweak32: msg.tweak32 }); },
       } });
      treeSignatures.set(message.txid, signature);
      pendingNonces.set(message.txid, { pubNonce: bytes(evidence.client_public_nonce) });
@@ -362,7 +376,7 @@ export async function runBoard(options = {}, deps = {}) {
     const ours = requests.filter(r => r.ours);
     assert.equal(ours.length, first.plan.inputs.length, 'boarding inputs missing from commitment');
     const finalApproval = await approve(settlement, requests, receipt.sessionToken);
-    const signIt = async (msg32, clientPubNonce) => http('/arkade/sign', { ...signBody({ msg32 }), approval_token: finalApproval.approval_token, client_pub_nonce: clientPubNonce });
+    const signIt = async (msg32, clientPubNonce) => http('/v4/arkade/sign', { ...signBody({ msg32 }), approval_token: finalApproval.approval_token, client_pub_nonce: clientPubNonce });
     for (const request of ours) {
      const leaf = first.ctx.leaf;
      const request2 = { ...request, leaf_script: leaf[1].slice(0, -1), leaf_version: leaf[1].at(-1), leaf_hash: hex(tapLeafHash(leaf[1].slice(0, -1), leaf[1].at(-1))) };

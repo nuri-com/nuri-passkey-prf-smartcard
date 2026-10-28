@@ -153,7 +153,8 @@ export function deleteMessage() {
 export function buildProof(message, coins, outputs, ctx) {
  const inputs = coins.map(coin => ({ txid: coin.txid, vout: coin.vout, value: coin.value,
   tapTree: ctx.tree.encode(), intentTapLeafScript: ctx.leaf }));
- return { tx: sdk.Intent.create(message, inputs, outputs), message: sdk.Intent.encodeMessage(message) };
+ // Raw message: RestArkProvider.registerIntent/deleteIntent encode it themselves.
+ return { tx: sdk.Intent.create(message, inputs, outputs), message, encoded: sdk.Intent.encodeMessage(message) };
 }
 
 /**
@@ -182,7 +183,11 @@ export function directRequests(tx, aggregateXonly) {
 }
 
 export function applyDirectSignature(tx, request, aggregateXonly, signature) {
- tx.updateInput(request.input_index, { tapScriptSig: [[{ pubKey: bytes(aggregateXonly), leafHash: bytes(request.leaf_hash) }, signature]] });
+ // Inputs are SIGHASH_ALL (asserted in directRequests), so BIP341 wants the
+ // 65-byte form sig64||0x01 (nuri-expo lib/bitcoin/taproot.ts:36-41).
+ const sig = signature.length === 64 ? Uint8Array.from([...signature, 1]) : signature;
+ assert.equal(sig.length, 65, 'tapscript signature must be 65 bytes for SIGHASH_ALL');
+ tx.updateInput(request.input_index, { tapScriptSig: [[{ pubKey: bytes(aggregateXonly), leafHash: bytes(request.leaf_hash) }, sig]] });
  return tx;
 }
 
