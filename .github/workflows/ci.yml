@@ -74,6 +74,18 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes ant rsync
       - run: npm ci
       - run: npm run card:release:verify
+      # Preserve the pinned cloud build even when tracked CAPs are stale. The
+      # verifier still fails; maintainers must review/import artifacts and rerun.
+      - name: Preserve rebuilt release CAPs and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuri-card-release-${{ github.sha }}
+          path: |
+            .build/card-v1/artifacts/*.cap
+            .build/card-v1/artifacts/SHA256SUMS
+            .build/card-v1/artifacts/BUILD-PROVENANCE.txt
+          if-no-files-found: error
       - run: python3 -m py_compile scripts/*.py
       - run: python3 -m unittest discover -s test -p test_nuri_pcsc.py -v
 
