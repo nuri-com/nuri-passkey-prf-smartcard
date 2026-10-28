@@ -8,7 +8,7 @@
     "nuricard": "bin/nuricard"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js scripts/send/*.test.mjs",
     "test:pcsc": "scripts/run-card-python.sh -m unittest discover -s test -p test_nuri_pcsc.py -v",
     "test:helper-auth": "node --test test/helper-auth.test.js && python3 -m unittest discover -s test -p test_helper_auth.py -v",
     "musig2:demo": "node src/musig2/card-sim-cli.js --sim",
@@ -90,16 +90,19 @@
     "card:arkade:signer:real": "scripts/run-card-python.sh scripts/real-card-arkade-signer-proof.py",
     "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
     "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
-    "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend"
+    "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend",
+    "arkade:send": "node scripts/send/cli.mjs",
+    "arkade:proof": "node scripts/send/e2e-proof.mjs"
   },
   "dependencies": {
-    "@arkade-os/boltz-swap": "^0.3.43",
-    "@arkade-os/sdk": "^0.4.38",
-    "@noble/curves": "^1.9.7",
-    "@scure/base": "^1.2.6",
-    "@scure/bip32": "^1.7.0",
-    "@scure/btc-signer": "^2.0.1",
-    "eventsource": "^4.1.0",
-    "qrcode-generator": "^2.0.4"
+    "@arkade-os/boltz-swap": "0.3.67",
+    "@arkade-os/sdk": "0.4.74",
+    "@noble/curves": "2.0.0",
+    "@scure/base": "2.0.0",
+    "@scure/bip32": "2.2.0",
+    "@scure/btc-signer": "2.0.1",
+    "eventsource": "4.1.0",
+    "qrcode-generator": "2.0.4",
+    "ethers": "6.17.0"
   }
 }

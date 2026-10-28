@@ -16,7 +16,26 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Live read-only proof, no card or signing credentials
+        run: node scripts/send/e2e-proof.mjs --dry-run
+      - run: for run in 1 2 3; do npm test; done
+      - name: Validate README and proof diagrams with negative control
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund mermaid@11.12.0 jsdom@26.1.0
+          node scripts/validate-proof-mermaid.mjs "$RUNNER_TEMP/mermaid" "$RUNNER_TEMP/mermaid-proof.json"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev swig
+      - run: python -m pip install -r scripts/send/requirements.txt
+      - run: python -m unittest discover -s test -p test_arkade_card_bridge.py -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: card-e2e-dry-proof
+          path: |
+            docs/e2e-proof.md
+            docs/proofs/e2e-proof.json
 
   chrome-extension:
     runs-on: ubuntu-latest
@@ -74,6 +93,18 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes ant rsync
       - run: npm ci
       - run: npm run card:release:verify
+      # Preserve the pinned cloud build even when tracked CAPs are stale. The
+      # verifier still fails; maintainers must review/import artifacts and rerun.
+      - name: Preserve rebuilt release CAPs and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuri-card-release-${{ github.sha }}
+          path: |
+            .build/card-v1/artifacts/*.cap
+            .build/card-v1/artifacts/SHA256SUMS
+            .build/card-v1/artifacts/BUILD-PROVENANCE.txt
+          if-no-files-found: error
       - run: python3 -m py_compile scripts/*.py
       - run: python3 -m unittest discover -s test -p test_nuri_pcsc.py -v
 

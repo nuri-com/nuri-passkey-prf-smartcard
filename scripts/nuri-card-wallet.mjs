@@ -19,7 +19,7 @@ import { SigHash, Transaction } from '@scure/btc-signer';
 import * as btc from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
+import { hexToBytes, bytesToHex } from '@noble/curves/utils.js';
 import { bech32m } from '@scure/base';
 
 import { requireCardResult, requireCardSubprocess } from '../src/signer-policy.js';

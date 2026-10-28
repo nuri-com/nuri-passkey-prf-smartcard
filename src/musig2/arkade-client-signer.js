@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
 import { SimulatedMuSig2Card, bytes } from './card-sim.js';
 

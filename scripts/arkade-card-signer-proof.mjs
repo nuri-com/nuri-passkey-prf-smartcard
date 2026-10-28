@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from 'node:process';
-import { bytesToHex } from '@noble/curves/abstract/utils';
+import { bytesToHex } from '@noble/curves/utils.js';
 import {
   SimulatedCardArkadeSigner,
   SoftwarePasskeyArkadeSigner,

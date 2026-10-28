@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import process from 'node:process';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { ApduMuSig2Card, INS, SW, command, splitResponse } from '../src/musig2/apdu-sim.js';
 import { SimulatedMuSig2Card } from '../src/musig2/card-sim.js';
 

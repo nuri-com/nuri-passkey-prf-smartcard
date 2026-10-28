@@ -21,7 +21,7 @@ import { Buffer } from 'node:buffer';
 import * as btc from '@scure/btc-signer';
 import { tapLeafHash } from '@scure/btc-signer/payment.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
-import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
+import { hexToBytes, bytesToHex } from '@noble/curves/utils.js';
 import {
   Wallet,
   InMemoryWalletRepository,

@@ -538,6 +538,33 @@ separate access to a restricted UI dependency; a public clone cannot build it al
 [SSH setup](docs/ssh-smartcard.md) · [Chrome extension setup](docs/chrome-extension.md) ·
 [All documentation](docs/README.md) · [Release verification](docs/release.md).
 
+## End-to-end proof
+
+The portable [send tool](scripts/send/README.md) and [generated evidence report](docs/e2e-proof.md) cover the physical FIDO2 passkey PRF, Nuri authentication, verified MuSig2 co-signatures and Arkade finalization. Dry mode uses public GETs only and never opens a card. A dry receipt is not a hardware proof.
+
+```sh
+node scripts/send/e2e-proof.mjs --dry-run
+TO='ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x'
+NURI_SEND_CONFIRM="$TO-546" node scripts/send/e2e-proof.mjs --execute --to "$TO" --amount 546
+```
+
+Fund first, follow the PIN/environment setup in the tool README and use the dry-run operator floor if higher. Only the parent/operator runs hardware. The [JSON receipt](docs/proofs/e2e-proof.json) records exactly which stages ran, never PRF secrets or private keys.
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant Card
+    participant Nuri
+    participant Operator
+    Host->>Card: FIDO2 passkey and deterministic PRF
+    Host->>Nuri: Challenge-bound assertion
+    Nuri-->>Host: Verified server partial
+    Host->>Card: MuSig2 FINALIZE
+    Card-->>Host: Verified card partial
+    Host->>Operator: Verified aggregate signature
+    Operator-->>Host: Finalized Ark transaction
+```
+
 ## Consent, secrets and loss
 
 - **Card presence is not user touch.** FIDO2 user presence is assumed true,

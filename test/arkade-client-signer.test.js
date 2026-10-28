@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bytesToHex } from '@noble/curves/abstract/utils';
+import { bytesToHex } from '@noble/curves/utils.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
 import {
   SimulatedCardArkadeSigner,

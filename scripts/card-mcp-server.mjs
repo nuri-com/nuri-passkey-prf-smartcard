@@ -12,7 +12,7 @@
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
+import { hexToBytes, bytesToHex } from '@noble/curves/utils.js';
 import {
   NETWORKS as WALLET_NETS,
   nuriDerive,
