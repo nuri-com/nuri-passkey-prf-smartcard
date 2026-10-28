@@ -341,6 +341,17 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
   async submitSignedForfeitTxs(forfeits, psbt) {
    assert.deepEqual(forfeits, []);
    state.forfeits = psbt;
+   // arkd check (INVALID_BOARDING_INPUT_SIG): sighash type comes from the sig
+   // length (64 = DEFAULT, 65 = last byte), hashed over the boarding leaf.
+   const tx = sdk.Transaction.fromPSBT(Buffer.from(psbt, 'base64'));
+   const inp = tx.getInput(0);
+   const [[{ pubKey, leafHash }, sig]] = inp.tapScriptSig;
+   const type = sig.length === 64 ? 0 : sig[64];
+   const leaf = inp.tapLeafScript.find(l => hex(tapLeafHash(l[1].slice(0, -1), l[1].at(-1))) === hex(leafHash));
+   const prev = Array.from({ length: tx.inputsLength }, (_, i) => tx.getInput(i).witnessUtxo);
+   const msg = tx.preimageWitnessV1(0, prev.map(p => p.script), type, prev.map(p => p.amount), undefined, leaf[1].slice(0, -1), leaf[1].at(-1));
+   assert(schnorr.verify(sig.slice(0, 64), msg, pubKey), 'boarding input sig must verify under its own sighash type');
+   state.boardingSigOk = true;
    state.vtxos = [{ txid: built.node.id, vout: 0, value: 7499, isSpent: false, isSwept: false, script: ctx.script }];
   },
   getEventStream(signal, topics) {
@@ -387,6 +398,7 @@ test('runBoard execute drives approval, tree and finalization to a settled VTXO'
  assert.equal(saved.status, 'indexer_verified');
  assert.equal(state.sigs.size, 1);
  assert.equal(state.treeSigOk, true);
+ assert.equal(state.boardingSigOk, true);
  await rm(dir, { recursive: true, force: true });
 });
 

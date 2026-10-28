@@ -183,10 +183,15 @@ export function directRequests(tx, aggregateXonly) {
 }
 
 export function applyDirectSignature(tx, request, aggregateXonly, signature) {
- // Inputs are SIGHASH_ALL (asserted in directRequests), so BIP341 wants the
- // 65-byte form sig64||0x01 (nuri-expo lib/bitcoin/taproot.ts:36-41).
- const sig = signature.length === 64 ? Uint8Array.from([...signature, 1]) : signature;
- assert.equal(sig.length, 65, 'tapscript signature must be 65 bytes for SIGHASH_ALL');
+ // BIP341: SIGHASH_DEFAULT (0) = bare 64-byte sig; any other type = sig64||type.
+ // Intent proofs are SIGHASH_ALL (nuri-expo lib/bitcoin/taproot.ts:36-41); the
+ // operator's commitment inputs carry no sighashType = DEFAULT, and the msg32 was
+ // hashed with exactly this value (commitmentRequests), so the suffix must match
+ // (live attempt 17: INVALID_BOARDING_INPUT_SIG with a forced 0x01).
+ const type = tx.getInput(request.input_index).sighashType ?? 0;
+ const sig64 = signature.length === 65 ? signature.slice(0, 64) : signature;
+ assert.equal(sig64.length, 64, 'schnorr signature must be 64 bytes');
+ const sig = type === 0 ? sig64 : Uint8Array.from([...sig64, type]);
  tx.updateInput(request.input_index, { tapScriptSig: [[{ pubKey: bytes(aggregateXonly), leafHash: bytes(request.leaf_hash) }, sig]] });
  return tx;
 }
