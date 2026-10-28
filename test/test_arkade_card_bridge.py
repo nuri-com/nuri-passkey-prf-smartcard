@@ -128,12 +128,19 @@ class BridgeTests(unittest.TestCase):
         fido.assert_not_called()
 
     def test_boarding_confirmation_passes_the_gate(self):
-        # A boarding sweep confirms the swept amount as board-<sats>.
-        with patch.object(bridge, "read_pin") as read, patch.object(bridge, "open_fido") as fido:
-            code, responses = self.run_main([{"op": "prf-proof", "payload": PAYLOAD}], NURI_SEND_CONFIRM="board-7499")
-        self.assertEqual(code, 0)
+        # A boarding sweep confirms the swept amount as board-<sats>; the gate
+        # must accept it before any card access.
+        device = SoftCtap2Device(PIN)
+        device.creds[CREDENTIAL] = {
+            "rp": "nuri.com", "user": {"id": b"synthetic-user"},
+            "key": ec.generate_private_key(ec.SECP256R1()), "cred_random": bytes(range(32))}
+        device.close = Mock()
+        with patch.object(bridge, "read_pin") as read, patch.object(bridge, "open_fido", return_value=device):
+            code, responses = self.run_main([{"op": "assert", "payload": {**PAYLOAD, "challenge": bridge.b64(bytes(range(32)))}}],
+                                            NURI_SEND_CONFIRM="board-7499")
+        self.assertEqual(code, 0, responses)
         read.assert_called_once()
-        fido.assert_called_once()
+        self.assertIn("sig_b64u", responses[0])
 
     def test_eof_does_not_read_pin_or_hardware(self):
         with patch.object(bridge, "read_pin") as read, patch.object(bridge, "open_musig") as musig:
