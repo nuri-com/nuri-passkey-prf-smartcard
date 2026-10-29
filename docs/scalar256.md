@@ -26,7 +26,7 @@ known-answer tests run on first use ([details](musig2-fast-mul.md#fail-closed-an
 All scratch is transient; RSA public key setup occurs at install only.
 
 On v1.16, five real-card signatures verified, FINALIZE 5164.75–5195.32 ms (median 5194.75),
-GET_NONCES 290–293 ms. This is approximately 14.6x faster than the measured
+GET_NONCES 290–294 ms. This is approximately 14.6x faster than the measured
 75.7 s regression, but does NOT meet the <3 s target. Native EC validation was
 not substituted: the independent field-equation check remains, since native
 scalar-one ECDH alone does not prove point validity. Blinding/double computation

@@ -49,7 +49,7 @@ Card and signing:
   acceptable physical-card performance. The software path later measured 75.7 s.
 - Timing history on card `87E5470B`, OMNIKEY 5422. v1.16: five verified BIP340
   signatures, FINALIZE 5164.75 / 5194.75 / 5195.32 ms min/median/max, GET_NONCES
-  290–293 ms; SSH checks passed before/after each card-write step; one wrong PIN
+  290–294 ms; SSH checks passed before/after each card-write step; one wrong PIN
   returned 63C4, the correct PIN restored five tries
   ([receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json)). v1.17: about
   2.0 s, operator-reported, no timing receipt. Blinding, double computation and
