@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runSend, parseArgs, saveReceipt } from './cli.mjs';
 import { CREDENTIAL } from './core.mjs';
@@ -16,6 +16,13 @@ export function renderProof(receipt) {
   `## Derivation\n\nThe bridge evaluates CTAP2 hmac-secret twice with WebAuthn PRF salt SHA-256(UTF-8(\"WebAuthn PRF\") || 0x00 || UTF-8(\"nuri-prf-salt-v1\")). It requires equal outputs and derives Nuri key1 using the existing wallet HKDF-SHA256 and BIP86 derivation in [card-arkade-key](../scripts/card-arkade-key.mjs). Only the compressed public key and SHA-256 commitment of the PRF output are recorded, never raw PRF, private keys, PIN, assertion or approval tokens. This local determinism check is not remote PRF attestation. FIDO and MuSig2 use the same exact reader name but separate selections, so this transcript alone does not cryptographically attest cross-applet identity or rule out a physical card swap.\n\n` +
   `## Sequence\n\n\`\`\`mermaid\nsequenceDiagram\n    participant Host\n    participant Card\n    participant Nuri\n    participant Operator\n    participant Indexer\n    Host->>Indexer: GET spendable VTXOs\n    Host->>Card: FIDO2 hmac-secret twice with same salt\n    Card-->>Host: Deterministic PRF key1 public key and commitment\n    Host->>Nuri: POST send prepare\n    Nuri-->>Host: RP challenge and approval token\n    Host->>Card: FIDO2 assertion for nuri.com\n    Host->>Nuri: Assertion and public MuSig2 nonce\n    Nuri-->>Host: Server nonce and partial signature\n    Host->>Card: Verified MuSig2 FINALIZE context\n    Card-->>Host: Card partial signature\n    Host->>Host: Verify both BIP327 partials and BIP340 aggregate\n    Host->>Operator: Submit and finalize Ark transaction\n    Host->>Indexer: GET exact recipient and consumed inputs\n    Indexer-->>Host: Finalized output readback\n\`\`\`\n\n` +
   `## Public receipt\n\n\`\`\`json\n${JSON.stringify(receipt, null, 2)}\n\`\`\`\n`;
+}
+
+export function proofPaths(options = {}) {
+ // A dry run must never overwrite the committed hardware receipt in docs/.
+ const base = options.execute ? 'docs' : '_launch/out/e2e-proof';
+ return { json: resolve(options.proofReceiptPath ?? `${base}/proofs/e2e-proof.json`),
+  markdown: resolve(options.proofMarkdownPath ?? `${base}/e2e-proof.md`) };
 }
 
 export async function runProof(options = {}, deps = {}) {
@@ -33,7 +40,9 @@ export async function runProof(options = {}, deps = {}) {
     prf = { deterministic: true, client_pk33: result.client_pk33, prf_commitment_sha256: result.prf_commitment_sha256 };
    },
   });
-  report.send = send;
+  report.send = { ...send };
+  // Public report: local receipt/log locations stay repo-relative, never a home path.
+  for (const key of ['receipt_file', 'log_file']) if (typeof send[key] === 'string') report.send[key] = relative(process.cwd(), send[key]);
   if (prf) report.prf = prf;
   step('PASSKEY + PRF', prf ? 'verified' : 'not run', prf ? 'Same salt evaluated twice, public key1 and commitment recorded' : 'Hardware required, no card opened');
   const auth = send.auth_accepted?.accepted === true;
@@ -55,8 +64,7 @@ export async function runProof(options = {}, deps = {}) {
   }
  }
  assert.equal(report.steps.length, 4, 'proof must record all four stages');
- const jsonPath = resolve(options.proofReceiptPath ?? 'docs/proofs/e2e-proof.json');
- const markdownPath = resolve(options.proofMarkdownPath ?? 'docs/e2e-proof.md');
+ const { json: jsonPath, markdown: markdownPath } = proofPaths(options);
  await (deps.save ?? (async () => {
   await saveReceipt(jsonPath, report);
   await mkdir(dirname(markdownPath), { recursive: true });

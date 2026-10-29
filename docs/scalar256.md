@@ -38,6 +38,7 @@ not the current multiplication path.
 | Original | `4E5552494D5547` | `4E5552494D554701` | Historical artifact; not AID3 acceptance |
 | AID2 | `4E5552494D554732` | `4E5552494D55473201` | Historical PIN2 cosign receipt; no latency qualification |
 | AID3 v1.16 | `4E5552494D554733` | `4E5552494D55473301` | Five verified hardware signatures; 5.2 s FINALIZE |
+| AID3 v1.17 | `4E5552494D554733` | `4E5552494D55473301` | Live mainnet cosign ([receipt](proofs/e2e-proof.json)); FINALIZE about 2.0 s, operator timing |
 
 `scripts/build-musig2-aid3.sh` copies current `card/musig2/*.java`, patches only
 its temporary APPLET_AID and normalizes CAP metadata. It leaves tracked Java

@@ -18,6 +18,8 @@ th:first-child { padding-left: 0; }
 .yes { color: #2aa198; }
 .no { color: #dc322f; }
 td[data-product="Nuri Card"] { color: #2aa198; }
+.money th:nth-child(1) { width: 12%; }
+.money th:nth-child(3) { width: 9%; }
 @media (max-width: 850px) {
   main { padding: 40px 20px; }
   table, tbody, tr, td, th { display: block; }
@@ -28,4 +30,7 @@ td[data-product="Nuri Card"] { color: #2aa198; }
   td { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 8px 0; }
   td::before { content: attr(data-product); color: #586e75; }
   td[data-product="Nuri Card"]::before { color: #2aa198; }
+  .money th:nth-child(1), .money th:nth-child(3) { width: auto; }
+  .money td { display: block; }
+  .money td::before { content: ''; }
 }

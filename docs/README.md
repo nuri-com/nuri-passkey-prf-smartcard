@@ -62,7 +62,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 |---|---|---|---|
 | Original | `4E5552494D5547` | `4E5552494D554701` | Historical release artifact |
 | AID2 | `4E5552494D554732` | `4E5552494D55473201` | Historical PIN2 real-card cosign receipt |
-| AID3 | `4E5552494D554733` | `4E5552494D55473301` | v1.2.0 build integration; hardware unverified |
+| AID3 | `4E5552494D554733` | `4E5552494D55473301` | v1.16 timing receipt; v1.17 live mainnet cosign ([receipt](proofs/e2e-proof.json)) |
 
 AID3 is additive, not an instruction to delete an installed identity. Hardware
 timings and acceptance do not transfer between identities. See the
@@ -76,4 +76,4 @@ timings and acceptance do not transfer between identities. See the
 - [Build tool](../tools/README.md) — pinned ant-javacard binary/source provenance.
 - [Changes](../CHANGELOG.md) — historical changes, not fresh acceptance.
 
-[AID3 hardware signature and timing proof](proofs/real-card-87E5470B-musig2-aid3-fast.json).
+[AID3 v1.16 hardware signature and timing proof, 5.2 s](proofs/real-card-87E5470B-musig2-aid3-fast.json).

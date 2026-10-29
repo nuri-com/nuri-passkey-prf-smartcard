@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runProof, renderProof } from './e2e-proof.mjs';
+import { resolve } from 'node:path';
+import { runProof, renderProof, proofPaths } from './e2e-proof.mjs';
 import { CREDENTIAL } from './core.mjs';
 const prf = { deterministic: true, client_pk33: '02' + '11'.repeat(32), prf_commitment_sha256: '22'.repeat(32), raw_prf: 'MUST_NOT_LEAK' };
 test('dry proof records funding and never requests a card', async () => {
@@ -30,6 +31,19 @@ test('nondeterministic PRF aborts before a mock send can finalize and writes fai
   finalized = true;
  } }), /DO NOT RESEND/);
  assert(!finalized); assert(!saved.complete); assert.equal(saved.steps.length, 4);
+});
+test('dry run never targets the committed hardware receipt', () => {
+ assert.equal(proofPaths({}).json, resolve('_launch/out/e2e-proof/proofs/e2e-proof.json'));
+ assert.equal(proofPaths({}).markdown, resolve('_launch/out/e2e-proof/e2e-proof.md'));
+ assert.equal(proofPaths({ execute: true }).json, resolve('docs/proofs/e2e-proof.json'));
+ assert.equal(proofPaths({ execute: true }).markdown, resolve('docs/e2e-proof.md'));
+});
+test('public report keeps local receipt and log paths repo-relative', async () => {
+ const report = await runProof({}, { save: async () => {}, runSend: async () => ({ status: 'needs_funding',
+  receipt_file: resolve('_launch/out/send/receipt.json'), log_file: resolve('_launch/out/send/send-1.jsonl') }) });
+ assert.equal(report.send.receipt_file, '_launch/out/send/receipt.json');
+ assert.equal(report.send.log_file, '_launch/out/send/send-1.jsonl');
+ assert(!renderProof(report).includes(process.cwd()));
 });
 test('missing partial proof cannot produce a complete proof even after indexer readback', async () => {
  let saved;

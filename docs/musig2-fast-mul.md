@@ -5,6 +5,8 @@ MIT implementation in `card/musig2/RsaMultiply.java`, independently written from
 APDU framing and signing hardening are unchanged. This is an AID3 candidate,
 not a hardware latency claim; install/profile is a separate hardware gate.
 
+Result on card `87E5470B`, v1.17: FINALIZE about 2.0 s, down from 5.19 s (operator timing). The 1 s target is not reached.
+
 ## Baseline supplied by the hardware profiling run
 
 Card `87E5470B`; per operation, APDU overhead subtracted:

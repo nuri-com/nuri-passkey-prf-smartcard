@@ -24,13 +24,49 @@ The Nuri Card release specification:
 
 ## Live today
 
+- **Bitcoin send signed by the card on mainnet:** on 2026-10-28 19:13 UTC, card `87E5470B` co-signed a 546 sat Arkade send with Nuri. 4/4 steps verified, fee 0, transaction [13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8). [receipt](docs/proofs/e2e-proof.json), [report](docs/e2e-proof.md).
+- **A physical passkey for Nuri:** the card's FIDO2 passkey is registered with Nuri as username `arkade`, recorded in the same receipt.
 - **Android NFC wallet:** the operator reports a Samsung S21 displaying the card wallet balance after a tap.
-- **A physical passkey for Nuri:** the operator reports claiming **arkade@nuri.com** with the card's FIDO2 passkey.
-- **Bitcoin signatures:** the operator reports **5/5 BIP340 signatures verified at ~2.0 s** on the newer AID3 fast path.
+- **AID3 speed:** the operator reports about 2.0 s FINALIZE on applet v1.17, 5/5 BIP340 signatures verified. The target is about 1 s and is not reached.
 - **OpenSSH login:** physical-card login recorded across [three USB readers](docs/reader-compatibility.md#hardware-runs-parent-physical-card).
 - **Released hardware proofs:** [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), packaged in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
 
-The Android balance, username and AID3 speed results are operator reports; their receipts are not included in this checkout. The linked release contains the separately verified AID2 build.
+### Where the sats are now
+
+Checked live 2026-10-29 00:07 UTC against the Arkade indexer and mempool.space (block 973,614).
+
+| Rail | Address | Sats | Status |
+| --- | --- | ---: | --- |
+| Arkade | [ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x](https://arkade.space/address/ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x) | 5,472 | Spendable: 4,926 + 546. Expires 2026-11-27 14:41 UTC. |
+| Bitcoin, card + Nuri MuSig2 | [bc1pxa43e00wl6a2qqfd7wu8xgmuz8vczauvmn0nt45zff2kuq9u4klsfrz0f5](https://mempool.space/address/bc1pxa43e00wl6a2qqfd7wu8xgmuz8vczauvmn0nt45zff2kuq9u4klsfrz0f5) | 6,007 | Confirmed. CSV exit opens 2027-01-07. No spend tool yet. |
+| Bitcoin boarding | [bc1p48tcgtk50havqnyq7pswx7hux8szpfjrrv3477z7r6sl4s0vyaxspfzzwu](https://mempool.space/address/bc1p48tcgtk50havqnyq7pswx7hux8szpfjrrv3477z7r6sl4s0vyaxspfzzwu) | 0 | [Funded 7,499](https://mempool.space/tx/fdbd415e6f1048fced5c2ddd79d22ded6cd261f8cc68f07772fd62b6e55bb1d8), [moved into Arkade](https://mempool.space/tx/617076f14362d8c27bcd2bef9b33a321ca01250cdd9d8d49723578f2e45da557). |
+| **Total** | | **11,479** | |
+
+Sent from the card:
+
+| UTC | To | Sats | Transaction |
+| --- | --- | ---: | --- |
+| 2026-10-28 06:51 | @emino [ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameewtudvcndvek083e5ln2z7pdu5huts6gnu628pe5ezc3kce4qt7svqgg50](https://arkade.space/address/ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameewtudvcndvek083e5ln2z7pdu5huts6gnu628pe5ezc3kce4qt7svqgg50) | 7,118 | [903081350544f125a8e56b66782d8f14d35d1834effdd931b1086faa69eff8ca](https://arkade.space/tx/903081350544f125a8e56b66782d8f14d35d1834effdd931b1086faa69eff8ca) |
+| 2026-10-28 19:13 | the card itself (live proof) | 546 | [13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8) |
+| 2026-10-28 20:13 | later payment | 1,014 | [a80114bef692a2c8b3db34df71bcfdb67caecc9683ab80bb1a99bd7bd08a7aeb](https://arkade.space/tx/a80114bef692a2c8b3db34df71bcfdb67caecc9683ab80bb1a99bd7bd08a7aeb) |
+| 2026-10-28 20:35 | later payment | 1,013 | [7d762a0ac6e8f537df44f48708d34bc66b41970803e2e6d706ef962cf2af3fd1](https://arkade.space/tx/7d762a0ac6e8f537df44f48708d34bc66b41970803e2e6d706ef962cf2af3fd1) |
+
+```mermaid
+flowchart LR
+  F["Funding 7,499 sats"] --> B["Boarding address"]
+  B --> V["Arkade VTXO 7,499"]
+  V --> X["Live proof send"]
+  X --> S["546 back to the card"]
+  X --> C1["Change 6,953"]
+  C1 --> P1["Paid 1,014"]
+  C1 --> C2["Change 5,939"]
+  C2 --> P2["Paid 1,013"]
+  C2 --> C3["Change 4,926"]
+  S --> N["Card Arkade now 5,472"]
+  C3 --> N
+```
+
+Only the Android balance and the AID3 speed are operator reports without receipts in this checkout.
 
 ## Why it beats YubiKey
 
@@ -381,13 +417,12 @@ path-specific proofs, not a new funded on-chain or merchant-payment acceptance.
 [AID2 receipt](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json),
 [feature status](docs/feature-status.md).
 
-**Newer operator-reported work, not the released CAP in this branch:** on
-2026-10-22, AID3 v1.17 `FINALIZE` took about **2.0 seconds**, with **5/5**
-BIP340 signatures verified on card `87E5470B`. The operator also reported
-claiming **arkade@nuri.com** using the card's FIDO2 that day. AID3 source/CAP and
-the username receipt are not in this mainline snapshot; these reports are not
-locally reproduced or a claim that `v1.1.0` installs AID3. Keep the released
-AID2 proof separate from this newer fast-path result.
+**Newer work on the fast path:** AID3 v1.17 co-signed the live mainnet send on
+2026-10-28, with [a receipt](docs/proofs/e2e-proof.json). The about 2.0 s
+FINALIZE timing is operator-reported and the 1 s target is not reached. `v1.1.0`
+does not install AID3. The earlier [v1.16 timing
+receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json) records 5.2 s
+FINALIZE and stays as history.
 
 Historical confirmed Signet transactions and their exact limits are retained in
 [the Signet proof](docs/proofs/real-card-signet-proof.md). They do not establish
@@ -438,7 +473,7 @@ explicit software simulator, not a physical card or a mainnet transfer.
 ## Feature status
 
 Status is path-specific: a real-card result does not qualify every applet revision,
-client, reader or transaction flow. Latest physical runs: 2026-10-22, card CPLC
+client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 `87E5470B`, OMNIKEY 5422. Evidence (file:line), receipts and open items per row:
 [feature status](docs/feature-status.md).
 
@@ -452,7 +487,8 @@ client, reader or transaction flow. Latest physical runs: 2026-10-22, card CPLC
 | PKCS#11 fail-closed defaults and ETH2 discovery preference | simulator only |
 | PRF-encrypted disk credential vault put/run/rm | proven on a physical card |
 | MuSig2 v1.15 PIN2, protocol pin-1.14, additive AID2 cosigning | proven on a physical card |
-| MuSig2 AID3 (`4E5552494D55473301`), 5.2 s FINALIZE | proven on a physical card |
+| MuSig2 AID3 v1.16 (`4E5552494D55473301`), 5.2 s FINALIZE | proven on a physical card |
+| MuSig2 AID3 v1.17, live mainnet Arkade cosign with Nuri | proven on a physical card |
 | On-card credential vault PIN/HMAC/bearer storage | simulator only |
 | TOTP calculation and software-HMAC fallback | simulator only |
 | Chrome Ethereum wallet approval binding, PIN flow and Base send | simulator only |
@@ -541,6 +577,8 @@ separate access to a restricted UI dependency; a public clone cannot build it al
 ## End-to-end proof
 
 The portable [send tool](scripts/send/README.md) and [generated evidence report](docs/e2e-proof.md) cover the physical FIDO2 passkey PRF, Nuri authentication, verified MuSig2 co-signatures and Arkade finalization. Dry mode uses public GETs only and never opens a card. A dry receipt is not a hardware proof.
+
+Last live run: 2026-10-28 19:13 UTC, 4/4 verified, fee 0, [13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8).
 
 ```sh
 node scripts/send/e2e-proof.mjs --dry-run
