@@ -426,6 +426,11 @@ not reached. The earlier [v1.16 timing
 receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json) records 5.2 s
 FINALIZE and stays as history.
 
+**Second card model:** on 2026-10-29, NXP JCOP 2.4.1 card `57274221` ran the
+`v1.2.0` applet set over the OMNIKEY 5422 contact slot. ETH v1 needed applet
+1.5, which sets the secp256k1 cofactor; 1.4 answered `6F00` on that card.
+Unfunded. [Receipt](docs/proofs/real-card-57274221-eth1-cofactor.json).
+
 Historical confirmed Signet transactions and their exact limits are retained in
 [the Signet proof](docs/proofs/real-card-signet-proof.md). They do not establish
 current Lightning settlement. **Boltz/Lightning checkout is not the current

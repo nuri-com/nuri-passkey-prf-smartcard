@@ -26,9 +26,11 @@ Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
 | ETH signer v1 (demo) | `4E555249455448` / `4E55524945544801` | 1.5 | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 
 FIDO2, FIDO2-up, OATH TOTP, vault and the PKCS#11 module are
-byte-identical to `v1.1.0`. ETH v1 changed after that CI run (d4dbdd9, below). CI job `card-release` rebuilt every CAP from main
+byte-identical to `v1.1.0`. CI job `card-release` rebuilt every CAP from main
 `f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components
 (`CARD_V1_RELEASE_VERIFIED`, [run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+ETH v1 1.5 (d4dbdd9, below) came after that run; the `card-release` job of
+#42 rebuilt it with identical components.
 
 Card and signing:
 
@@ -65,7 +67,8 @@ Card and signing:
   `4E555249455448` and install 1.5. On the same card 1.5 returned KEYGEN `9000`,
   one-shot guard `6989` and two EIP-191 signatures, each recovered by
   python-ecdsa and ethers to `0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500`
-  ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), d4dbdd9).
+  ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), d4dbdd9;
+  source comment 470c985, same CAP).
   ETH2 and MuSig2 already set the cofactor. The Infineon demo card (fabricator
   `4090`) has not run 1.5.
 
