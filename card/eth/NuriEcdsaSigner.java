@@ -31,7 +31,7 @@ public class NuriEcdsaSigner extends Applet {
     // 1.4: removed debug INS 05/06/08 for production; KEYGEN is one-shot (6989
     //      once keyed). Keys can only be born on-card via ALG_SECURE_RANDOM.
     // 1.5: cofactor setK(1) on both EC keys; JCOP 2.4.1 answered 6F00 to
-    //      KEYGEN/GET_PUBKEY/SIGN without it (card 57274221, 2026-10-29).
+    //      KEYGEN and GET_PUBKEY without it (card 57274221, 2026-10-29).
     private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x05};
 
     private static final byte INS_GET_VERSION = (byte)0x01;
