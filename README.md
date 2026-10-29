@@ -474,7 +474,7 @@ explicit software simulator, not a physical card or a mainnet transfer.
 
 Status is path-specific: a real-card result does not qualify every applet revision,
 client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
-`87E5470B`, OMNIKEY 5422 and Android NFC. Evidence (file:line), receipts and open items per row:
+`87E5470B`, OMNIKEY 5422. Evidence (file:line), receipts and open items per row:
 [feature status](docs/feature-status.md).
 
 | Feature / scope | Status |
