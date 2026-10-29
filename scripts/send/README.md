@@ -1,5 +1,7 @@
 # Arkade card send
 
+Last live run: 2026-10-28 19:13 UTC, 4/4 verified. [Receipt](../../docs/proofs/e2e-proof.json).
+
 Reusable Node 22+ send tool for the existing card-linked Arkade SOURCE. All JS imports are repository-relative or normal root dependencies; no separate Expo checkout or home-directory harness is required. `bridge.py` reuses the repository PC/SC and MuSig2 modules, adds a public-only PRF proof and preserves exact-reader matching.
 
 ## End-to-end proof

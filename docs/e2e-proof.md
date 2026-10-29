@@ -11,6 +11,41 @@ This is an evidence report, not a claim that unexecuted hardware steps passed. T
 | COSIGN | verified | 2 card/server partials and BIP340 aggregates verified |
 | ARKADE | verified | Operator finalized 13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8, exact indexer output and spent inputs verified |
 
+### Where the sats are now
+
+Checked live 2026-10-29 00:07 UTC against the Arkade indexer and mempool.space (block 973,614).
+
+| Rail | Address | Sats | Status |
+| --- | --- | ---: | --- |
+| Arkade | [ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x](https://arkade.space/address/ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x) | 5,472 | Spendable: 4,926 + 546. Expires 2026-11-27 14:41 UTC. |
+| Bitcoin, card + Nuri MuSig2 | [bc1pxa43e00wl6a2qqfd7wu8xgmuz8vczauvmn0nt45zff2kuq9u4klsfrz0f5](https://mempool.space/address/bc1pxa43e00wl6a2qqfd7wu8xgmuz8vczauvmn0nt45zff2kuq9u4klsfrz0f5) | 6,007 | Confirmed. CSV exit opens 2027-01-07. No spend tool yet. |
+| Bitcoin boarding | [bc1p48tcgtk50havqnyq7pswx7hux8szpfjrrv3477z7r6sl4s0vyaxspfzzwu](https://mempool.space/address/bc1p48tcgtk50havqnyq7pswx7hux8szpfjrrv3477z7r6sl4s0vyaxspfzzwu) | 0 | [Funded 7,499](https://mempool.space/tx/fdbd415e6f1048fced5c2ddd79d22ded6cd261f8cc68f07772fd62b6e55bb1d8), [moved into Arkade](https://mempool.space/tx/617076f14362d8c27bcd2bef9b33a321ca01250cdd9d8d49723578f2e45da557). |
+| **Total** | | **11,479** | |
+
+Sent from the card:
+
+| UTC | To | Sats | Transaction |
+| --- | --- | ---: | --- |
+| 2026-10-28 06:51 | @emino [ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameewtudvcndvek083e5ln2z7pdu5huts6gnu628pe5ezc3kce4qt7svqgg50](https://arkade.space/address/ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameewtudvcndvek083e5ln2z7pdu5huts6gnu628pe5ezc3kce4qt7svqgg50) | 7,118 | [903081350544f125a8e56b66782d8f14d35d1834effdd931b1086faa69eff8ca](https://arkade.space/tx/903081350544f125a8e56b66782d8f14d35d1834effdd931b1086faa69eff8ca) |
+| 2026-10-28 19:13 | the card itself (live proof) | 546 | [13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8) |
+| 2026-10-28 20:13 | later payment | 1,014 | [a80114bef692a2c8b3db34df71bcfdb67caecc9683ab80bb1a99bd7bd08a7aeb](https://arkade.space/tx/a80114bef692a2c8b3db34df71bcfdb67caecc9683ab80bb1a99bd7bd08a7aeb) |
+| 2026-10-28 20:35 | later payment | 1,013 | [7d762a0ac6e8f537df44f48708d34bc66b41970803e2e6d706ef962cf2af3fd1](https://arkade.space/tx/7d762a0ac6e8f537df44f48708d34bc66b41970803e2e6d706ef962cf2af3fd1) |
+
+```mermaid
+flowchart LR
+  F["Funding 7,499 sats"] --> B["Boarding address"]
+  B --> V["Arkade VTXO 7,499"]
+  V --> X["Live proof send"]
+  X --> S["546 back to the card"]
+  X --> C1["Change 6,953"]
+  C1 --> P1["Paid 1,014"]
+  C1 --> C2["Change 5,939"]
+  C2 --> P2["Paid 1,013"]
+  C2 --> C3["Change 4,926"]
+  S --> N["Card Arkade now 5,472"]
+  C3 --> N
+```
+
 ## Run
 
 See [send tool](../scripts/send/README.md) for installation and exact guarded commands. The default is GET-only, no card. Hardware runs require funding and operator authorization.

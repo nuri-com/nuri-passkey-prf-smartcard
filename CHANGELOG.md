@@ -9,6 +9,12 @@ flowchart LR
 
 ## Unreleased
 
+- `e2e-proof.mjs` writes repo-relative receipt and log paths; dry runs write under
+  `_launch/out/e2e-proof` and never overwrite the committed hardware receipt (0dafcc5).
+- Live mainnet end-to-end receipt for card `87E5470B`: 546-sat Arkade self-send, 4/4
+  verified, transaction `13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8` (bbd291e).
+- Docs: money table and money chart checked live 2026-10-29 00:07 UTC; AID3 v1.17 status.
+
 - Add `scripts/send/board.mjs`: settle confirmed onchain boarding UTXOs into a
   card-owned Arkade VTXO. Dry run is GET-only and prints the boarding UTXOs,
   the operator-fee plan and the exact approval requests; `--execute` needs

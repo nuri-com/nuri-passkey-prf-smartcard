@@ -1,5 +1,7 @@
 # W35 — Arkade card-compatible signer, bounded zero-funds evidence
 
+Superseded on 2026-10-28: the real card co-signed a live mainnet send. See [the end-to-end proof](e2e-proof.md). Below is the earlier zero-funds record.
+
 ## Result
 
 **Live registration, correct contract addresses and zero balances proven. Live cooperative
