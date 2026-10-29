@@ -29,7 +29,7 @@ The Nuri Card release specification:
 - **Android NFC wallet:** the operator reports a Samsung S21 displaying the card wallet balance after a tap.
 - **AID3 speed:** the operator reports about 2.0 s FINALIZE on applet v1.17, 5/5 BIP340 signatures verified. The target is about 1 s and is not reached.
 - **OpenSSH login:** physical-card login recorded across [three USB readers](docs/reader-compatibility.md#hardware-runs-parent-physical-card).
-- **Released hardware proofs:** [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), packaged in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
+- **Released:** [v1.2.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.2.0) (2026-10-29) ships the AID3 v1.17 MuSig2 CAP. Earlier proofs, [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), shipped in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
 
 ### Where the sats are now
 
@@ -417,10 +417,12 @@ path-specific proofs, not a new funded on-chain or merchant-payment acceptance.
 [AID2 receipt](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json),
 [feature status](docs/feature-status.md).
 
-**Newer work on the fast path:** AID3 v1.17 co-signed the live mainnet send on
-2026-10-28, with [a receipt](docs/proofs/e2e-proof.json). The about 2.0 s
-FINALIZE timing is operator-reported and the 1 s target is not reached. `v1.1.0`
-does not install AID3. The earlier [v1.16 timing
+**v1.2.0, the fast path:** AID3 v1.17 co-signed the live mainnet send on
+2026-10-28, with [a receipt](docs/proofs/e2e-proof.json). `v1.2.0` ships its
+reproducible CAP (`dist/nuri-musig2-v20-keygen-aid3.cap`, hash in
+[SHA256SUMS](dist/SHA256SUMS)); the receipt does not record the installed CAP
+hash. The about 2.0 s FINALIZE timing is operator-reported and the 1 s target is
+not reached. The earlier [v1.16 timing
 receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json) records 5.2 s
 FINALIZE and stays as history.
 

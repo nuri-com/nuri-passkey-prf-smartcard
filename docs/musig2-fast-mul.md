@@ -2,8 +2,8 @@
 
 MIT implementation in `card/musig2/RsaMultiply.java`, independently written from
 `2ab = (a+b)^2 - a^2 - b^2`. No copied Satochip/GPL implementation.
-APDU framing and signing hardening are unchanged. This is an AID3 candidate,
-not a hardware latency claim; install/profile is a separate hardware gate.
+APDU framing and signing hardening are unchanged. Released in v1.2.0 as AID3
+applet 1.17 (`nuri-musig2-v20-keygen-aid3.cap`, hash in `dist/SHA256SUMS`).
 
 Result on card `87E5470B`, v1.17: FINALIZE about 2.0 s, down from 5.19 s (operator timing). The 1 s target is not reached.
 
@@ -69,9 +69,13 @@ constant-time style, not a hardware timing/power-resistance certification.
 
 ## Fail-closed and test gates
 
-Installation probes 3^2=9 and (m-1)^2 mod m=1 independently for n and p using
-the installed provider. Unsupported RSA-768/exponent-two/no-padding providers
-abort installation. Nine consecutive doFinal calls rely on the JavaCard Cipher
+Installation probes 3^2=9 with the installed provider; unsupported
+RSA-768/exponent-two/no-padding providers abort installation. Since 1.17 the
+(m-1)^2 mod m=1 known-answer tests for n and p run on the first multiply, not at
+INSTALL, where they returned 6985 on the real card. A failure throws 6F31 and
+the tests run again on the next call. The pass flag is persistent and is set
+before the tests run, so a power loss during that first run leaves it set and
+later calls skip the tests (`card/musig2/RsaMultiply.java:23,104-111`). Nine consecutive doFinal calls rely on the JavaCard Cipher
 post-doFinal initialized-state contract; the bench is the hardware gate.
 
 `scripts/test-musig2-jcardsim.sh` includes 5,000 deterministic random pairs per

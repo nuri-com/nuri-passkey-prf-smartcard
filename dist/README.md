@@ -31,14 +31,16 @@ its source/platform correspondence is checked separately.
 
 | Identity | Package AID | Applet AID | Artifact / scope |
 |---|---|---|---|
-| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; hash in `SHA256SUMS`, historical PIN2 receipt |
-| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; candidate built from final integrated source |
+| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; applet 1.17, hash in `SHA256SUMS`; the PIN2 receipt covers the v1.15 CAP from v1.1.0 |
+| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; applet 1.17, released in v1.2.0, sha256 `d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9`; live mainnet cosign receipt |
 
-AID3 build integration is included in repository version 1.2.0. Before release,
-generate the candidate from the final scalar source, add its normalized CAP/hash
-to this inventory and `SHA256SUMS`, and run the complete release verifier. No
-AID3 real-card times or physical acceptance are claimed here; AID2 evidence does
-not transfer to a new CAP. [Scalar boundary](../docs/scalar256.md#v120-aid3-release-boundary).
+Released in v1.2.0. CI job `card-release` rebuilt all CAPs from main
+`f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components and printed
+`CARD_V1_RELEASE_VERIFIED` ([run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+On 2026-10-28 the AID3 instance on card `87E5470B` co-signed a live mainnet
+Arkade send ([receipt](../docs/proofs/e2e-proof.json)). The receipt does not
+record the installed CAP hash, so it does not prove the card runs this exact
+file. AID2 evidence does not transfer to a new CAP. [Scalar boundary](../docs/scalar256.md#v120-aid3-release-boundary).
 
 ## Build inputs and reproduction
 

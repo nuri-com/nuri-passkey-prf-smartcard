@@ -7,42 +7,97 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
-## Unreleased
+## v1.2.0 — 2026-10-29 — Card-signed Bitcoin on mainnet, fast MuSig2 — Hermes Agent
 
-- `e2e-proof.mjs` writes repo-relative receipt and log paths; dry runs write under
-  `_launch/out/e2e-proof` and never overwrite the committed hardware receipt (0dafcc5).
-- Live mainnet end-to-end receipt for card `87E5470B`: 546-sat Arkade self-send, 4/4
-  verified, transaction `13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8` (bbd291e).
-- Docs: money table and money chart checked live 2026-10-29 00:07 UTC; AID3 v1.17 status.
+Before: `v1.1.0` co-signed MuSig2 on the card only in an unfunded test, on the
+software scalar path, which later measured 75.7 s per FINALIZE on hardware. Now: card
+`87E5470B` co-signed a live mainnet Arkade send through the new AID3 applet 1.17,
+and the operator reports about 2.0 s per FINALIZE. The 1 s target is not reached.
 
+Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
+`npm run card:release:verify`), new or changed since `v1.1.0`:
+
+| Applet | Package / applet AID | Version | CAP sha256 |
+|---|---|---|---|
+| MuSig2 AID3 (new) | `4E5552494D554733` / `4E5552494D55473301` | 1.17 | `d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9` |
+| MuSig2 AID2 | `4E5552494D554732` / `4E5552494D55473201` | 1.17 | `972848969e3e58dc72d30b511247b7f4eb01f7b0350f58f78b5ee6c2c2ee889b` |
+| MuSig2 original | `4E5552494D5547` / `4E5552494D554701` | 1.17 | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
+| ETH signer v2 (PIN) | `4E55524945544832` / `4E5552494554483201` | 2.1.0 | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
+
+FIDO2, FIDO2-up, ETH v1, OATH TOTP, vault and the PKCS#11 module are
+byte-identical to `v1.1.0`. CI job `card-release` rebuilt every CAP from main
+`f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components
+(`CARD_V1_RELEASE_VERIFIED`, [run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+
+Card and signing:
+
+- AID3: `scripts/build-musig2-aid3.sh` builds package `4E5552494D554733`, applet
+  `4E5552494D55473301` from the current MuSig2 sources in a temporary tree and
+  normalizes CAP ZIP metadata. Release build, manifest, component verification
+  and source inventory include it. Additive install; no existing instance deleted.
+- Independently authored MIT RSA-square multiply: `2ab=(a+b)^2-a^2-b^2`,
+  768-bit RSA NOPAD exponent two, fixed folding reduction modulo n and p.
+  Unsupported providers fail installation closed. No GPL arithmetic was read or
+  copied (a287784, ed73ea7).
+- Applet 1.17: the full-width known-answer tests moved from INSTALL, where they
+  returned `6985` on the real card, to the first multiply. A failure throws
+  `6F31` and they run again on the next call; install still probes 3^2 = 9. The
+  test buffer is transient (407691b, da94f7a).
+- Regression disclosure: `00ce5b2` replaced inherited scalar multiplication
+  with the MIT clean-room fixed-iteration software loop. Its hardware latency
+  was not timed during that integration; simulator correctness did not establish
+  acceptable physical-card performance. The software path later measured 75.7 s.
+- Timing history on card `87E5470B`, OMNIKEY 5422. v1.16: five verified BIP340
+  signatures, FINALIZE 5164.75 / 5194.75 / 5195.32 ms min/median/max, GET_NONCES
+  290–293 ms; SSH checks passed before/after each card-write step; one wrong PIN
+  returned 63C4, the correct PIN restored five tries
+  ([receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json)). v1.17: about
+  2.0 s, operator-reported, no timing receipt. Blinding, double computation and
+  PIN/session/nonce protections are unchanged.
+- ETH2: tear-safe transactional SET/CHANGE/UNBLOCK for PIN and PUK with
+  simulator tests (#26). Version bytes stay 2.1.0; the CAP hash changes. The
+  `v1.1.0` ETH2 hardware receipt covers the previous CAP.
+
+Bitcoin and Arkade:
+
+- Live mainnet end-to-end receipt, 2026-10-28 19:12:58 UTC, card `87E5470B`:
+  passkey + PRF, Nuri auth, card and Nuri MuSig2 partials, operator finalization.
+  546-sat Arkade self-send, fee 0, 4/4 steps verified, transaction
+  `13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8`
+  ([receipt](docs/proofs/e2e-proof.json), bbd291e). The receipt does not record
+  the applet version or the installed CAP hash.
+- Arkade bridge with public-only PRF proof; reusable card send CLI
+  `npm run arkade:send` and guarded end-to-end proof `npm run arkade:proof`
+  (e93fa31, bd1f85f, ecd051e). Receipt and log paths are repo-relative; dry runs
+  write under `_launch/out/e2e-proof` and never overwrite the committed hardware
+  receipt (0dafcc5).
 - Add `scripts/send/board.mjs`: settle confirmed onchain boarding UTXOs into a
   card-owned Arkade VTXO. Dry run is GET-only and prints the boarding UTXOs,
   the operator-fee plan and the exact approval requests; `--execute` needs
   `NURI_SEND_CONFIRM=board-<sats>`. One passkey assertion, then card MuSig2 for
   the proof, the batch tree and the boarding input. Software-card tests cover
-  the nested tree share end to end.
+  the nested tree share end to end. Live mainnet fixes: two-round tree signing,
+  per-input sighash, `/v4` paths, one reader reconnect for pubkey/nonces, never
+  for FINALIZE (#39).
+- Zero-funds live Arkade 2-of-2 harness with a pluggable card signer (#32).
+- Android NFC demo: card MuSig2 PIN signature and a card wallet with derived
+  onchain balance (#30).
 
-## v1.2.0 — Fast MuSig2 PIN signer
+Docs and CI:
 
-- Add `scripts/build-musig2-aid3.sh`: package `4E5552494D554733`, applet
-  `4E5552494D55473301`, built from the current MuSig2 sources in a temporary
-  tree. The builder normalizes CAP ZIP metadata; release build, manifest,
-  component verification and source inventory include AID3.
+- README and site: product-first README, comparisons, HSM + PKCS#11 guide,
+  capability reference, live money table checked 2026-10-29 00:07 UTC
+  (#33–#36, e49a811, b89a1f8).
+- MuSig2 CAP triplet imported from a pinned cloud CI build and refreshed after
+  the transient KAT buffer fix ([import record](dist/README.md)); CI retains
+  rebuilt release artifacts and parses README and proof Mermaid diagrams
+  (2f48a1c, 1037186, e0b72a5, 5e61e55).
 - Repository package and lockfile version: `1.2.0`; Chrome stays `0.2.0`.
-- Regression disclosure: `00ce5b2` replaced inherited scalar multiplication
-  with the MIT clean-room fixed-iteration software loop. Its hardware latency
-  was not timed during that integration; simulator correctness did not establish
-  acceptable physical-card performance. The software path later measured 75.7 s.
-- Independently authored MIT RSA-square acceleration: `2ab=(a+b)^2-a^2-b^2`,
-  768-bit RSA NOPAD exponent two, fixed folding reduction modulo n and p.
-  Unsupported providers fail installation closed. No GPL arithmetic was read or copied.
-- On card `87E5470B`, OMNIKEY 5422: five verified BIP340 signatures;
-  FINALIZE 5164.75 / 5194.75 / 5195.32 ms min/median/max (previously 75.7 s).
-  **The <3 s target is not reached.** GET_NONCES 290–293 ms.
-  Blinding, double computation, PIN/session/nonce protections remain unchanged.
-- New AID3 only; no existing instance deleted. SSH checks passed before/after
-  each card-write step; one wrong PIN returned 63C4, correct PIN restored five tries.
-  Full signatures and timings: [AID3 proof](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json).
+
+Open: the 1 s FINALIZE target, a v1.17 timing receipt, the installed CAP hash on
+the card, the KAT pass-flag tear window (`card/musig2/RsaMultiply.java:23,104-111`),
+hardware tear tests for ETH2, physical fault/side-channel qualification. Not
+externally audited; not a certified hardware wallet.
 
 ## v1.1.0 — 2026-10-22 — Real-card PIN signers — Hermes Agent
 
