@@ -17,7 +17,7 @@ attestation and vault CAPs are simulator only. [Feature status](../README.md#fea
 | `FIDO2-up.cap` | `third_party/fido2-applet/ + patches 0001/0002` | `A0000006472F0001` | 0.4, advertises up:true; no physical touch check | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
 | `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.17 (`APPLET_VERSION` 0x0111), package 2.2; PIN/token/attestation | MIT | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
-| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / SIGN; demo, no PIN | GPL-2.0-or-later combined | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
+| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.5 / SIGN; demo, no PIN; cofactor fix for NXP JCOP 2.4.1 | GPL-2.0-or-later combined | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 | `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; transactional SET/CHANGE/UNBLOCK; hardware tear unverified | MIT | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
 | `nuri-vault.cap` | `card/vault/` | `4E555249564C5401` | package 1.1; PIN slots and attestation | MIT | `70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33` |
 | `pkcs11-nuri.so` | `scripts/pkcs11-nuri.c` | `not an applet` | macOS native module; rebuild for your platform | MIT source | `b27a41734535d15d032ef553974643a4f97cabc1d67216fca1b1069d19b21299` |
@@ -77,6 +77,10 @@ source. This refresh includes the transient lazy-KAT buffer fix in
 - Unchanged CAPs (`FIDO2`, `FIDO2-up`, `nuri-oath-totp`, `nuri-eth-signer`,
   `nuri-eth2-signer`, `nuri-vault`) are byte-identical to the imported copies,
   which confirms the build host reproduces the tracked bundle.
+- `nuri-eth-signer.cap` 1.5 replaced that imported copy later: built locally from
+  `ceb447a` (same tree as `d4dbdd9`), `source_dirty=0`, Zulu `1.8.0_452`,
+  Gradle 8.14.3; hash `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470`.
+  [Real-card receipt](../docs/proofs/real-card-57274221-eth1-cofactor.json).
 - Package and applet AIDs of the imported files match the inventory
   (`4E5552494D554701`, `4E5552494D55473201`, `4E5552494D55473301`); package
   version stays 2.2, `APPLET_VERSION` is 1.17.
