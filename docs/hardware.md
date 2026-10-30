@@ -16,9 +16,9 @@ certification, silicon identity and support for a new batch.
 
 The provisioning script requires GlobalPlatform transport keys and an explicitly
 selected reader, rejects targets already containing its applets and installs
-FIDO2, MuSig2, TOTP and ETH v1. Source:
+FIDO2, MuSig2, TOTP and ETH v1 (ETH v1 not with `PROVISION_SKIP_ETH1=YES`). Source:
 [scripts/provision-card-v1.sh:7–23](../scripts/provision-card-v1.sh#L7-L23),
-[48–67](../scripts/provision-card-v1.sh#L48-L67).
+[48–71](../scripts/provision-card-v1.sh#L48-L71).
 ETH v2 is a separate applet; see [its guide](eth-applet-v2.md).
 
 Ask the supplier for:
