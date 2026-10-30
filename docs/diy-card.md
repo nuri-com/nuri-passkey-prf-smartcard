@@ -90,9 +90,25 @@ prompt.
 `JCOP v2.4.1` here is read from the ATR historical bytes and the CPLC, not from a
 reseller label.
 
-The exact shop of card `57274221` is not confirmed in this repository yet.
+Where card `57274221` came from: [xmrstreet.store, "Smartcard J3R180"](https://xmrstreet.store/product/smartcard-j3r180/),
+order of 2026-10-14. Option "Full card size" (the sim size has no antenna), black.
 
-<!-- PARENT-VERIFY:shop -->
+| Item | EUR |
+|---|---|
+| Card | 9.99 |
+| Tracked shipping UPS/FedEx/DHL, Belgium to Berlin | 10.00 |
+| VAT | 4.20 |
+| Total to the door | 24.19 |
+
+Paid with Bitcoin Lightning through BTCPay (the shop takes BTC/Lightning and Monero only).
+Shipped 2026-10-18, delivered by UPS 2026-10-21.
+
+The shop lists the card as J3R180 (JCOP4). The card that arrived reports NXP JCOP v2.4.1
+(ATR historical bytes `JCOPv241`, CPLC table above, SCP02 with DES3 default keys). So the
+chip you receive can differ from the listing: run the read-only check in section 4 on
+arrival, before you install anything. The scripts handle both SCP02/DES3 and SCP03/AES.
+The [translucent variant](https://xmrstreet.store/product/translucent-j3r180-smartcard/)
+(EUR 14.99) is untested here.
 
 ### 3.2 Candidate sellers for the same or a near chip
 
@@ -729,7 +745,32 @@ ssh -o IdentityFile="$HOME/.ssh/id_nuri_pcsc_sk2" nuri-card-host
 
 Give the second card its own FIDO2 PIN. Do not reuse the first.
 
-<!-- PARENT-VERIFY:ssh2 -->
+Real run, 2026-10-30: card `57274221` was enrolled as a second key
+(`ssh-keygen -t ecdsa-sk`, fingerprint `SHA256:9fucc9So7nEWxG0Qr7ygblh1OHcnHSu/dFZl87rq0ZI`)
+while the first card stayed in a second reader. Its public key was appended to
+`/root/.ssh/authorized_keys` on 8 servers, authenticated with the first card, with a
+timestamped backup of the file on each server and no other line changed. Then a fresh
+login with only the new card succeeded on all 8 (`LOGIN_OK <hostname> root`).
+
+Two things that bit:
+
+- With two cards plugged in, the provider picks the device by index
+  (`FIDO2_PCSC_INDEX`, order as `CtapPcscDevice.list_devices()` lists the readers).
+  The OMNIKEY shows up twice (contact and contactless). Pick the index of the reader that
+  holds the card you mean, or the login fails with `Permission denied (publickey)`.
+- One server failed once with `signing failed ... invalid format`. A stale
+  `ssh-pcsc-sk-helper` process held the reader. `pkill -f ssh-pcsc-sk-helper`, wait a
+  few seconds, retry: it passed.
+
+List both stubs in `~/.ssh/config` for each host, so either card logs you in:
+
+```text
+Host my-server
+  IdentityFile ~/.ssh/id_nuri_pcsc_sk
+  IdentityFile ~/.ssh/id_nuri_pcsc_sk2
+  SecurityKeyProvider /path/to/nuri-passkey-prf-smartcard/dist/nuri-pcsc-sk-provider.so
+  IdentitiesOnly yes
+```
 
 ## 13. Add the card as a Google security key
 
