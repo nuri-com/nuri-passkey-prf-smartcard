@@ -21,6 +21,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [card-capability-summary.md](card-capability-summary.md) — Interface directory pointing to the canonical feature status and security model.
 - [card-lock.md](card-lock.md) — Reversible GP management-key rotation with encrypted owner escrow; simulator only.
 - [diy-key.md](diy-key.md) — Exact home how-to for replacing the public default GP admin key with the DIY wizard: prompts, success tokens, undo and LLM agent runbook.
+- [diy-card.md](diy-card.md) — Full at-home build: the reference card and reader, read-only preflight, install order, every PIN and feature, capacity, lost-card limits and the admin-key seal last.
 - [card-secrets.md](card-secrets.md) — PRF-encrypted disk vault and trusted broker; separate on-card backend and agent limits.
 - [card-vault-applet.md](card-vault-applet.md) — PIN-gated on-card HMAC/bearer slots and their different export boundaries.
 - [chrome-extension.md](chrome-extension.md) — Chrome wallet installation, immutable approval, PIN/native protocol and demo steps.

@@ -95,6 +95,13 @@ Written for an NXP JCOP v2.4.1 card on an HID Global OMNIKEY 5422 reader; other 
 
 Full agent runbook with STOP conditions: [docs/diy-key.md](docs/diy-key.md#12-for-llm-agents).
 
+## DIY: build your own Nuri card
+
+Buy the reference card, install every applet, use every feature, change the admin key.
+The full guide names the exact card profile, the proven reader, the install order, every PIN path and the recovery boundaries. Read it before you buy anything.
+
+[Build your own card](docs/diy-card.md).
+
 ## Why it beats YubiKey
 
 - **A crypto wallet on the chip.** Bitcoin MuSig2 and native Ethereum signing alongside passkeys, OpenSSH and TOTP.
