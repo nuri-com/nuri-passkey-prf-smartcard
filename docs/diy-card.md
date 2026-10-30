@@ -8,6 +8,9 @@ manufacturing procedure and not a certified product: the whole stack is
 research-grade, [not externally audited](security-model.md) and **not a certified
 hardware wallet**.
 
+If you would rather buy the finished article, Nuri sells it at <https://www.nuri.com>.
+The card is the same; the applets are already on it.
+
 Read the labels. Every capability below carries one:
 
 | Label | Meaning |
@@ -93,7 +96,7 @@ Trezor and the original Bitkey is in the root [README](../README.md#compare-the-
 
 | Device | Price, 2026-10-30 | What its vendor page says | Button, display |
 |---|---|---|---|
-| This card | 9.99 EUR blank card, plus a contact reader | Passkey with PRF, SSH, bitcoin MuSig2 2-of-2 with a Nuri server, Ethereum with PIN, TOTP, vault, PKCS#11 | none |
+| This card | 9.99 EUR blank card, plus a contact reader | Passkey with PRF, SSH, bitcoin cosigning over three keys with a timelocked card-only recovery, Ethereum with PIN, TOTP, vault, PKCS#11 | none |
 | Tangem | 54.90 USD two cards, 69.90 USD three | Cold wallet for tokens on many chains, signed from the phone app | none on the card |
 | YubiKey 5 / Bio | 58 USD 5 NFC, 98 USD C Bio | FIDO2, U2F, PIV, OTP, OpenPGP. No bitcoin wallet of its own | touch button, fingerprint on Bio |
 | Bitkey | 230 EUR (bitkey.world/buy, from Germany) | Bitcoin only, 2-of-3 multisig, phone key plus hardware key plus Block's server | fingerprint, OLED screen |
@@ -102,6 +105,17 @@ Trezor and the original Bitkey is in the root [README](../README.md#compare-the-
 What the card gives up against all four: no button, no screen, no support line, no
 seed phrase. What no other row gives you: applet source you can read, change and
 install on any blank card of the same family.
+
+Three keys, like Bitkey, and not a 2-of-3 multisig. The wallet contract is one Taproot
+program with three leaves: (1) `MuSig2(card, Nuri)` plus the Arkade operator, the
+everyday instant path; (2) `MuSig2(card, Nuri)` after a CSV timelock, the unilateral
+exit without the operator; (3) the card alone after a longer CSV timelock, the recovery
+path if Nuri is gone. Neither Nuri nor the operator can move coins alone. If both
+disappear, the card alone recovers after the timelock. The difference to Bitkey: there
+Block's server plus your phone can sign, here the card is always required and it is also
+the recovery key. A lost card is still a lost client key, a timelock pays back to the
+key, it does not recreate it ([consent, secrets and loss](../README.md#consent-secrets-and-loss)).
+The construction is [board-core.mjs:53-82](../scripts/send/board-core.mjs#L53-L82).
 
 Vendor sources, read 2026-10-30, list price in the vendor's own currency, before VAT
 and shipping: [tangem.com](https://tangem.com/en/pricing/),
@@ -621,9 +635,8 @@ timeout or a disconnect cancels without a signature. ETH1 cards additionally nee
 
 ### 7.5 Bitcoin MuSig2 and Arkade
 
-The card is one cosigner of a 2-of-2 MuSig2 aggregate. It produces partial
-signatures over nonces the host supplies; the host, not the card, builds and
-broadcasts the transaction.
+The card is the client key of a three-key program. It produces partial signatures over
+nonces the host supplies; the host, not the card, builds and broadcasts the transaction.
 
 ```sh
 NURI_CARD_PIN='...' scripts/run-card-python.sh scripts/real-card-cosign-proof.py --message 'my cosign test'
@@ -856,7 +869,7 @@ place and deletion, not extraction.
 | Applet deletion, registry damage | **yes** while the admin key is still the public default. That destroys keys, it does not steal them |
 | Signing with ETH1 (demo card, if installed) | **yes immediately**. No PIN, no user presence |
 | Signing with ETH2 | needs the PIN, 5 tries, then the PUK has 3 |
-| Cosigning with MuSig2 | needs the MuSig2 PIN, 5 tries, plus the server half of the 2-of-2 |
+| Cosigning with MuSig2 | needs the MuSig2 PIN, 5 tries, plus the Nuri server's half of the aggregate |
 | Reading vault HMAC output and bearer tokens | needs the vault PIN, 5 tries, blocking is permanent |
 | Generating TOTP codes | **yes immediately**. CALC is not PIN gated |
 | Using the passkey | needs the FIDO2 PIN (8 tries) for UV-required sites |

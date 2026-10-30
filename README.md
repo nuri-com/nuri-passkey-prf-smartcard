@@ -14,7 +14,7 @@ The Nuri Card release specification:
 - **Mobile NFC.** Tap your phone, or use a USB smartcard reader on your computer.
 - **PIN + phone biometrics.** Familiar phone approval, with separate card PIN protection.
 - **HSM secure chip.** Bitcoin and Ethereum signing keys stay on the card.
-- **Bitcoin MuSig2 2-of-2 with Nuri / Arkade.** On-chip partial signing, with a reported ~2 s fast path.
+- **Bitcoin with three keys, like Bitkey.** Card, Nuri server and Arkade operator, in one three-leaf Taproot program. On-chip partial signing, with a reported ~2 s fast path, and a timelocked card-only recovery if Nuri is gone.
 - **FIDO2 physical passkey.** Sign in to websites with the card.
 - **OpenSSH keys.** Log in to servers with a hardware-backed security key.
 - **PKCS#11 + OpenSSL.** Put a card-backed signing key behind a standard application interface.
@@ -107,6 +107,8 @@ About 10 minutes. It never deletes, refuses a non-blank card, and asks you to ty
 
 The [full guide](docs/diy-card.md) has the exact card profile, arrival checks, every PIN path, use cases, the recovery boundaries and where it differs from Tangem, YubiKey, Bitkey and YubiHSM. Read it before you buy anything.
 
+Or buy the finished card, applets already installed, at <https://www.nuri.com>.
+
 ## Why it beats YubiKey
 
 - **A crypto wallet on the chip.** Bitcoin MuSig2 and native Ethereum signing alongside passkeys, OpenSSH and TOTP.
@@ -124,7 +126,7 @@ Nuri cells describe the release specification above. Competitor cells describe d
 | Mobile NFC | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ |
 | Phone biometrics + card PIN/access code | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | HSM / secure chip | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bitcoin MuSig2 2-of-2 on the chip | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| Bitcoin MuSig2 client key on the chip | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ |
 | Arkade / Bitcoin wallet app with NFC tap | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Ethereum signing | ✓ native | ✗ native / ✓ bridge² | ✓ secp256k1 API² | ✓ | ✓ | ✗ | ✓ |
 | FIDO2 passkey | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
@@ -141,6 +143,8 @@ Nuri cells describe the release specification above. Competitor cells describe d
 ³ HMAC-SHA1 plus a host-supplied counter/truncation enables TOTP with YubiHSM 2; it is not a dedicated OATH applet. Nuri also uses host time and truncation. — means support was not established for that specific model; historical Nano S OTP software does not prove Nano X support.
 
 ⁴ Nuri-authored applet code is MIT; the legacy ETH1 CAP contains GPL arithmetic. Ledger's open apps do not make its secure-element OS open. See [licences](#licence). Update support does not promise that replacing an applet preserves its keys.
+
+Three keys guard a Nuri bitcoin balance, like Bitkey's three keys and unlike a plain 2-of-2. The wallet contract is one Taproot program with three leaves: `MuSig2(card, Nuri)` plus the Arkade operator for the everyday instant path, `MuSig2(card, Nuri)` after a CSV timelock for the unilateral exit without the operator, and the card alone after a longer CSV timelock for recovery if Nuri is gone ([board-core.mjs:53-82](scripts/send/board-core.mjs#L53-L82), [contract notes](docs/arkade-card-e2e.md#correct-contract-construction-and-applet-parity)). Neither Nuri nor the operator can move coins alone; if both disappear, the card alone recovers after the timelock. The difference to Bitkey is one sentence: there Block's server plus your phone can sign, here the card is always required and is also the recovery key. A lost card is still a lost client key.
 
 ## Use cases
 
@@ -326,8 +330,11 @@ restrict brokers, serialize access and preserve independent administrative acces
 
 For a card + remote second-signer design, spending needs both participants under
 that protocol. If the same compromised host can operate the card and the second
-signer, writing “2-of-2” does not create independent custody. The standalone
-PRF-client + card path also puts the derived client secret in host memory.
+signer, writing “2-of-2” does not create independent custody. The remote design is
+three keys in one three-leaf Taproot program, not a bare 2-of-2: the cooperative leaf
+needs the card and the Nuri server and the operator adds its key, the CSV leaves are
+`MuSig2(card, Nuri)` for a unilateral exit and the card alone for recovery. The
+standalone PRF-client + card path also puts the derived client secret in host memory.
 [Path-specific keys and authorization](docs/signing-architecture.md).
 
 Existing host components (not a deployment or concurrency guarantee):
@@ -669,8 +676,9 @@ sequenceDiagram
   not mean the HMAC key was never present in host memory.
   An agent must be restricted to allowlisted brokers, not arbitrary processes.
 - **A lost card can mean lost money or access.** Same-card PRF + MuSig2 is not
-  independent two-device custody. CSV expiry does not recreate the PRF/client key.
-  Enroll and test independent SSH access and path-specific backups in advance.
+  independent two-device custody. CSV expiry does not recreate the PRF/client key,
+  it only pays back to whatever key the script names, which is the card key. Enroll
+  and test independent SSH access and path-specific backups in advance.
 
 | Failure | Consequence / action |
 |---|---|
