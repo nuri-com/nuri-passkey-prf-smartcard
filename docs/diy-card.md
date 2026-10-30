@@ -76,7 +76,7 @@ Trezor and the original Bitkey is in the root [README](../README.md#compare-the-
 | This card | 9.99 EUR blank card, plus a contact reader | Passkey with PRF, SSH, bitcoin MuSig2 2-of-2 with a Nuri server, Ethereum with PIN, TOTP, vault, PKCS#11 | none |
 | Tangem | 54.90 USD two cards, 69.90 USD three | Cold wallet for tokens on many chains, signed from the phone app | none on the card |
 | YubiKey 5 / Bio | 58 USD 5 NFC, 98 USD C Bio | FIDO2, U2F, PIV, OTP, OpenPGP. No bitcoin wallet of its own | touch button, fingerprint on Bio |
-| Bitkey | 250 USD | Bitcoin only, 2-of-3 multisig, phone key plus hardware key plus Block's server | fingerprint, OLED screen |
+| Bitkey | 230 EUR (bitkey.world/buy, from Germany) | Bitcoin only, 2-of-3 multisig, phone key plus hardware key plus Block's server | fingerprint, OLED screen |
 | YubiHSM 2 | 650 EUR | Server and CA keys, PKCS#11, RSA, ECC, ed25519 | none, server slot |
 
 What the card gives up against all four: no button, no screen, no support line, no
