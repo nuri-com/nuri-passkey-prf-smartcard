@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # One command from a blank Nuri card to a working card.
 #
-# Installs the eight applets of release v1.2.0 in the proven order, checks the
-# result, and writes everything to a private log. It never deletes anything, so
-# a wrong run costs time, not a card.
+# Installs the seven applets of release v1.2.0 in the proven order, checks the
+# result, and writes everything to a private log. ETH2 signs with a PIN and
+# replaces the legacy PIN-less ETH1, which is only kept for the demo card. It
+# never deletes anything, so a wrong run costs time, not a card.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +22,6 @@ AIDS=(
     A0000006472F0001
     4E5552494D554701
     4E555249544F5450
-    4E55524945544801
     4E5552494554483201
     4E5552494D55473201
     4E5552494D55473301
@@ -188,10 +188,10 @@ if [ "${#present[@]}" -gt 0 ]; then
     fi
     say "Resume: only the missing applets are installed (${#missing[@]} of ${#AIDS[@]})."
 else
-    say "Blank card, none of the eight applets present."
+    say "Blank card, none of the seven applets present."
 fi
 if [ "$RESUME" = 1 ] && [ "${#missing[@]}" -eq 0 ]; then
-    say "All eight applets are already installed. Nothing to do."
+    say "All seven applets are already installed. Nothing to do."
     exit 0
 fi
 
@@ -199,13 +199,14 @@ fi
 step 5 "Confirm the plan"
 say "Target: card $SERIAL on reader $READER"
 say ""
-say "  1) FIDO2, MuSig2 AID1, TOTP, ETH1    scripts/provision-card-v1.sh"
+say "  1) FIDO2, MuSig2 AID1, TOTP           scripts/provision-card-v1.sh"
 say "  2) ETH2                              scripts/install-eth2-card.sh"
 say "  3) MuSig2 AID2                       scripts/install-musig2-card.sh"
 say "  4) MuSig2 AID3                       scripts/install-musig2-card.sh"
 say "  5) vault                             scripts/install-vault-card.sh"
 say ""
-say "Then FIDO2/ETH1/ETH2/MuSig2/vault are checked with a read-only SELECT."
+say "Legacy PIN-less ETH1 is not installed (ETH2 does the same with a PIN)."
+say "Then FIDO2/ETH2/MuSig2/vault are checked with a read-only SELECT."
 say "No PIN is set here and no key is generated here. No existing applet is deleted."
 say "Time: about 10 minutes. The card must stay in the reader."
 if [ -n "$EXPECT_SERIAL" ]; then
@@ -226,13 +227,13 @@ step 6 "Install the applets (log: $LOG)"
 
 install_bundle() {
     if [ "$RESUME" = 0 ]; then
-        env CARD_PROVISION_CONFIRM=YES GP_KEY="$DEFAULT_KEY" GP_READER="$READER" \
+        env CARD_PROVISION_CONFIRM=YES PROVISION_SKIP_ETH1=YES GP_KEY="$DEFAULT_KEY" GP_READER="$READER" \
             bash "$ROOT/scripts/provision-card-v1.sh"
         return
     fi
-    local caps=(FIDO2-up.cap nuri-musig2-v20-keygen.cap nuri-oath-totp.cap nuri-eth-signer.cap)
+    local caps=(FIDO2-up.cap nuri-musig2-v20-keygen.cap nuri-oath-totp.cap)
     local i
-    for i in 0 1 2 3; do
+    for i in 0 1 2; do
         if has_app "${AIDS[$i]}"; then
             say "  skip ${caps[$i]}: ${AIDS[$i]} already present"
             continue
@@ -286,7 +287,7 @@ if [ "${#absent[@]}" -gt 0 ]; then
     say "Missing from the registry: ${absent[*]}"
     die "the card is incomplete; re-run with --resume"
 fi
-say "All eight applets are listed."
+say "All seven applets are listed."
 
 "$PY" "$ROOT/scripts/card-setup-card.py" verify --reader "$READER" || die "at least one applet did not answer SELECT"
 say "Every applet answered SELECT (9000, or 61xx on T=0-only readers)."

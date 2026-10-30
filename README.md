@@ -97,7 +97,7 @@ Full agent runbook with STOP conditions: [docs/diy-key.md](docs/diy-key.md#12-fo
 
 ## DIY: build your own Nuri card
 
-Blank card EUR 9.99 at [xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/), option "Full card size" (not sim size, shipping from Belgium) plus a contact smartcard reader: HID Global OMNIKEY 5422 is proven, a cheap ACS ACR39U or Realtek `0bda:0165` reader also worked. Then one command installs all eight applets, checks them and stops on anything unexpected:
+Blank card EUR 9.99 at [xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/), option "Full card size" (not sim size, shipping from Belgium) plus a contact smartcard reader: HID Global OMNIKEY 5422 is proven, a cheap ACS ACR39U or Realtek `0bda:0165` reader also worked. Then one command installs all seven applets (ETH2 signs with a PIN and replaces the old PIN-less ETH1), checks them and stops on anything unexpected:
 
 ```sh
 git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git && cd nuri-passkey-prf-smartcard && bash scripts/card-setup.sh
@@ -595,7 +595,8 @@ separate access to a restricted UI dependency; a public clone cannot build it al
    ```
 
 3. The existing bundle installer is a **demo installer**, not consumer provisioning:
-   it installs FIDO2, MuSig2, TOTP and **PIN-less ETH v1**, not ETH2 or the vault.
+   it installs FIDO2, MuSig2, TOTP and (unless `PROVISION_SKIP_ETH1=YES`, which
+   `scripts/card-setup.sh` always sets) **PIN-less ETH v1**, not ETH2 or the vault.
    Its existing-applet check covers four known AIDs, not every possible installed
    applet; it does not prove that an arbitrary target is blank.
    Only for that explicitly selected blank demo target:

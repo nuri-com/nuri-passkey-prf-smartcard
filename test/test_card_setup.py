@@ -13,11 +13,12 @@ SCRIPT = ROOT / "scripts/card-setup.sh"
 SERIAL = "12345678"
 DEFAULT_KEY = "404142434445464748494A4B4C4D4E4F"
 ALL_AIDS = [
-    "A0000006472F0001", "4E5552494D554701", "4E555249544F5450", "4E55524945544801",
+    "A0000006472F0001", "4E5552494D554701", "4E555249544F5450",
     "4E5552494554483201", "4E5552494D55473201", "4E5552494D55473301", "4E555249564C5401",
 ]
+LEGACY_ETH1_AID = "4E55524945544801"
 EXPECTED_CAPS = [
-    "FIDO2-up.cap", "nuri-musig2-v20-keygen.cap", "nuri-oath-totp.cap", "nuri-eth-signer.cap",
+    "FIDO2-up.cap", "nuri-musig2-v20-keygen.cap", "nuri-oath-totp.cap",
     "nuri-eth2-signer.cap", "nuri-musig2-v20-keygen-aid2.cap", "nuri-musig2-v20-keygen-aid3.cap",
     "nuri-vault.cap",
 ]
@@ -93,12 +94,16 @@ class CardSetupTest(unittest.TestCase):
                               timeout=180, cwd=str(ROOT))
 
     # --------------------------------------------------------------- cases
-    def test_blank_card_installs_all_eight_in_order(self):
+    def test_blank_card_installs_all_seven_in_order(self):
         result = self.run_setup(stdin=SERIAL + "\n")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"CARD_SETUP_VERIFIED {SERIAL}", result.stdout)
         self.assertEqual(self.installs(), EXPECTED_CAPS)
         self.assertEqual(sorted(self.card()["aids"]), sorted(ALL_AIDS))
+        # The legacy PIN-less ETH1 applet is not installed any more.
+        self.assertNotIn(LEGACY_ETH1_AID, self.card()["aids"])
+        self.assertNotIn("nuri-eth-signer.cap", self.installs())
+        self.assertIn("seven applets", result.stdout)
         shim = self.home / ".nuri-card/tools/bin/gp"
         self.assertEqual(stat.S_IMODE(shim.stat().st_mode), 0o700)
         self.assertIn(str(self.bin / "gp"), shim.read_text())
@@ -160,8 +165,21 @@ class CardSetupTest(unittest.TestCase):
         result = self.run_setup(["--resume", "--serial", SERIAL], stdin="")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.installs(), ["nuri-musig2-v20-keygen.cap", "nuri-oath-totp.cap",
-                                           "nuri-eth-signer.cap", "nuri-musig2-v20-keygen-aid2.cap",
+                                           "nuri-musig2-v20-keygen-aid2.cap",
                                            "nuri-musig2-v20-keygen-aid3.cap", "nuri-vault.cap"])
+
+    def test_resume_keeps_an_existing_eth1_and_never_reinstalls_it(self):
+        self.write_state(aids=["A0000006472F0001", LEGACY_ETH1_AID])
+        result = self.run_setup(["--resume", "--serial", SERIAL], stdin="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("nuri-eth-signer.cap", self.installs())
+        self.assertIn(LEGACY_ETH1_AID, self.card()["aids"])
+
+    def test_provision_bundle_is_told_to_skip_eth1(self):
+        result = self.run_setup(stdin=SERIAL + "\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Legacy PIN-less ETH1 is not installed", result.stdout)
+        self.assertEqual(self.installs().count("nuri-eth-signer.cap"), 0)
 
     def test_resume_on_complete_card_does_nothing(self):
         self.write_state(aids=ALL_AIDS)

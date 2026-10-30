@@ -241,13 +241,14 @@ Chip: NXP JCOP 2.4.1
 Serial: 57274221   OS date: 5134
 [3/8] Check that the public default admin key opens the card
 [4/8] Check that the card is blank
-Blank card, none of the eight applets present.
+Blank card, none of the seven applets present.
 [5/8] Confirm the plan
+Legacy PIN-less ETH1 is not installed (ETH2 does the same with a PIN).
 Type the card serial 57274221 to install:
 [6/8] Install the applets (log: ~/.nuri-card/logs/setup-57274221-....log)
 ...
 [7/8] Verify the result (read-only)
-All eight applets are listed.
+All seven applets are listed.
 Every applet answered SELECT (9000, or 61xx on T=0-only readers).
 CARD_SETUP_VERIFIED 57274221
 ```
@@ -276,16 +277,20 @@ Five install steps in this exact order. The order is not cosmetic: `install-eth2
 and `install-vault-card.sh` refuse unless FIDO2 is already there, because they only
 ever add.
 
+New cards get seven applets. The legacy PIN-less ETH1 is no longer installed:
+ETH2 does the same secp256k1 signing with a PIN. ETH1 stays in the tree and in the
+bundle for the demo card.
+
 | # | Applet | Package AID | Applet AID | Script |
 |---|---|---|---|---|
 | 1 | FIDO2, `FIDO2-up.cap` | `A000000647` | `A0000006472F0001` | `scripts/provision-card-v1.sh` |
 | 1 | MuSig2 AID1, `nuri-musig2-v20-keygen.cap` | `4E5552494D5547` | `4E5552494D554701` | same bundle |
 | 1 | TOTP, `nuri-oath-totp.cap` | `4E555249544F50` | `4E555249544F5450` | same bundle |
-| 1 | ETH1, `nuri-eth-signer.cap` 1.5 | `4E555249455448` | `4E55524945544801` | same bundle |
 | 2 | ETH2, `nuri-eth2-signer.cap` | `4E55524945544832` | `4E5552494554483201` | `scripts/install-eth2-card.sh` |
 | 3 | MuSig2 AID2 | `4E5552494D554732` | `4E5552494D55473201` | `scripts/install-musig2-card.sh` |
 | 4 | MuSig2 AID3 | `4E5552494D554733` | `4E5552494D55473301` | `scripts/install-musig2-card.sh` |
 | 5 | Vault, `nuri-vault.cap` | `4E555249564C54` | `4E555249564C5401` | `scripts/install-vault-card.sh` |
+| — | *optional, demo card:* ETH1, `nuri-eth-signer.cap` 1.5 | `4E555249455448` | `4E55524945544801` | same bundle, without `PROVISION_SKIP_ETH1` |
 
 **ETH1 must be version 1.5 or newer.** Versions up to 1.4 never set the secp256k1
 EC cofactor, and this chip answers `6F00` to KEYGEN with them. Installing 1.4 is not
@@ -318,23 +323,28 @@ npm run card:release:verify
 ### 5.4 Install the bundle
 
 ```sh
-CARD_PROVISION_CONFIRM=YES scripts/provision-card-v1.sh
+CARD_PROVISION_CONFIRM=YES PROVISION_SKIP_ETH1=YES scripts/provision-card-v1.sh
 ```
 
+`PROVISION_SKIP_ETH1=YES` is the only difference to an unchanged v1.2.0 bundle: it
+drops the legacy ETH1 CAP and guards on ETH2 instead of ETH1. Leave it off to get
+ETH1 as well, on a demo card.
+
 It checks `dist/SHA256SUMS` first, refuses if `A0000006472F0001`,
-`4E5552494D554701`, `4E555249544F5450` or `4E55524945544801` is already present,
-then installs the four CAPs and ends with a registry listing plus
-`CARD_V1_APPLETS_INSTALLED`. It does **not** install ETH2 or the vault, does not
+`4E5552494D554701`, `4E555249544F5450` or `4E5552494554483201` is already present,
+then installs the three CAPs and ends with a registry listing plus
+`CARD_V1_APPLETS_INSTALLED`. It does **not** install the vault, does not
 set PINs, does not personalize attestation and does not rotate keys.
 
-Real output from the reference card, 2026-10-29, paths shortened to `~`:
+Real output from the reference card, 2026-10-29, paths shortened to `~`. That run
+still installed ETH1, so its two ETH1 lines are marked:
 
 ```text
 FIDO2.cap: OK
 FIDO2-up.cap: OK
 nuri-musig2-v20-keygen.cap: OK
 nuri-oath-totp.cap: OK
-nuri-eth-signer.cap: OK
+nuri-eth-signer.cap: OK          # only without PROVISION_SKIP_ETH1
 ...
 Installing FIDO2-up.cap
 ~/.worktrees/release-v1.2.0/dist/FIDO2-up.cap loaded: us.q3q.fido2 A000000647
@@ -342,16 +352,19 @@ Installing nuri-musig2-v20-keygen.cap
 ~/.worktrees/release-v1.2.0/dist/nuri-musig2-v20-keygen.cap loaded: nuri.musig2 4E5552494D5547
 Installing nuri-oath-totp.cap
 ~/.worktrees/release-v1.2.0/dist/nuri-oath-totp.cap loaded: com.nuri.oath 4E555249544F50
-Installing nuri-eth-signer.cap
-~/.worktrees/release-v1.2.0/dist/nuri-eth-signer.cap loaded: com.nuri.eth 4E555249455448
+Installing nuri-eth-signer.cap                                   # only without PROVISION_SKIP_ETH1
+~/.worktrees/release-v1.2.0/dist/nuri-eth-signer.cap loaded: com.nuri.eth 4E555249455448  # same
 ...
 CARD_V1_APPLETS_INSTALLED
 ```
 
-Four `APP: <aid> (SELECTABLE)` lines follow. The Java `WARNING: A restricted method`
+Three `APP: <aid> (SELECTABLE)` lines follow: `A0000006472F0001`,
+`4E5552494D554701`, `4E555249544F5450`. The Java `WARNING: A restricted method`
 block from JNA is normal and can be ignored.
 
-### 5.5 Check ETH1 is 1.5 before going on
+### 5.5 Optionally check ETH1 is 1.5 (demo cards only)
+
+Skip this if you ran with `PROVISION_SKIP_ETH1=YES`, because ETH1 is not on the card.
 
 ```sh
 NURI_ALLOW_ETH1_DEMO=1 NURI_READER="$GP_READER" scripts/run-card-python.sh scripts/card-eth-test.py
@@ -418,8 +431,9 @@ VAULT_INSTALLED_ALONGSIDE_FIDO2 package=4E555249564C54 applet=4E555249564C5401 f
 gp --reader "$GP_READER" -l
 ```
 
-You need all eight applet instances selectable, exactly as in this real
-`gp -l` output from the reference card (packages trimmed):
+You need all seven applet instances selectable, exactly as in this `gp -l` output
+from the reference card (packages trimmed; the ETH1 line appears only if you
+installed the demo-card applet):
 
 ```text
 APP: A0000006472F0001 (SELECTABLE)
@@ -429,7 +443,7 @@ APP: 4E5552494554483201 (SELECTABLE)
 APP: 4E5552494D55473201 (SELECTABLE)
 APP: 4E5552494D55473301 (SELECTABLE)
 APP: 4E555249564C5401 (SELECTABLE)
-APP: 4E55524945544801 (SELECTABLE)
+APP: 4E55524945544801 (SELECTABLE)   # only without PROVISION_SKIP_ETH1
 ```
 
 An applet missing here is not a cosmetic problem. Reinstall that one step before
@@ -471,9 +485,9 @@ python3 scripts/attest-card.py init-key --aid 4E555249564C5401 --execute
 KEYGEN is one-shot. Once a key exists there is no repeat without deleting the
 applet, so the first PIN is the PIN. Write it down before you press Enter.
 
-ETH1 and TOTP are the two exceptions. ETH1 has **no PIN at all** and takes its key
-at first use, which `card-eth-test.py` already did for you. TOTP sets its admin PIN
-on the first `put`:
+TOTP and, on a demo card, ETH1 are the two exceptions. ETH1 has **no PIN at all**
+and takes its key at first use, which `card-eth-test.py` did for you in 5.5. TOTP
+sets its admin PIN on the first `put`:
 
 ```sh
 python3 scripts/card-totp.py put 'BASE32SECRET'
@@ -549,8 +563,8 @@ is the raw PRF secret: treat it as the key material it is.
 
 ETH2 is the signer you use. It signs a 32-byte digest only after VERIFY and returns
 `r || low-s || pubkey65`; the host checks the echoed public key and recovers the
-address. ETH1 is a demo signer: no PIN, no user presence, first process with reader
-access wins.
+address. ETH1 is the optional legacy demo signer for the demo card: no PIN, no user
+presence, first process with reader access wins.
 
 For a quick ETH2 check:
 
@@ -793,7 +807,8 @@ CARD_DEFAULT_KEYS_RESTORED_VERIFIED
 
 Proven twice in full lock and undo cycles on the reference card on 2026-10-30, and
 an independent default-key `gp -l` afterwards listed the ISD and all eight applets
-again ([receipt](proofs/real-card-57274221-gp-lock.json)).
+again ([receipt](proofs/real-card-57274221-gp-lock.json)). The receipt predates the
+ETH1 drop, so it still lists eight.
 
 Keep the escrow file **and** the passphrase, in two separate places. Losing either
 one ends applet updates through this keyset. The escrow holds management keys only,
@@ -812,7 +827,7 @@ place and deletion, not extraction.
 |---|---|
 | Private key extraction | **no**. No export INS exists, `getS` is used only inside a signing operation |
 | Applet deletion, registry damage | **yes** while the admin key is still the public default. That destroys keys, it does not steal them |
-| Signing with ETH1 | **yes immediately**. No PIN, no user presence |
+| Signing with ETH1 (demo card, if installed) | **yes immediately**. No PIN, no user presence |
 | Signing with ETH2 | needs the PIN, 5 tries, then the PUK has 3 |
 | Cosigning with MuSig2 | needs the MuSig2 PIN, 5 tries, plus the server half of the 2-of-2 |
 | Reading vault HMAC output and bearer tokens | needs the vault PIN, 5 tries, blocking is permanent |
@@ -827,7 +842,7 @@ A card left in a reader can be driven by any local process with reader access.
 Removing the card is the real control.
 
 Change every PIN you can after a loss if the card comes back, and treat a card held
-by someone else as compromised for ETH1 and TOTP.
+by someone else as compromised for ETH1 (if installed) and TOTP.
 
 ## 12. Second card as backup SSH key
 

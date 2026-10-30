@@ -35,14 +35,15 @@ CARD_PROVISION_CONFIRM=YES GP_READER="$CARD_READER" GP_KEY="$CARD_TRANSPORT_KEY"
 
 For separate transport keys use `GP_KEY_ENC`, `GP_KEY_MAC`, `GP_KEY_DEK`.
 The script checks the manifest, refuses known installed AIDs and installs
-FIDO2-up, MuSig2, TOTP and ETH v1. It does **not** install ETH v2 or the vault,
-initialize all PINs, personalize attestation or rotate GP keys. It is a demo
+FIDO2-up, MuSig2, TOTP and ETH v1 (ETH v1 not with `PROVISION_SKIP_ETH1=YES`,
+which `scripts/card-setup.sh` always sets). It does **not** install ETH v2 or the
+vault, initialize all PINs, personalize attestation or rotate GP keys. It is a demo
 installer, not consumer provisioning. For the new stack use
 [blank-spare personalization](attestation.md#blank-card-personalization),
 [current MuSig2 policy](musig2-pin-and-hardening.md) and
 [vault setup](card-vault-applet.md).
 Source: [scripts/provision-card-v1.sh:16–23](../scripts/provision-card-v1.sh#L16-L23),
-[30–67](../scripts/provision-card-v1.sh#L30-L67).
+[30–74](../scripts/provision-card-v1.sh#L30-L74).
 
 Key initialization is a separate owner action. Do not blindly run key-generation
 commands as diagnostics. Refer to [key handling](real-card-key-handling.md),

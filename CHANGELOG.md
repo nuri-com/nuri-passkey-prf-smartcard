@@ -10,10 +10,17 @@ flowchart LR
 ## Unreleased — 2026-10-30 — One command from blank card to working card — Hermes Agent
 
 - `scripts/card-setup.sh`: eight numbered steps from a bought blank card to all
-  eight applets installed and verified in about 10 minutes. Preflight, pinned
+  seven applets installed and verified in about 10 minutes. Preflight, pinned
   GlobalPlatformPro, private Python environment, deny-list and the exact PC/SC
   reader picker are shared with `scripts/diy-key.sh` through the new
   `scripts/lib/card-common.sh`, so both scripts run the same code.
+- ETH1 is no longer part of the standard set. `card-setup.sh` passes the new
+  `PROVISION_SKIP_ETH1=YES` opt-out to `scripts/provision-card-v1.sh`, so a new
+  card gets FIDO2, MuSig2 AID1, TOTP, ETH2, MuSig2 AID2, MuSig2 AID3 and the vault,
+  and ETH2 (PIN, 5 tries + PUK) is the only Ethereum signer. The bundle installer
+  keeps ETH1 by default, because the demo card still uses the PIN-less 1.5 applet;
+  with the opt-out it also guards on ETH2 instead of ETH1. A card that already has
+  ETH1 still verifies, and `--resume` never installs it.
 - Safety: reads CPLC and ATR before anything else, refuses a deny-listed serial,
   checks the public default admin key with **one** auth attempt, refuses a
   non-blank card (exit 0, nothing written), and always requires the serial typed
