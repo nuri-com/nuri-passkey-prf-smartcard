@@ -30,6 +30,7 @@ jobs:
       - run: python -m pip install -r scripts/send/requirements.txt
       - run: python -m pip install -r scripts/requirements-card-lock.txt
       - run: python -m unittest discover -s test -p test_card_lock.py -v
+      - run: python -m unittest discover -s test -p test_diy_key.py -v
       - run: python -m unittest discover -s test -p test_arkade_card_bridge.py -v
       - uses: actions/upload-artifact@v4
         if: always()
