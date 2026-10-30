@@ -100,7 +100,7 @@ Full agent runbook with STOP conditions: [docs/diy-key.md](docs/diy-key.md#12-fo
 Buy the reference card, install every applet, use every feature, change the admin key.
 The full guide names the exact card profile, the proven reader, the install order, every PIN path and the recovery boundaries. Read it before you buy anything.
 
-[Build your own card](docs/diy-card.md).
+[Build your own card](docs/diy-card.md), including where it differs from Tangem, YubiKey, Bitkey and YubiHSM.
 
 ## Why it beats YubiKey
 
