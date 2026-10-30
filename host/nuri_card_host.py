@@ -24,6 +24,19 @@ Methods (issue info first on the same connection; signing refuses otherwise)
 Every sign re-opens the card and re-reads VERSION + PUBKEY; a different
 applet/key than the last info -> CARD_CHANGED (info required again).
 
+Bitcoin (Arkade + Lightning), MuSig2 applet, same info-first rule:
+  {"id": n, "method": "bitcoin_info"}            read-only identity + addresses
+  {"id": n, "method": "bitcoin_balance"}         VTXOs + boarding + onchain rail
+  {"id": n, "method": "bitcoin_invoice", "params": {"amount_sats": n, "memo": "..."}}
+  {"id": n, "method": "bitcoin_preview", "params": {"kind": "lightning|ark", "target": "..."}}
+      -> {job_id, digest, summary}; builds the PSBT, card untouched
+  {"id": n, "method": "bitcoin_sign_partial",
+   "params": {"job_id": "...", "digest": "0x...", "pin": "..."}}
+      card MuSig2 partial + server cosign in one card session, broadcast on success
+  {"id": n, "method": "bitcoin_cancel", "params": {"job_id": "..."}}
+  These spawn scripts/ext-card-wallet.mjs (Node). PIN goes params -> child stdin
+  -> child env, never argv, never cached, never logged.
+
 The host only ever signs 32-byte hashes (keccak/RLP/EIP-712 hashing is the
 extension's job). Every signature is verified against the card pubkey, low-s
 normalized (EIP-2) and gets its yParity by public-key recovery before it is
@@ -724,13 +737,32 @@ def handle(request: Any) -> dict[str, Any]:
                 return ok_response(req_id, getattr(wb, method)(params, pin_buf))
             except wb.BridgeError as exc:
                 raise HostError(exc.code, exc.message, **exc.extra)
+        if isinstance(method, str) and method.startswith("bitcoin_"):
+            import bitcoin_commands as bc
+            if method == "bitcoin_info":
+                return ok_response(req_id, bc.handle_info(params))
+            if method == "bitcoin_balance":
+                return ok_response(req_id, bc.handle_balance(params))
+            if method == "bitcoin_invoice":
+                return ok_response(req_id, bc.handle_invoice(params))
+            if method == "bitcoin_preview":
+                return ok_response(req_id, bc.handle_preview(params))
+            if method == "bitcoin_cancel":
+                return ok_response(req_id, bc.handle_cancel(params))
+            if method == "bitcoin_sign_partial":
+                if not isinstance(params, dict):
+                    raise HostError("BAD_REQUEST", "params must be an object")
+                if pin is not None:
+                    pin_buf = _pin_buffer(pin)
+                    pin = None
+                return ok_response(req_id, bc.handle_sign_partial(params, pin_buf))
         raise HostError("BAD_REQUEST", f"unknown method {method!r}")
     except HostError as exc:
         if exc.code == "CARD_CHANGED":
             _reset_session()
         return error_response(req_id, exc.code, exc.message, exc.extra)
     except Exception as exc:  # never leak a traceback as a crash; report it
-        if method in ("verify_pin", "webauthn_create", "webauthn_get"):
+        if method in ("verify_pin", "webauthn_create", "webauthn_get", "bitcoin_sign_partial"):
             # The exception text may embed APDU bytes (the PIN): never echo it.
             return error_response(req_id, "CARD_ERROR", f"internal error during {method} ({type(exc).__name__})")
         return error_response(req_id, "CARD_ERROR", f"{type(exc).__name__}: {exc}")

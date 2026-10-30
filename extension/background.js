@@ -1,9 +1,13 @@
 // MV3 service worker: EIP-1193 request handling, approvals, native host bridge.
-importScripts("third_party/ethers.umd.min.js", "lib/hashing.js");
+importScripts("third_party/ethers.umd.min.js", "lib/hashing.js", "lib/bitcoin.js");
 
 const H = self.NuriHashing;
+const B = self.NuriBitcoin;
 const NATIVE_HOST = "com.nuri.card";
 const DEFAULT_CHAIN = "0x2105"; // Base
+// Bitcoin side: addresses/balances are read-only RPC, signing is card-only.
+const MEMPOOL_API = "https://mempool.space/api";
+const ENS_RPC = "https://cloudflare-eth.com";
 
 // Native Chrome side panel; browser preference controls left/right placement.
 chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
@@ -113,7 +117,7 @@ const approvalReady = (async () => {
 function approvalDigest(payload) {
   return H.ethers.keccak256(H.ethers.toUtf8Bytes(JSON.stringify(payload)));
 }
-async function requestApproval(origin, kind, summary, action = null) {
+async function requestApproval(origin, kind, summary, action = null, cleanup = null) {
   await approvalReady;
   const approvalId = crypto.randomUUID();
   const payload = JSON.parse(JSON.stringify({ approvalId, origin, kind, summary, createdAt: Date.now() }));
@@ -121,7 +125,7 @@ async function requestApproval(origin, kind, summary, action = null) {
   const url = chrome.runtime.getURL(`approve.html?id=${approvalId}`);
   let resolve, reject;
   const result = new Promise((yes, no) => { resolve = yes; reject = no; });
-  const a = { payload, binding, url, action, resolve, reject, windowId: null, documentId: null, displayed: false, busy: false };
+  const a = { payload, binding, url, action, cleanup, resolve, reject, windowId: null, documentId: null, displayed: false, busy: false };
   approvals.set(approvalId, a);
   let opened;
   a.ready = new Promise((resolve) => { opened = resolve; });
@@ -140,6 +144,8 @@ function cancelApproval(id, message = "User rejected the request") {
   if (!a) return;
   approvals.delete(id);
   clearTimeout(a.timer);
+  // A late card result must not be able to resurrect a cancelled spend.
+  if (a.cleanup) Promise.resolve().then(a.cleanup).catch(() => {});
   a.reject(rpcError(4001, message));
   if (a.windowId !== null) chrome.windows.remove(a.windowId).catch(() => {});
 }
@@ -202,6 +208,124 @@ async function approvalMessage(msg, sender) {
 async function approvedSignature(origin, kind, summary, info) {
   return requestApproval(origin, kind, { ...summary, mode: info.mode, pinRequired: !!info.pin_set, triesLeft: info.pin_tries_left },
     (pin) => signHashOnCard(summary.hash, info.address, pin));
+}
+
+
+// ---------------------------------------------------------------------------
+// Bitcoin (Arkade VTXOs + boarding + onchain, Lightning): same card, MuSig2
+// applet. Every spend is previewed first (PSBT + sighashes built, card still
+// untouched), approved in the popup under the preview digest, and only then
+// signed through one card session plus the Nuri server cosign.
+// ---------------------------------------------------------------------------
+const BITCOIN_NEEDS_CARD = "The Bitcoin wallet needs the card; the simulator has no MuSig2 key";
+
+async function bitcoinCard() {
+  const info = await cardInfo();
+  if (info.mode !== "card") throw rpcError(-32603, BITCOIN_NEEDS_CARD);
+  return info;
+}
+
+function bitcoinFailure(e) {
+  const message = e?.message || "Bitcoin operation failed";
+  const tries = /(\d+) tries left/.exec(message);
+  if (tries) return rpcError(-32603, `Nuri Card [PIN_WRONG]: ${message}`, { code: "PIN_WRONG", tries_left: Number(tries[1]) });
+  if (/PIN blocked|0 tries left/i.test(message)) return rpcError(-32603, `Nuri Card [PIN_BLOCKED]: ${message}`, { code: "PIN_BLOCKED", tries_left: 0 });
+  if (/no PIN/i.test(message)) return rpcError(-32603, `Nuri Card [PIN_NOT_SET]: ${message}`, { code: "PIN_NOT_SET" });
+  return e?.code !== undefined ? e : rpcError(-32603, message);
+}
+
+function satsOk(value) {
+  if (!Number.isInteger(value) || value <= 0) throw rpcError(-32602, "amount_sats must be a positive integer");
+  return value;
+}
+
+async function resolveDestination(req) {
+  const kind = req?.kind;
+  if (kind === "lightning") {
+    const invoice = String(req.invoice || req.target || "").trim();
+    if (!B.isLightningInvoice(invoice)) throw rpcError(-32602, "Not a mainnet Lightning invoice (lnbc\u2026)");
+    return { kind: "lightning", target: invoice.toLowerCase() };
+  }
+  if (kind === "ark") {
+    const address = String(req.address || req.target || "").trim().toLowerCase();
+    if (!B.isArkAddress(address)) throw rpcError(-32602, "Not a valid Arkade address (ark1\u2026 with a valid checksum)");
+    return { kind: "ark", target: address, amountSats: satsOk(Number(req.amountSats)) };
+  }
+  if (kind === "nuri") {
+    const name = String(req.name || req.target || "").trim();
+    const resolved = await B.resolveNuriName(name, ENS_RPC).catch((e) => { throw rpcError(-32602, e.message); });
+    const source = `${resolved.label}.nuri.eth (${resolved.source})`;
+    if (resolved.kind === "evm") throw rpcError(-4200, `${source} is an EVM address; onchain Bitcoin sends are not wired yet`);
+    if (resolved.kind === "lightning") return { kind: "lightning", target: resolved.address, source };
+    return { kind: "ark", target: resolved.address, amountSats: satsOk(Number(req.amountSats)), source };
+  }
+  throw rpcError(-32602, "kind must be lightning, ark or nuri");
+}
+
+async function bitcoinPreview(target) {
+  const wallet = await nativeCall("bitcoin_info").catch((e) => { throw bitcoinFailure(e); });
+  const preview = await nativeCall("bitcoin_preview", {
+    kind: target.kind,
+    target: target.target,
+    ...(target.amountSats ? { amount_sats: target.amountSats } : {}),
+    aggregate_pubkey33: wallet.aggregate_pubkey33,
+    server_pubkey33: wallet.server_pubkey33,
+  }).catch((e) => { throw bitcoinFailure(e); });
+  if (!preview?.job_id || !preview.digest) throw rpcError(-32603, "Card host returned no Bitcoin preview");
+  return { preview, wallet };
+}
+
+async function bitcoinSign(jobId, digest, pin, wallet) {
+  // Same UX as ETH2: the field shows only when the MuSig2 applet says it is needed.
+  if (pin === undefined && wallet?.pin_set) {
+    throw rpcError(-32603, "Card PIN is required to spend", { code: "PIN_REQUIRED", tries_left: wallet.pin_tries_left });
+  }
+  const params = { job_id: jobId, digest };
+  if (pin !== undefined) params.pin = pin;
+  const pending = nativeCall("bitcoin_sign_partial", params);
+  if (pin !== undefined) params.pin = undefined;
+  return pending.catch((e) => { throw bitcoinFailure(e); });
+}
+
+async function bitcoinSpend(origin, req) {
+  await bitcoinCard();
+  const target = await resolveDestination(req);
+  const { preview, wallet } = await bitcoinPreview(target);
+  const summary = preview.summary || {};
+  const amount = summary.amount_sats ?? target.amountSats ?? null;
+  return requestApproval(origin, "bitcoin_send", {
+    kind: target.kind,
+    destination: target.target,
+    destinationSource: target.source || null,
+    amountSats: amount,
+    amountBtc: amount ? B.formatBtc(amount) : null,
+    paymentHash: summary.payment_hash || null,
+    aggregate: summary.aggregate_pubkey33,
+    jobId: preview.job_id,
+    pinRequired: !!wallet.pin_set,
+    triesLeft: wallet.pin_tries_left,
+    hash: preview.digest,
+  }, (pin) => bitcoinSign(preview.job_id, preview.digest, pin, wallet),
+  () => nativeCall("bitcoin_cancel", { job_id: preview.job_id }));
+}
+
+async function bitcoinAccount() {
+  const info = await bitcoinCard();
+  const [wallet, balance] = await Promise.all([
+    nativeCall("bitcoin_info").catch((e) => { throw bitcoinFailure(e); }),
+    nativeCall("bitcoin_balance").catch((e) => { throw bitcoinFailure(e); }),
+  ]);
+  let onchain = null;
+  let onchainError = null;
+  try { onchain = await B.onchainSats(wallet.onchain_address, MEMPOOL_API); }
+  catch (e) { onchainError = e.message; }
+  const rails = [
+    { rail: "Arkade", address: balance.ark_address || wallet.ark_address, sats: Number(balance.vtxo_sats || 0) },
+    { rail: "Boarding", address: balance.boarding_address || wallet.boarding_address, sats: Number(balance.boarding_sats || 0) },
+    { rail: "Onchain (MuSig2 + CSV)", address: wallet.onchain_address, sats: onchain },
+  ];
+  const total = rails.reduce((sum, r) => sum + (r.sats || 0), 0);
+  return { info, wallet, rails, total, onchainError };
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +489,30 @@ const handlers = {
   // Card-backed WebAuthn (FIDO2 + PRF) for Nuri Connect. Origin comes from
   // Chrome's sender URL; the host re-checks origin and rp.id. ETH flows above
   // are untouched and need no ETH applet for these two methods.
+  // Bitcoin wallet. Read methods return the card's own wallet only; the spend
+  // path is the same preview -> popup -> card partial flow the side panel uses.
+  async nuri_bitcoinInfo(_p, { origin, state }) {
+    await ensureConnected(origin, state);
+    const [wallet, balance] = await Promise.all([nativeCall("bitcoin_info"), nativeCall("bitcoin_balance")]);
+    return {
+      network: wallet.network,
+      ark_address: wallet.ark_address,
+      boarding_address: wallet.boarding_address,
+      onchain_address: wallet.onchain_address,
+      aggregate_pubkey33: wallet.aggregate_pubkey33,
+      balance: { vtxo_sats: balance.vtxo_sats, boarding_sats: balance.boarding_sats },
+    };
+  },
+  async nuri_bitcoinSend(params, { origin, state }) {
+    await ensureConnected(origin, state);
+    return bitcoinSpend(origin, params?.[0] || {});
+  },
+  async nuri_bitcoinReceive(_p, { origin, state }) {
+    await ensureConnected(origin, state);
+    const wallet = await nativeCall("bitcoin_info");
+    return { ark_address: wallet.ark_address, boarding_address: wallet.boarding_address };
+  },
+
   async nuri_webauthnCreate(params, { origin }) { return cardWebAuthn("create", origin, params); },
   async nuri_webauthnGet(params, { origin }) { return cardWebAuthn("get", origin, params); },
 };
@@ -435,6 +583,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ state, info, balance, lastTx });
       } catch (error) { sendResponse({ state, info, lastTx, error }); }
     }).catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:account") {
+    Promise.all([getState(), cardInfo(true)]).then(async ([state]) => {
+      const { lastTx } = await chrome.storage.local.get("lastTx");
+      let ethBalance = null, ethError = null;
+      try { ethBalance = H.formatEther(BigInt(await rpc(state.chainId, "eth_getBalance", [(await cardInfo()).address, "latest"]))); }
+      catch (error) { ethError = error.message; }
+      let bitcoin = null, bitcoinError = null;
+      try { bitcoin = await bitcoinAccount(); } catch (error) { bitcoinError = error.message; }
+      sendResponse({ state, info: await cardInfo(), ethBalance, ethError, bitcoin, bitcoinError, lastTx });
+    }).catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:bitcoinRefresh") {
+    bitcoinAccount().then((bitcoin) => sendResponse({ bitcoin })).catch((error) => sendResponse({ bitcoinError: error.message }));
+    return true;
+  }
+  if (msg.type === "popup:invoice") {
+    const amount = Number(msg.amountSats);
+    const memo = String(msg.memo || "").trim();
+    bitcoinCard()
+      .then(() => nativeCall("bitcoin_invoice", { amount_sats: amount, memo }))
+      .then((result) => sendResponse({ result }))
+      .catch((error) => sendResponse({ error: bitcoinFailure(error) }));
+    return true;
+  }
+  if (msg.type === "popup:bitcoinSend") {
+    bitcoinSpend(chrome.runtime.getURL("popup.html"), msg.request || {})
+      .then((result) => sendResponse({ result }))
+      .catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:resolveName") {
+    B.resolveNuriName(String(msg.name || ""), ENS_RPC)
+      .then((resolved) => sendResponse({ resolved }))
+      .catch((error) => sendResponse({ error: { message: error.message } }));
     return true;
   }
   if (msg.type === "popup:disconnectAll") {

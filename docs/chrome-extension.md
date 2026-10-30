@@ -1,7 +1,9 @@
 # Chrome extension: daily-wallet and stage flow
 
-Version: Chrome extension 0.2.0; repository 1.2.0.
-Updated 2026-10-20 by Hermes Agent; UI changes tracked in PR #28.
+Version: Chrome extension 0.3.0; repository 1.2.0.
+Updated 2026-10-30 by Hermes Agent. 0.3.0 adds the Bitcoin rail (Arkade VTXOs, boarding,
+onchain and Lightning) next to Ethereum; the 0.2.0 Ethereum flow is unchanged.
+Earlier UI work: PR #28.
 
 ```mermaid
 flowchart LR
@@ -137,6 +139,70 @@ Implementation: [extension/approve.js](../extension/approve.js),
 PIN configuration/KEYGEN/PUK recovery are not extension features. No card is
 provisioned, reset or upgraded by this wallet.
 
+## Bitcoin rail: account, receive, send
+
+The card's Bitcoin key is the MuSig2 applet key. It is **not** the Ethereum key
+and not a browser passkey: a different applet, a different PIN, a different
+identity. The wallet shows it as a separate account section and never treats one
+balance as the other.
+
+`bitcoin_info` and `bitcoin_balance` are read-only card reads
+(`host/bitcoin_commands.py`, `scripts/musig2-card-status.py`). The side panel
+leads with one total over every rail — Arkade VTXOs, boarding and the onchain
+MuSig2+CSV address — then lists each rail with its own full address. When the
+onchain read fails the rail says `unread` instead of quietly shrinking the total
+(`extension/popup.js`, `extension/lib/bitcoin.js`).
+
+```mermaid
+flowchart LR
+  S[Side panel or dApp] --> P[bitcoin_preview: PSBT + sighashes, card untouched]
+  P --> D[Full summary digest in the approval popup]
+  D -->|approve, PIN only in popup| N[bitcoin_sign_partial]
+  N --> C[ONE MuSig2 session: card nonce]
+  C --> V[Nuri server cosign]
+  V --> A[Aggregate BIP340 verify inside the driver]
+  A --> B[Broadcast, then send/complete for Lightning]
+  D -->|close, reject, timeout| X[bitcoin_cancel kills the job; nothing was signed]
+```
+
+Receive offers the Arkade address, the boarding address and a Lightning invoice
+(`POST /api/arkade/receive/invoice` after `/v4/arkade/auth`, mirroring
+`scripts/local-card-cosign-server.mjs`). Send accepts a BOLT11 invoice, an Arkade
+address, or a `<name>.nuri.eth` username resolved through ENS text records
+(`ark`, `arkade`, `btc`, `bitcoin`, `address`, then the address record — which key
+a registrant actually writes is **UNVERIFIED** in this repository).
+
+### Native host commands (Bitcoin)
+
+| Method | Params | Meaning |
+| --- | --- | --- |
+| `bitcoin_info` | — | card MuSig2 pubkey, server pubkey, aggregate, all three addresses |
+| `bitcoin_balance` | — | VTXOs, boarding, onchain address, totals |
+| `bitcoin_invoice` | `amount_sats`, `memo` | Lightning invoice for the card's owner pair |
+| `bitcoin_preview` | `kind` (`lightning`/`ark`), `target`, `amount_sats` | builds the PSBT, returns `job_id` + digest |
+| `bitcoin_sign_partial` | `job_id`, `digest`, optional `pin` | card partial + server cosign, broadcast |
+| `bitcoin_cancel` | `job_id` | kills the pending build |
+
+Both `handle()` and the bridge refuse a digest that differs from the previewed
+transaction, and a second `bitcoin_sign_partial` on a busy job. A job costs one
+Node process (`scripts/ext-card-wallet.mjs`); cancelling kills it, so a late card
+result cannot reach the popup. Bitcoin needs a successful `info` in the same host
+process, and it has **no simulator mode** — the sim key is an ETH key.
+
+Host environment for the rail: `NURI_ARKADE_SIGNER_URL` (`/v4/arkade/*` and
+`/api/arkade/*`), `NURI_ARKADE_NODE_URL` (default `https://arkade.computer`),
+`NURI_CARD_RECEIVE_PROFILE` + `NURI_CARD_RECEIVE_PROFILE_PATH` (the
+`nuri-card-prf-profile-v1` owner profile), plus `NURI_MUSIG2_AID` when the applet
+is not the default AID. `NURI_NODE` overrides the Node binary. The PIN reaches
+the child through its environment (`NURI_CARD_PIN`), never argv, and is never
+cached host-side.
+
+Lightning sends fund a Boltz submarine swap from the card's VTXO balance and then
+call `send/complete`. "Funded" is not a merchant settlement claim. Plain Arkade
+sends ride the same preview/sign pair but use the receive-claim approve endpoint
+with a synthetic swap id (`scripts/lib/card-arkade-identity.mjs`); whether the
+live server mints a cosign token for a non-swap PSBT that way is **UNVERIFIED**.
+
 ## Approval integrity (W13 R7)
 
 Approvals live only in worker memory, use `crypto.randomUUID()`, and are bound to:
@@ -207,6 +273,31 @@ bash "$ROOT/host/install-macos.sh" --python "${PYTHON_BIN:-python3}"
 6. Negative stage check before the real send: reject or close one signing popup;
    the dApp must receive `4001`. No signing/broadcast should follow that request.
 
+## Parent-only Bitcoin check (real reader/card)
+
+Nothing below ran in this change. Install the host with the Bitcoin environment
+set, reload the extension, then walk the rail. `NURI_MUSIG2_AID` must name the
+installed MuSig2 applet (AID3 on the demo card). Read-only first:
+
+```sh
+export NURI_ARKADE_SIGNER_URL="https://app.nuri.com"
+export NURI_CARD_RECEIVE_PROFILE=wallet
+export NURI_CARD_RECEIVE_PROFILE_PATH="$HOME/.nuri-card/wallet-profile.json"
+export NURI_MUSIG2_AID=4E5552494D55473301
+NURI_NODE="$(command -v node)" printf '%s\n' '{"id":1,"method":"info"}' | bash "$HOME/.nuri-card-host/run.sh"
+```
+
+1. Side panel: the total must equal Arkade + boarding + onchain to the sat, and
+   the three addresses must match the ones the README money table records.
+2. Create a small invoice (test with an external wallet paying it), then claim it
+   with `node scripts/card-arkade-claim.mjs` (stdin `mode: "claim"`).
+3. Send an invoice: inspect rail, destination, amount, payment hash and digest in
+   the popup, enter the **MuSig2** PIN there, approve, then confirm the txid on
+   arkade.space and that `send/complete` returned 200.
+4. Negative: reject one popup and confirm no broadcast; let one time out (120 s)
+   and confirm the same; approve once with a wrong PIN and confirm the digest
+   stays identical on retry.
+
 ## Fake-only checks
 
 ```sh
@@ -218,12 +309,18 @@ NURI_HOST_PYTHON="$PY" node --test "$ROOT/extension/test"
 bash -n "$ROOT/host/install-macos.sh"
 ```
 
+Bitcoin-specific fakes: `scripts/ext-card-wallet.test.mjs` runs the real bridge
+against a fake card script, a fake Nuri signer and a fake operator, and
+`host/test_bitcoin_host.py` drives the host commands against a fake bridge.
+
 The Node suite mocks Chrome/fetch, executes the actual popup scripts against a
 minimal DOM fixture, and exercises a real framed Python host using its explicit
 public simulator. Host tests use fake PC/SC sessions and verify PIN status mapping,
 identity changes, session closure, log omission, buffers and simulator refusal.
 **Outside these checks:** physical ETH2 PIN signing, physical-reader behavior,
-live Base RPC/broadcast/receipt and stage UX. The separate Chromium acceptance
+live Base RPC/broadcast/receipt and stage UX, and the whole physical Bitcoin rail:
+MuSig2 PIN on the card, live `/arkade/*` auth/prepare/cosign, Boltz swap funding
+and a real Lightning settlement. The separate Chromium acceptance
 above exercises real extension popup lifecycle and native IPC with the explicit
 software simulator, not a physical card.
 No real reader/card was touched; ETH2 was not installed on the owner's demo card.

@@ -135,4 +135,5 @@
     txSummary,
     getAddress: (a) => ethers.getAddress(a),
   };
+  self.NuriHashing = api;
 });

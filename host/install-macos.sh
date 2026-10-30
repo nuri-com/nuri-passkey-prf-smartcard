@@ -57,11 +57,21 @@ mkdir -p "$LAUNCH_DIR"
 if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" != 1 ]]; then
   # Keep a self-contained installed snapshot, including both public verifiers.
   # Preserve the repo layout used by the host to locate its scripts directory.
-  mkdir -p "$LAUNCH_DIR/host" "$LAUNCH_DIR/scripts"
+  mkdir -p "$LAUNCH_DIR/host" "$LAUNCH_DIR/scripts" "$LAUNCH_DIR/scripts/lib"
   cp "$HERE/nuri_card_host.py" "$LAUNCH_DIR/host/nuri_card_host.py"
   cp "$HERE/webauthn_bridge.py" "$LAUNCH_DIR/host/webauthn_bridge.py"
+  cp "$HERE/bitcoin_commands.py" "$LAUNCH_DIR/host/bitcoin_commands.py"
   cp "$REPO/scripts/nuri_pcsc.py" "$REPO/scripts/nuri_attest.py" "$LAUNCH_DIR/scripts/"
-  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py host/webauthn_bridge.py scripts/nuri_pcsc.py scripts/nuri_attest.py > SHA256SUMS
+  # Bitcoin rail: MuSig2 APDU driver, cosign cores, card-arkade bridge + its lib.
+  cp "$REPO/scripts/nuri_musig2_card.py" "$REPO/scripts/card-cosign-tweaked.py" \
+     "$REPO/scripts/real-card-arkade-signer-proof.py" "$REPO/scripts/card-arkade-claim-signer.py" \
+     "$REPO/scripts/card-prf-backup.py" "$REPO/scripts/musig2-card-status.py" \
+     "$REPO/scripts/ext-card-wallet.mjs" "$LAUNCH_DIR/scripts/"
+  cp "$REPO/scripts/lib/card-arkade-identity.mjs" "$LAUNCH_DIR/scripts/lib/"
+  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py host/webauthn_bridge.py host/bitcoin_commands.py \
+      scripts/nuri_pcsc.py scripts/nuri_attest.py scripts/nuri_musig2_card.py scripts/card-cosign-tweaked.py \
+      scripts/real-card-arkade-signer-proof.py scripts/card-arkade-claim-signer.py scripts/card-prf-backup.py \
+      scripts/musig2-card-status.py scripts/ext-card-wallet.mjs scripts/lib/card-arkade-identity.mjs > SHA256SUMS
     shasum -a 256 -c SHA256SUMS)
   HOST_PY="$LAUNCH_DIR/host/nuri_card_host.py"
 fi

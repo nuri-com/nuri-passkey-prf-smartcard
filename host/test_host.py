@@ -1415,7 +1415,12 @@ class InstallerLauncherTests(unittest.TestCase):
             with (Path(home) / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nuri.card.json").open() as stream:
                 manifest = json.load(stream)
             self.assertEqual(manifest["path"], str(installed / "run.sh"))
-            expected = {"host/nuri_card_host.py", "host/webauthn_bridge.py", "scripts/nuri_pcsc.py", "scripts/nuri_attest.py"}
+            expected = {"host/nuri_card_host.py", "host/webauthn_bridge.py", "host/bitcoin_commands.py",
+                        "scripts/nuri_pcsc.py", "scripts/nuri_attest.py", "scripts/nuri_musig2_card.py",
+                        "scripts/card-cosign-tweaked.py", "scripts/real-card-arkade-signer-proof.py",
+                        "scripts/card-arkade-claim-signer.py", "scripts/card-prf-backup.py",
+                        "scripts/musig2-card-status.py", "scripts/ext-card-wallet.mjs",
+                        "scripts/lib/card-arkade-identity.mjs"}
             with (installed / "SHA256SUMS").open() as stream:
                 checksums = dict((parts[1], parts[0]) for parts in (line.split() for line in stream))
             self.assertEqual(set(checksums), expected)

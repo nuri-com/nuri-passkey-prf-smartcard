@@ -7,6 +7,25 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased — 2026-10-30 — Chrome 0.3.0: Bitcoin wallet in the extension — Hermes Agent
+
+- Side panel is now a Nuri account view: one Bitcoin total over Arkade VTXOs,
+  boarding and the onchain MuSig2+CSV rail (each with its full address), then the
+  unchanged Ethereum balance.
+- Receive: ark address, boarding address and a Lightning invoice.
+- Send: BOLT11 invoice, Arkade address or `<name>.nuri.eth`. Every spend builds the
+  PSBT first, approves under a full-summary digest, then signs one MuSig2 session
+  with the Nuri server cosign. Cancel, close or timeout kills the job before any
+  card work.
+- host: `bitcoin_info`, `bitcoin_balance`, `bitcoin_invoice`, `bitcoin_preview`,
+  `bitcoin_sign_partial`, `bitcoin_cancel` (`host/bitcoin_commands.py`).
+- New: `scripts/ext-card-wallet.mjs` bridge, `scripts/musig2-card-status.py`
+  (read-only), `scripts/lib/card-arkade-identity.mjs` (shared with the claim CLI),
+  `extension/lib/bitcoin.js`.
+- Fake-only evidence: `extension/test/bitcoin*.test.js`, `host/test_bitcoin_host.py`,
+  `scripts/ext-card-wallet.test.mjs`. Physical-card Bitcoin acceptance stays open,
+  and so do live cosign for plain Arkade sends and any merchant settlement claim.
+
 ## Unreleased — 2026-10-30 — DIY card admin-key change, real-card proven — Hermes Agent
 
 - `879eb79` card_lock: SCP02/DES3 keysets, exact dual-slot reader selection, CI step.
