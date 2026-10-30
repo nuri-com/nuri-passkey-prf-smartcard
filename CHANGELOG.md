@@ -7,6 +7,18 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased — 2026-10-30 — DIY card admin-key change, real-card proven — Hermes Agent
+
+- `879eb79` card_lock: SCP02/DES3 keysets, exact dual-slot reader selection, CI step.
+- `db5aea1` rotation via `--lock`; gp 24.10.15 NPEs on `--lock-enc/mac/dek` (GPTool.java L801).
+- `09d66ff` `scripts/diy-key.sh`: one-command wizard, pinned gp.jar, reader picker, deny-list, encrypted escrow.
+- `f842fab` docs/diy-key.md exact how-to + README section + LLM agent runbook.
+- `f6807d1` real-card E2E on `57274221` (JCOP 2.4.1, SCP02 DES3): two lock/undo cycles through the wizard,
+  `CARD_LOCK_VERIFIED` + `CARD_DEFAULT_KEYS_RESTORED_VERIFIED` both times, final default-key `gp -l` lists
+  ISD + 8 applets. Fixed wizard escrow-path display (prompt-prefixed line). Reusing an existing escrow
+  path refuses before any rotation. Receipt: `docs/proofs/real-card-57274221-gp-lock.json`.
+  Not merged, not released. Card-specific GP retry limits stay UNVERIFIED.
+
 ## v1.2.0 — 2026-10-29 — Card-signed Bitcoin on mainnet, fast MuSig2 — Hermes Agent
 
 Before: `v1.1.0` co-signed MuSig2 on the card only in an unfunded test, on the
