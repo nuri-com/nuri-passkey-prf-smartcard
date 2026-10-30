@@ -93,7 +93,7 @@ cat >"$PLIST" <<EOF
 </dict>
 </plist>
 EOF
-plutil -lint "$PLIST" >/dev/null
+if command -v plutil >/dev/null 2>&1; then plutil -lint "$PLIST" >/dev/null; fi
 
 echo "wrote $PLIST (loopback 127.0.0.1:$PORT, card stays in the reader, no limits)"
 echo "log:  $LOG_FILE (0600)"
