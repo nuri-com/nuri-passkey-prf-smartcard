@@ -7,6 +7,38 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased — 2026-10-30 — Home cosigner: the card as a permanent local service — Hermes Agent
+
+- `scripts/home-cosigner/install-macos.sh` installs a LaunchAgent
+  (`~/Library/LaunchAgents/com.nuri.home-cosigner.plist`, `RunAtLoad`,
+  `KeepAlive` on unsuccessful exit, `ThrottleInterval` 30) that runs `run.sh`, so
+  the card in the reader signs for a local agent across logins and crashes. Logs
+  go to `~/.nuri-card/logs/home-cosigner.log` (0600 in a 0700 directory). The
+  installer never asks for or prints the PIN; it prints the one-time
+  `security add-generic-password` command.
+- `scripts/home-cosigner/run.sh` reads the PIN via
+  `security find-generic-password -w` (or a 0600 file, Linux source), loads
+  `NURI_READER` from `~/.nuri-card-host/bitcoin.env`, requires Python 3.10+/Node
+  22+, exports `NURI_CARD_PIN`/`NURI_FIDO_PIN` and execs the existing server in
+  real-card mode. The value stays out of argv and out of every log line; a
+  missing PIN exits 78 with the exact keychain command.
+- `POST /api/send {to, amount, execute}` in
+  `scripts/local-card-cosign-server.mjs` is the agent one-liner: it shells out to
+  the proven `scripts/send/cli.mjs` path, derives the CLI's `NURI_SEND_CONFIRM`
+  from the request, gives every request a unique receipt, and redacts the PIN in
+  failure text only (a substring swap over successful JSON also rewrites
+  addresses that contain it). No limits or allowlist: the calling agent owns
+  policy.
+- `scripts/home-cosigner/install-linux.sh`: `systemd --user` unit with the PIN in
+  a 0600 file. Written against the macOS twin; UNVERIFIED on hardware.
+- Tests: `test/home-cosigner.test.js` checks the plist (and `plutil -lint`), file
+  modes, the no-PIN refusal, the 0600 file gate, and the endpoint's argument
+  passthrough, confirmation binding, 503/502 paths and PIN redaction with a fake
+  CLI. No reader, no card, no network.
+- Docs: `docs/home-cosigner.md` (health check, dry run, one-liner, uninstall,
+  troubleshooting, honest limits), linked from the README agent-tools table and
+  `docs/diy-card.md`.
+
 ## Unreleased — 2026-10-30 — One command from blank card to working card — Hermes Agent
 
 - `scripts/card-setup.sh`: eight numbered steps from a bought blank card to all
