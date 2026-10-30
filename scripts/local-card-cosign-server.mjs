@@ -3,7 +3,8 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { HDKey } from '@scure/bip32';
@@ -27,6 +28,12 @@ const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-ca
 const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const REAL_CARD_ARKADE_SCRIPT = process.env.REAL_CARD_ARKADE_SCRIPT || 'scripts/real-card-arkade-signer-proof.py';
 const REAL_CARD_PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';
+// Agent-facing Arkade send: the proven scripts/send/cli.mjs path, one POST.
+// Receipts are unique per request so a permanent service never hits the CLI's
+// "receipt exists; DO NOT RESEND" guard on the second send.
+const SEND_CLI = process.env.NURI_CARD_SEND_CLI || 'scripts/send/cli.mjs';
+const SEND_OUT_DIR = process.env.NURI_CARD_SEND_OUT_DIR || join(homedir(), '.nuri-card', 'send');
+const SEND_TIMEOUT_MS = Number(process.env.NURI_CARD_SEND_TIMEOUT_MS || 300000);
 const ARKADE_SIGNER_URL = process.env.NURI_ARKADE_SIGNER_URL || process.env.EXPO_PUBLIC_ARKADE_SIGNER_URL || '';
 const ARKADE_NODE_URL = process.env.NURI_ARKADE_NODE_URL || process.env.EXPO_PUBLIC_NODE_URL || '';
 const CARD_IDENTITY_CACHE_MS = Number(process.env.NURI_CARD_IDENTITY_CACHE_MS || 300000);
@@ -320,6 +327,7 @@ function handleInfo(res) {
     profile: args.backend === 'real-card' ? REAL_CARD_PROFILE : undefined,
     endpoints: {
       sign: 'POST /api/cosign/sign',
+      arkadeSend: 'POST /api/send {to, amount, execute}',
       cardAccount: 'GET /api/card/account',
       cardReceiveRegister: 'POST /api/card/register-receive-owner',
       cardLightningSync: 'POST /api/card/lightning-sync',
@@ -564,6 +572,89 @@ async function handleWalletSpend(req, res) {
     broadcast: body.broadcast === true,
     includeUnconfirmed: body.includeUnconfirmed === true,
     clientSeedHex: await clientSeed(body),
+  });
+  json(res, 200, result);
+}
+
+// Agent-facing one-shot send over the proven Arkade path (scripts/send/cli.mjs).
+// Deliberately no limits, allowlist or per-action approval: the calling agent
+// owns policy and can read the dry run before it executes. The CLI's own
+// NURI_SEND_CONFIRM execution boundary is derived here from the request, so the
+// card path cannot sign for a different recipient/amount than the caller sent.
+function httpError(status, message) { return Object.assign(new Error(message), { status }); }
+
+// The CLI's own summary/receipt carries mode 'dry-run'|'execute', so the shared
+// requireCardResult (which reserves 'card') cannot judge it. The send path is
+// card-only: a plan always comes back with a status.
+function requireSendResult(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !result.status) {
+    throw new Error('send helper returned no status');
+  }
+  return result;
+}
+
+function sendArgs(body) {
+  const to = String(body.to ?? '').trim();
+  if (!/^@[a-z0-9][a-z0-9-]{0,62}$/.test(to) && !/^ark1[0-9a-z]+$/.test(to)) {
+    throw httpError(400, 'to must be an ark1 address or @username');
+  }
+  const amount = String(body.amount ?? '').trim();
+  if (amount !== 'all' && !/^[1-9][0-9]*$/.test(amount)) {
+    throw httpError(400, 'amount must be positive integer sats or "all" (no default: the agent owns limits)');
+  }
+  return { to, amount, execute: body.execute === true };
+}
+
+// The CLI writes its durable receipt before any hardware access. A unique pair
+// per request keeps a long-lived server clear of the DO-NOT-RESEND guard.
+function sendPaths(stamp) {
+  return {
+    receiptPath: join(SEND_OUT_DIR, `${stamp}.receipt.json`),
+    logPath: join(SEND_OUT_DIR, `${stamp}.jsonl`),
+  };
+}
+
+function runSendCli(cliArgs, { pinEnv }) {
+  requireCardSubprocess([SEND_CLI]);
+  return new Promise((resolvePromise, reject) => {
+    execFile(process.execPath, cliArgs, {
+      cwd: process.cwd(),
+      timeout: SEND_TIMEOUT_MS,
+      maxBuffer: 8 * 1024 * 1024,
+      env: childEnv(pinEnv),
+    }, (rawError, rawStdout, rawStderr) => {
+      if (rawError) {
+        // Fixed status text only: provider errors can carry request payloads.
+        // The PIN is redacted here, and only here: a bare substring swap over
+        // successful JSON also rewrites addresses that happen to contain it.
+        const said = redactPins(rawStderr || rawStdout, pinEnv).trim().split('\n').filter(Boolean).slice(-3).join(' ');
+        reject(httpError(502, `send failed: ${said || rawError.message}`));
+        return;
+      }
+      try { resolvePromise(requireSendResult(JSON.parse(rawStdout))); } catch (error) {
+        reject(httpError(502, `send returned no JSON result: ${error.message}`));
+      }
+    });
+  });
+}
+
+async function handleArkadeSend(req, res) {
+  const body = await readJson(req);
+  const { to, amount, execute } = sendArgs(body);
+  const pin = process.env.NURI_FIDO_PIN || process.env.NURI_CARD_PIN || '';
+  if (!pin) throw httpError(503, 'no card PIN in the service environment (NURI_CARD_PIN)');
+  const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  const paths = sendPaths(stamp);
+  await mkdir(SEND_OUT_DIR, { recursive: true, mode: 0o700 });
+  const result = await runSendCli([
+    SEND_CLI, execute ? '--execute' : '--dry-run', '--to', to, '--amount', amount,
+  ], {
+    pinEnv: {
+      NURI_FIDO_PIN: pin,
+      NURI_SEND_CONFIRM: `${to}-${amount}`,
+      NURI_RECEIPT_PATH: paths.receiptPath,
+      NURI_SEND_LOG: paths.logPath,
+    },
   });
   json(res, 200, result);
 }
@@ -1452,6 +1543,7 @@ async function requestHandler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/wallet/address') { await handleWalletAddress(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/wallet/utxos') { await handleWalletUtxos(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/wallet/spend') { await handleWalletSpend(req, res); return; }
+    if (req.method === 'POST' && url.pathname === '/api/send') { await handleArkadeSend(req, res); return; }
     if (req.method === 'GET' && url.pathname === '/api/card/account') { await handleCardAccount(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/card/register-receive-owner') { await handleCardReceiveRegistration(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/card/lightning-invoice') { await handleCardLightningInvoice(req, res); return; }

@@ -35,6 +35,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [gp-macos-troubleshooting.md](gp-macos-troubleshooting.md) — Classify GP/transport/install errors before attempting destructive changes.
 - [hardware.md](hardware.md) — Exact CPLC observations, required algorithms and unqualified batch/model limits.
 - [helper-servers-security.md](helper-servers-security.md) — Loopback-only HTTP/MCP pairing, scoped bearer files and resource/framing limits.
+- [home-cosigner.md](home-cosigner.md) — Permanent local signing service: LaunchAgent/systemd user unit, PIN from the OS keystore, `POST /api/send` one-liner, no spending limits.
 - [how-it-works.md](how-it-works.md) — Host transaction construction, PRF-derived secrets and card partial signing overview.
 - [hsm.md](hsm.md) — secp256k1 PKCS#11/OpenSSL use: real card by default, labelled simulator only on request, ETH2 preferred, ETH1 only with the demo opt-in.
 - [musig2-fast-mul.md](musig2-fast-mul.md) — RSA-coprocessor modular multiplication, reduction bounds and simulator/hardware evidence limits.

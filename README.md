@@ -758,6 +758,7 @@ transaction, and must independently verify the signature/public key.
 | `python3 scripts/card-totp.py --selfcheck` | Software RFC vector check, no physical qualification | [TOTP applet](docs/totp-applet.md) |
 | `npm run card:totp` | Physical-card TOTP use; host supplies time; admin PIN does not gate calculation | [TOTP policy](docs/totp-applet.md) |
 | `npm run card:mcp` | Local MCP signer tools; not a public signing service | [Helper authorization](docs/helper-servers-security.md) |
+| `npm run cosigner:install` | LaunchAgent that keeps the card signing for a local agent, PIN from the Keychain, no limits in the service | [Home cosigner](docs/home-cosigner.md) |
 | `npm run card:lock:test` | Fake-GP lock/unlock tests; management escrow is not wallet recovery | [GP management lock](docs/card-lock.md) |
 
 ### Virtual card and reproducible source

@@ -1021,3 +1021,6 @@ Rules:
 - [Release](release.md): artifact hashes and source to binary correspondence.
 - [GP on macOS troubleshooting](gp-macos-troubleshooting.md): classify transport
   errors before changing anything.
+- [Home cosigner](home-cosigner.md): run the card as a permanent local signing
+  service so an agent can send with one loopback POST — PIN from the login
+  keychain, no spending limits in the service.
