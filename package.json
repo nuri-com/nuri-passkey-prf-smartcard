@@ -8,7 +8,7 @@
     "nuricard": "bin/nuricard"
   },
   "scripts": {
-    "test": "node --test test/*.test.js scripts/send/*.test.mjs",
+    "test": "node --test test/*.test.js scripts/send/*.test.mjs scripts/ext-card-wallet.test.mjs",
     "test:pcsc": "scripts/run-card-python.sh -m unittest discover -s test -p test_nuri_pcsc.py -v",
     "test:helper-auth": "node --test test/helper-auth.test.js && python3 -m unittest discover -s test -p test_helper_auth.py -v",
     "musig2:demo": "node src/musig2/card-sim-cli.js --sim",

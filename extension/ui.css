@@ -18,6 +18,16 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
 .controls { display: grid; gap: 12px; margin-top: 24px; }
 .err, #error { color: #942D1A; white-space: pre-wrap; }
 .sim { background: #FFE2D6; padding: 12px; margin-bottom: 18px; }
+h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.panel { border-top: 1px solid #dddac9; margin-top: 24px; padding-top: 18px; display: grid; gap: 8px; }
+.panel label { color: #615A62; }
+.panel input, .panel select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #615A62; border-radius: 9px; background: #fff; color: #2C232E; }
+.row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.result { white-space: pre-wrap; }
+.total { margin-top: 0; }
+.total strong { font-size: 30px; }
+.rail { padding: 10px 0; border-top: 1px solid #eee6cf; }
+.rail code { font-size: 15px; }
 .attestation { margin: 12px 0; }
 details { margin: 24px 0; }
 summary { cursor: pointer; }
