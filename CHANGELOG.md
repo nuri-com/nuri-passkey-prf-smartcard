@@ -7,6 +7,36 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased — 2026-10-30 — One command from blank card to working card — Hermes Agent
+
+- `scripts/card-setup.sh`: eight numbered steps from a bought blank card to all
+  seven applets installed and verified in about 10 minutes. Preflight, pinned
+  GlobalPlatformPro, private Python environment, deny-list and the exact PC/SC
+  reader picker are shared with `scripts/diy-key.sh` through the new
+  `scripts/lib/card-common.sh`, so both scripts run the same code.
+- ETH1 is no longer part of the standard set. `card-setup.sh` passes the new
+  `PROVISION_SKIP_ETH1=YES` opt-out to `scripts/provision-card-v1.sh`, so a new
+  card gets FIDO2, MuSig2 AID1, TOTP, ETH2, MuSig2 AID2, MuSig2 AID3 and the vault,
+  and ETH2 (PIN, 5 tries + PUK) is the only Ethereum signer. The bundle installer
+  keeps ETH1 by default, because the demo card still uses the PIN-less 1.5 applet;
+  with the opt-out it also guards on ETH2 instead of ETH1. A card that already has
+  ETH1 still verifies, and `--resume` never installs it.
+- Safety: reads CPLC and ATR before anything else, refuses a deny-listed serial,
+  checks the public default admin key with **one** auth attempt, refuses a
+  non-blank card (exit 0, nothing written), and always requires the serial typed
+  back (`--serial` for agents). The five proven install steps run unchanged.
+  `--dry-run` writes nothing, `--resume` installs only what is missing,
+  `MUSIG2_REINSTALL` is always unset so nothing is ever deleted.
+- Ends with a read-only registry diff and a SELECT of every applet, then
+  `CARD_SETUP_VERIFIED <serial>`, a private log under `~/.nuri-card/logs/` and
+  the PIN, SSH, Chrome and seal steps.
+- `scripts/card-setup-card.py`: CPLC/ATR read and applet SELECT over
+  `scripts/nuri_pcsc.py`, so cheap T=0-only readers work.
+- Tests: `test/test_card_setup.py` plus `test/fake_gp_setup.py` and a fake
+  pyscard package, no hardware. Runs in CI next to `test_diy_key.py`.
+- Docs: shopping list and the one command at the top of `docs/diy-card.md` and in
+  the README DIY section; the by-hand steps stay below as "What the script does".
+
 ## Unreleased — 2026-10-30 — Chrome 0.3.0: Bitcoin account in the extension — Hermes Agent
 
 - Side panel is now a Nuri account view: one Bitcoin total over Arkade VTXOs,

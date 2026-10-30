@@ -46,6 +46,7 @@
     "card:provision:v1": "scripts/provision-card-v1.sh",
     "card:lock": "bash scripts/lock-card.sh",
     "card:diy": "bash scripts/diy-key.sh",
+    "card:setup": "bash scripts/card-setup.sh",
     "card:unlock": "bash scripts/unlock-card.sh",
     "card:lock:test": "\"${PYTHON_BIN:-python3}\" -m unittest discover -s test -p test_card_lock.py -v",
     "card:accept:v1": "scripts/accept-card-v1.sh",

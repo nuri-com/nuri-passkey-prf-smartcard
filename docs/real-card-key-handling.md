@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  A["GP provisioning gates<br/>scripts/provision-card-v1.sh:7-23"] --> B["Install applets<br/>scripts/provision-card-v1.sh:48-65"]
+  A["GP provisioning gates<br/>scripts/provision-card-v1.sh:7-23"] --> B["Install applets<br/>scripts/provision-card-v1.sh:48-71"]
   C["FIDO2 PIN operations<br/>scripts/manage-fido2-pin.py:106-152"]
   D["Applet-specific signing gates<br/>card/eth2/NuriEthSignerV2.java:214-218,322-327"]
 ```
@@ -13,7 +13,7 @@ GP key inputs belong to the provisioning/install path; FIDO2 PIN management call
 
 | Operation / source | Implemented gate |
 | --- | --- |
-| Blank-card provisioning | Requires `CARD_PROVISION_CONFIRM=YES`, an explicit GP reader, and `GP_KEY` or a complete ENC/MAC/DEK set (including `SCP03_*` aliases). Checks release hashes and rejects a registry containing any of its four target applet AIDs before installation. [scripts/provision-card-v1.sh:7-23](../scripts/provision-card-v1.sh#L7-L23), [scripts/provision-card-v1.sh:30-65](../scripts/provision-card-v1.sh#L30-L65) |
+| Blank-card provisioning | Requires `CARD_PROVISION_CONFIRM=YES`, an explicit GP reader, and `GP_KEY` or a complete ENC/MAC/DEK set (including `SCP03_*` aliases). Checks release hashes and rejects a registry containing any of its four target applet AIDs before installation (with `PROVISION_SKIP_ETH1=YES`: three, and ETH2 instead of ETH1). [scripts/provision-card-v1.sh:7-23](../scripts/provision-card-v1.sh#L7-L23), [scripts/provision-card-v1.sh:48-71](../scripts/provision-card-v1.sh#L48-L71) |
 | FIDO2 install / reinstall | Both forward optional GP keys and default to `FIDO2-up.cap`. Install has no confirmation gate; reinstall requires `FIDO2_REINSTALL_CONFIRM=YES` and conditionally deletes matching packages. Neither wrapper requires keys to be supplied. [scripts/install-fido2-card.sh:4-48](../scripts/install-fido2-card.sh#L4-L48), [scripts/reinstall-fido2-card.sh:4-67](../scripts/reinstall-fido2-card.sh#L4-L67) |
 | FIDO2 PIN | Set/change/verify use CTAP `ClientPin`; PINs are read with `getpass`, and verification obtains a PIN token. These paths do not call GP. [scripts/manage-fido2-pin.py:91-152](../scripts/manage-fido2-pin.py#L91-L152) |
 | ETH v1 signing | Dispatches directly to `sign`; signing checks an initialized key and exactly 32 input bytes, with no PIN or physical-UP authorization gate. [card/eth/NuriEcdsaSigner.java:156-166](../card/eth/NuriEcdsaSigner.java), [card/eth/NuriEcdsaSigner.java:209-213](../card/eth/NuriEcdsaSigner.java) |

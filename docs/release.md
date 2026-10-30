@@ -50,9 +50,10 @@ successful build.
 
 The verifier's file list is implementation-defined, not a promise that every
 included historical artifact should be installed. The bundle provisioner installs
-ETH v1, whereas ETH v2 has a separate installer. Sources:
+ETH v1, whereas ETH v2 has a separate installer; `PROVISION_SKIP_ETH1=YES` drops
+ETH v1 again (what `scripts/card-setup.sh` does). Sources:
 [scripts/verify-card-v1-release.sh:17–20](../scripts/verify-card-v1-release.sh#L17-L20),
-[scripts/provision-card-v1.sh:56–63](../scripts/provision-card-v1.sh#L56-L63).
+[scripts/provision-card-v1.sh:48–71](../scripts/provision-card-v1.sh#L48-L71).
 
 Before publishing artifacts, run from a clean checkout and save the exact source
 commit, toolchain, output and hashes. Complete [physical acceptance](acceptance.md)
