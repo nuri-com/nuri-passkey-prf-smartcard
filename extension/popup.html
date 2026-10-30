@@ -8,12 +8,46 @@
   <link rel="stylesheet" href="ui.css">
 </head>
 <body>
-  <header><img src="icon128.png" alt="Nuri"><h1>Nuri Card</h1></header>
+  <header><img src="icon128.png" alt="Nuri"><h1>Nuri account</h1></header>
   <main id="out" aria-live="polite">Reading card…</main>
+
+  <section class="panel" id="receivePanel" hidden>
+    <h2>Receive</h2>
+    <div id="receive"></div>
+    <label for="invoiceSats">Lightning invoice · sats</label>
+    <div class="row2">
+      <input id="invoiceSats" inputmode="numeric" placeholder="2500">
+      <button id="invoiceMake">Create</button>
+    </div>
+    <label for="invoiceMemo">Memo</label>
+    <input id="invoiceMemo" placeholder="What is it for?" maxlength="200">
+    <div id="invoiceOut" class="result"></div>
+  </section>
+
+  <section class="panel" id="sendPanel" hidden>
+    <h2>Send</h2>
+    <label for="sendKind">Pay to</label>
+    <select id="sendKind">
+      <option value="lightning">Lightning invoice</option>
+      <option value="ark">Arkade address</option>
+      <option value="nuri">Nuri username</option>
+    </select>
+    <label for="sendTarget" id="sendTargetLabel">Invoice (lnbc…)</label>
+    <input id="sendTarget" spellcheck="false" autocomplete="off">
+    <div id="sendAmountBox">
+      <label for="sendAmount">Amount in sats</label>
+      <input id="sendAmount" inputmode="numeric" placeholder="2500">
+    </div>
+    <div id="nameOut" class="result"></div>
+    <div id="sendOut" class="result"></div>
+    <button id="sendGo" class="primary">Review and pay</button>
+  </section>
+
   <div class="controls">
-    <button id="refresh" class="primary">Refresh</button>
+    <button id="refresh">Refresh</button>
     <button id="disconnect">Disconnect all sites</button>
   </div>
+  <script src="lib/bitcoin.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

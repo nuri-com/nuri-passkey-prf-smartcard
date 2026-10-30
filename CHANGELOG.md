@@ -7,6 +7,34 @@ flowchart LR
   B --> H[Separate physical-card acceptance]
 ```
 
+## Unreleased — 2026-10-30 — Chrome 0.3.0: Bitcoin account in the extension — Hermes Agent
+
+- Side panel is now a Nuri account view: one Bitcoin total over Arkade VTXOs,
+  boarding and the onchain MuSig2+CSV rail (each with its full address), then the
+  unchanged Ethereum balance.
+- **Proven on the real card** (demo card `87E5470B`, AID3 v1.17, OMNIKEY 5422 top
+  slot) through the installed host exactly as Chrome calls it: `info`,
+  `bitcoin_info`, `bitcoin_balance` all ok, total 10,465 sats = Arkade 4,458 +
+  boarding 0 + onchain 6,007, username `arkade`, addresses equal the README money
+  table.
+- Addresses from the live `nuri_client_recovery_v1` contract (`deriveAddresses`,
+  the same derivation `scripts/send` spends from), never the SDK default contract.
+  Regression test on the live public values fails on the previous code.
+- Fixed: host module loaded twice when run as a script, so every `bitcoin_*` call
+  failed `INFO_REQUIRED` after a good `info` (`sys.modules` alias).
+- Installer: Bitcoin settings in `~/.nuri-card-host/bitcoin.env`
+  (template `host/bitcoin.env.example`), pinned npm dependencies via `npm ci
+  --omit=dev`, card drivers on the host venv Python instead of Chrome's bare `PATH`.
+- Receive: ark address, boarding address and a Lightning invoice (invoice not yet
+  run live).
+- Send from the panel is fail-closed (`SEND_UNSUPPORTED`) until it uses the
+  proven `scripts/send` script-path signing; use `scripts/send/cli.mjs` to send.
+- host: `bitcoin_info`, `bitcoin_balance`, `bitcoin_invoice`, `bitcoin_preview`,
+  `bitcoin_sign_partial`, `bitcoin_cancel` (`host/bitcoin_commands.py`).
+- Tests: host 86 (1 skipped), bitcoin host 13, webauthn 10, extension 58, bridge 9,
+  `npm test` 131.
+
+
 ## Unreleased — 2026-10-30 — DIY card admin-key change, real-card proven — Hermes Agent
 
 - `879eb79` card_lock: SCP02/DES3 keysets, exact dual-slot reader selection, CI step.

@@ -11,7 +11,7 @@
   const binding = response.binding;
   const hash = s.hash || null;
   $("#origin").textContent = req.origin;
-  const titles = { connect: "Connect account", personal_sign: "Sign message", eth_signTypedData_v4: "Sign typed data", eth_signTransaction: "Sign transaction · no broadcast", eth_sendTransaction: "Send transaction", webauthn_create: "Create Nuri wallet key on card", webauthn_get: "Unlock Nuri wallet with card" };
+  const titles = { connect: "Connect account", personal_sign: "Sign message", eth_signTypedData_v4: "Sign typed data", eth_signTransaction: "Sign transaction · no broadcast", eth_sendTransaction: "Send transaction", webauthn_create: "Create Nuri wallet key on card", webauthn_get: "Unlock Nuri wallet with card", bitcoin_send: "Send Bitcoin · card cosign" };
   $("#kind").textContent = titles[req.kind] || req.kind;
   $("#sim").hidden = s.mode !== "sim";
   const rows = [];
@@ -31,7 +31,17 @@
     if (req.kind === "eth_sendTransaction") rows.push('<div class="warn">This will be broadcast to the network and spends gas.</div>');
     rows.push(`<pre>${esc(JSON.stringify(s.tx, null, 2))}</pre>`);
   }
-  if (hash) row("Hash sent to card", hash);
+  if (req.kind === "bitcoin_send") {
+    const sat = (n) => Number(n || 0).toLocaleString("en-US");
+    row("Rail", s.kind === "lightning" ? "Lightning invoice (via Arkade swap)" : "Arkade address");
+    row("To", s.destination);
+    if (s.destinationSource) row("Resolved from", s.destinationSource);
+    row("Amount", s.amountSats ? `${sat(s.amountSats)} sats (${s.amountBtc} BTC)` : "invoice amount");
+    if (s.paymentHash) row("Payment hash", s.paymentHash);
+    row("Wallet key", s.aggregate);
+    rows.push('<div class="warn">The card co-signs with the Nuri server. This broadcasts an Arkade transaction.</div>');
+  }
+  if (hash) row(req.kind === "bitcoin_send" ? "Transaction digest" : "Hash sent to card", hash);
   $("#body").innerHTML = rows.join("");
   let needsPin = !!s.pinRequired;
   const pinState = (required, tries) => {
