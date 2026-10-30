@@ -28,15 +28,17 @@ when deliberately checking pre-existing artifacts from a known build.
 Success marker: `CARD_V1_RELEASE_VERIFIED`. This is a build/component verification
 marker, not an applet install or hardware-security certificate.
 
-## AID3 candidate (v1.2.0)
+## AID3 in v1.2.0
 
 The release build and comparison lists include
 `nuri-musig2-v20-keygen-aid3.cap`, package `4E5552494D554733`, applet
-`4E5552494D55473301`. Its standalone builder normalizes ZIP metadata and does
-not modify tracked Java sources. Build against the final integrated scalar
-source, update `dist/SHA256SUMS`, and retain provenance before declaring the
-candidate reproducible. Hardware acceptance and real-card timings are not
-claimed by this documentation. [Scalar release boundary](scalar256.md#v120-aid3-release-boundary).
+`4E5552494D55473301`, applet version 1.17. Its standalone builder normalizes ZIP
+metadata and does not modify tracked Java sources. The CAP and its hash are in
+`dist/SHA256SUMS`; CI job `card-release` reproduced it from main
+`f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with `CARD_V1_RELEASE_VERIFIED`.
+Hardware evidence is the live mainnet cosign [receipt](proofs/e2e-proof.json);
+the about 2.0 s FINALIZE is operator-reported, without a timing receipt.
+[Scalar release boundary](scalar256.md#v120-aid3-release-boundary).
 
 ## Inputs and scope
 

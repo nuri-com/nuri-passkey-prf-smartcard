@@ -44,6 +44,12 @@ infer NXP/JCOP silicon solely from a reseller label or ATR.
 J3H145, J3R180 and J3R200 remain **UNVERIFIED candidates**, not recommended or
 qualified substitutes.
 
+Card `57274221` reports CPLC fabricator `4790`, IC type `D321`, OS ID `4700`,
+ATR historical bytes `JCOPv241`. On 2026-10-29 it ran the v1.2.0 applet set
+with ETH1 1.5 over the OMNIKEY 5422 contact slot. ETH1 1.4 failed there with
+`6F00` because it never set the EC cofactor. This is one card, not a batch
+qualification. [Receipt](proofs/real-card-57274221-eth1-cofactor.json).
+
 Vendor biometric PDFs and email correspondence are intentionally not distributed.
 Fingerprint hardware does not establish fingerprint gating in the public applets.
 

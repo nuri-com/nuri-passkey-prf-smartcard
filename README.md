@@ -29,7 +29,7 @@ The Nuri Card release specification:
 - **Android NFC wallet:** the operator reports a Samsung S21 displaying the card wallet balance after a tap.
 - **AID3 speed:** the operator reports about 2.0 s FINALIZE on applet v1.17, 5/5 BIP340 signatures verified. The target is about 1 s and is not reached.
 - **OpenSSH login:** physical-card login recorded across [three USB readers](docs/reader-compatibility.md#hardware-runs-parent-physical-card).
-- **Released hardware proofs:** [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), packaged in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
+- **Released:** [v1.2.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.2.0) (2026-10-29) ships the AID3 v1.17 MuSig2 CAP. Earlier proofs, [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), shipped in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
 
 ### Where the sats are now
 
@@ -67,6 +67,33 @@ flowchart LR
 ```
 
 Only the Android balance and the AID3 speed are operator reports without receipts in this checkout.
+
+## DIY: change your card's admin key
+
+The card ships with the public GlobalPlatform default admin key. Anyone who holds the card can use it to delete or replace applets.
+One command does the replacement and writes an encrypted escrow, so you can undo it.
+Passkeys, wallet keys and PINs are untouched.
+
+```sh
+git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git
+cd nuri-passkey-prf-smartcard
+bash scripts/diy-key.sh
+```
+
+Written for an NXP JCOP v2.4.1 card on an HID Global OMNIKEY 5422 reader; other key profiles are refused. [Exact how-to with every prompt, the undo step and troubleshooting](docs/diy-key.md).
+
+### For LLM agents
+
+1. Confirm which card and which reader with the human, and leave only that card on the reader.
+2. Run `bash scripts/diy-key.sh --help` as a read-only check.
+3. Run `bash scripts/diy-key.sh` and relay the printed prompts; the human types the passphrase.
+4. Never put the passphrase in chat, argv, environment or logs.
+5. Accept success only on the token `CARD_LOCK_VERIFIED`.
+6. Anything else: stop, report state UNVERIFIED, keep every file.
+7. Never retry with a guessed key, never edit the deny-list, never use the manual gp path.
+8. On success, give the human the escrow path and say to copy it now.
+
+Full agent runbook with STOP conditions: [docs/diy-key.md](docs/diy-key.md#12-for-llm-agents).
 
 ## Why it beats YubiKey
 
@@ -417,12 +444,19 @@ path-specific proofs, not a new funded on-chain or merchant-payment acceptance.
 [AID2 receipt](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json),
 [feature status](docs/feature-status.md).
 
-**Newer work on the fast path:** AID3 v1.17 co-signed the live mainnet send on
-2026-10-28, with [a receipt](docs/proofs/e2e-proof.json). The about 2.0 s
-FINALIZE timing is operator-reported and the 1 s target is not reached. `v1.1.0`
-does not install AID3. The earlier [v1.16 timing
+**v1.2.0, the fast path:** AID3 v1.17 co-signed the live mainnet send on
+2026-10-28, with [a receipt](docs/proofs/e2e-proof.json). `v1.2.0` ships its
+reproducible CAP (`dist/nuri-musig2-v20-keygen-aid3.cap`, hash in
+[SHA256SUMS](dist/SHA256SUMS)); the receipt does not record the installed CAP
+hash. The about 2.0 s FINALIZE timing is operator-reported and the 1 s target is
+not reached. The earlier [v1.16 timing
 receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json) records 5.2 s
 FINALIZE and stays as history.
+
+**Second card model:** on 2026-10-29, NXP JCOP 2.4.1 card `57274221` ran the
+`v1.2.0` applet set over the OMNIKEY 5422 contact slot. ETH v1 needed applet
+1.5, which sets the secp256k1 cofactor; 1.4 answered `6F00` on that card.
+Unfunded. [Receipt](docs/proofs/real-card-57274221-eth1-cofactor.json).
 
 Historical confirmed Signet transactions and their exact limits are retained in
 [the Signet proof](docs/proofs/real-card-signet-proof.md). They do not establish
@@ -747,6 +781,7 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 | `scripts/` and `test/` | Builds, adapters, software tests and explicit hardware probes |
 | `dist/` | Packaged CAPs/native artifacts and SHA256SUMS |
 | `docs/` | [Documentation index](docs/README.md), evidence and bounded runbooks |
+| `docs/diy-key.md` | [DIY admin-key change](docs/diy-key.md): exact prompts, success tokens, undo and the LLM agent runbook |
 | `mobile/expo-nfc-prf-probe/` | Optional NFC mobile source reference |
 
 ## Licence

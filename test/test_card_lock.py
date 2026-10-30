@@ -50,14 +50,15 @@ class CardLockTest(unittest.TestCase):
         state.update(fields)
         self.state.write_text(json.dumps(state))
 
-    def run_script(self, action="lock", execute=True, password=PASSWORD, serial="12345678", extra=()):
+    def run_script(self, action="lock", execute=True, password=PASSWORD, serial="12345678",
+                   reader="Fake reader", extra=()):
         read_fd, write_fd = os.pipe()
         os.write(write_fd, password + b"\n")
         os.close(write_fd)
         try:
             return subprocess.run(["bash", str(ROOT / f"scripts/{action}-card.sh"),
-                                   *( ["--execute"] if execute else []),
-                                   "--reader", "Fake reader", "--escrow", str(self.escrow),
+                                   *(["--execute"] if execute else []),
+                                   "--reader", reader, "--escrow", str(self.escrow),
                                    "--passphrase-fd", str(read_fd), *extra],
                                   input=serial + "\n", capture_output=True, text=True,
                                   env=self.env, pass_fds=(read_fd,), timeout=40)
@@ -68,7 +69,7 @@ class CardLockTest(unittest.TestCase):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
     def rotations(self):
-        return [c for c in self.calls() if "--lock-enc" in c["args"]]
+        return [c for c in self.calls() if "--lock" in c["args"]]
 
     def assert_refused_without_rotation(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -118,12 +119,17 @@ class CardLockTest(unittest.TestCase):
                 self.change(version=version)
                 self.assert_refused_without_rotation(self.run_script())
 
-    def test_factory_extra_and_non_aes_keysets_refused(self):
+    def test_factory_extra_and_unknown_keysets_refused(self):
         for fields in ({"key_versions": [0]}, {"key_versions": [255]},
-                       {"key_versions": [1, 2]}, {"key_versions": [1], "key_type": "DES3"}):
+                       {"key_versions": [1, 2]}, {"key_versions": [1], "key_type": "RSA"}):
             with self.subTest(fields=fields):
                 self.change(**fields)
                 self.assert_refused_without_rotation(self.run_script())
+
+    def test_mixed_aes_des3_keyset_refused(self):
+        self.change(key_types={"1": "AES", "2": "DES3", "3": "AES"})
+        self.assert_refused_without_rotation(self.run_script())
+        self.assertFalse(self.escrow.exists())
 
     def test_scp01_scp02_version_ranges_refused_before_rotation(self):
         for version in (0x10, 0x1F, 0x20, 0x2F):
@@ -174,13 +180,18 @@ class CardLockTest(unittest.TestCase):
         self.assertEqual(rotation["mode"], 0o600)
         payload = lock.decrypt(self.escrow.read_bytes(), PASSWORD)
         self.assertEqual(payload["old_keys"], self.initial)
-        self.assertEqual(len(set(payload["new_keys"].values())), 3)
+        self.assertEqual(len(set(payload["new_keys"].values())), 1)
+        self.assertNotIn(lock.DEFAULT_KEY, payload["new_keys"].values())
         self.assertEqual(payload["new_keys"], json.loads(self.state.read_text())["keys"])
+        # --lock only: gp 24.10.15 NPEs on --lock-enc/mac/dek without it.
+        self.assertEqual(rotation["args"].count("--lock"), 1)
+        for flag in ("--lock-enc", "--lock-mac", "--lock-dek"):
+            self.assertNotIn(flag, rotation["args"])
         for key in payload["new_keys"].values():
             self.assertNotIn(key, self.escrow.read_text())
-            self.assertNotIn(key, result.stdout + result.stderr)
+            self.assertNotIn(key, result.stdout + result.stderr)  # gp's "locked with" is swallowed
         commands = [c["args"] for c in self.calls()]
-        position = next(i for i, a in enumerate(commands) if "--lock-enc" in a)
+        position = next(i for i, a in enumerate(commands) if "--lock" in a)
         self.assertIn("-l", commands[position + 1])
         self.assertEqual(commands[position + 1][commands[position + 1].index("--key-enc") + 1], payload["new_keys"]["enc"])
         self.assertEqual(rotation["args"][rotation["args"].index("--new-keyver") + 1], "0x01")
@@ -222,8 +233,34 @@ class CardLockTest(unittest.TestCase):
         result = self.run_script(action="unlock")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("CARD_DEFAULT_KEYS_RESTORED_VERIFIED", result.stdout)
+        unlock_rotation = self.rotations()[-1]["args"]
+        self.assertEqual(unlock_rotation[unlock_rotation.index("--lock") + 1], lock.DEFAULT_KEY)
         self.assertEqual(json.loads(self.state.read_text())["keys"], self.initial)
         self.assertEqual(self.escrow.read_bytes(), before)
+
+    def test_split_plaintext_keys_refused_before_any_subprocess(self):
+        gp = lock.GP.__new__(lock.GP)
+        gp.binary, gp.reader, gp.env = "gp", "Fake reader", {}
+        split = {"enc": "AA" * 16, "mac": "BB" * 16, "dek": "CC" * 16}
+        with mock.patch.object(lock.subprocess, "run") as run:
+            with self.assertRaises(lock.Refusal) as raised:
+                gp.rotate(self.initial, split, 1)
+            run.assert_not_called()
+        self.assertIn("--lock", str(raised.exception))
+
+    def test_legacy_split_key_escrow_still_unlocks(self):
+        cplc = "".join("12345678" if f == "ICSerialNumber" else "01" * n for f, n in lock.CPLC_FIELDS)
+        split = {"enc": "AA" * 16, "mac": "BB" * 16, "dek": "CC" * 16}
+        payload = {"gp_version": lock.GP_VERSION, "cplc": cplc, "serial": "12345678",
+                   "key_version": 1, "key_type": "AES", "old_keys": self.initial, "new_keys": split}
+        self.escrow.write_bytes(lock.encrypt(payload, PASSWORD))
+        self.escrow.chmod(0o600)
+        self.change(keys=split)
+        result = self.run_script(action="unlock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CARD_DEFAULT_KEYS_RESTORED_VERIFIED", result.stdout)
+        self.assertEqual(json.loads(self.state.read_text())["keys"], self.initial)
+        self.assertEqual(len(self.rotations()), 1)
 
     def test_wrong_passphrase_unlock_no_gp_call(self):
         self.assertEqual(self.run_script().returncode, 0)
@@ -278,6 +315,99 @@ class CardLockTest(unittest.TestCase):
         before = len(self.rotations())
         self.assertNotEqual(self.run_script(action="unlock").returncode, 0)
         self.assertEqual(len(self.rotations()), before)
+
+    def test_des3_lock_unlock_odd_parity_and_escrow_type(self):
+        self.change(key_type="DES3")
+        locked = self.run_script()
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.assertIn("key type: DES3", locked.stdout)
+        payload = lock.decrypt(self.escrow.read_bytes(), PASSWORD)
+        self.assertEqual(payload["key_type"], "DES3")
+        self.assertEqual(len(set(payload["new_keys"].values())), 1)
+        for key in payload["new_keys"].values():
+            self.assertTrue(all(bin(byte).count("1") % 2 == 1 for byte in bytes.fromhex(key)))
+        self.assertTrue(self.rotations()[0]["new_keys_odd_parity"])
+        unlocked = self.run_script(action="unlock")
+        self.assertEqual(unlocked.returncode, 0, unlocked.stderr)
+        self.assertEqual(len(self.rotations()), 2)
+        self.assertEqual(json.loads(self.state.read_text())["keys"], self.initial)
+
+    def test_fake_gp_models_npe_on_split_flags_without_lock(self):
+        result = subprocess.run([str(self.bin / "gp"), "--reader", "Fake reader", "--key-ver", "0x01",
+                                 "--key-enc", lock.DEFAULT_KEY, "--key-mac", lock.DEFAULT_KEY,
+                                 "--key-dek", lock.DEFAULT_KEY, "--lock-enc", "AA" * 16,
+                                 "--lock-mac", "AA" * 16, "--lock-dek", "AA" * 16],
+                                capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, 17)
+        self.assertIn("java.lang.NullPointerException", result.stderr)
+        self.assertEqual(json.loads(self.state.read_text())["keys"], self.initial)
+
+    def test_unlock_key_type_mismatch_refused_before_rotation(self):
+        self.change(key_type="DES3")
+        self.assertEqual(self.run_script().returncode, 0)
+        before = len(self.rotations())
+        locked_keys = json.loads(self.state.read_text())["keys"]
+        self.change(key_type="AES")
+        result = self.run_script(action="unlock")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("key type", result.stderr)
+        self.assertEqual(len(self.rotations()), before)
+        self.assertEqual(json.loads(self.state.read_text())["keys"], locked_keys)
+
+    def test_legacy_escrow_without_key_type_unlocks_aes(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        payload = lock.decrypt(self.escrow.read_bytes(), PASSWORD)
+        payload.pop("key_type")
+        self.escrow.write_bytes(lock.encrypt(payload, PASSWORD))
+        result = self.run_script(action="unlock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.state.read_text())["keys"], self.initial)
+
+    def test_dual_slot_exact_reader_sets_ignore_for_every_card_call(self):
+        contact = "HID Global OMNIKEY 5422 Smartcard Reader"
+        other = contact + " 01"
+        self.change(readers=[other, contact], card_readers=[other, contact], target_reader=contact)
+        result = self.run_script(reader=contact)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        card_calls = [call for call in self.calls()
+                      if call["args"] not in (["--version"], ["--reader"])]
+        self.assertTrue(card_calls)
+        for call in card_calls:
+            self.assertEqual(call["GP_READER_IGNORE"], other)
+
+    def test_dual_slot_reader_01_is_refused_as_ambiguous(self):
+        contact = "HID Global OMNIKEY 5422 Smartcard Reader"
+        other = contact + " 01"
+        self.change(readers=[contact, other], card_readers=[contact, other], target_reader=other)
+        result = self.run_script(reader=other)
+        self.assert_refused_without_rotation(result)
+        self.assertIn("gp could not select exactly this reader; leave only the target card inserted",
+                      result.stderr)
+        self.assertFalse(self.escrow.exists())
+
+    def test_reader_substring_is_not_exact_match(self):
+        contact = "HID Global OMNIKEY 5422 Smartcard Reader"
+        other = contact + " 01"
+        self.change(readers=[other, contact], card_readers=[other, contact], target_reader=contact)
+        result = self.run_script(reader="OMNIKEY")
+        self.assert_refused_without_rotation(result)
+        self.assertEqual([call["args"] for call in self.calls()], [["--version"], ["--reader"]])
+        self.assertFalse(self.escrow.exists())
+
+    def test_semicolon_in_reader_name_refused(self):
+        self.change(readers=["Fake;reader"])
+        result = self.run_script(reader="Fake;reader")
+        self.assert_refused_without_rotation(result)
+        self.assertFalse(self.escrow.exists())
+
+    def test_inherited_gp_environment_is_not_forwarded(self):
+        self.env["GP_READER_IGNORE"] = "x"
+        self.env["GP_TRACE"] = "1"
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for call in self.calls():
+            self.assertIsNone(call["GP_READER_IGNORE"])
+            self.assertIsNone(call["GP_TRACE"])
 
 
 if __name__ == "__main__":

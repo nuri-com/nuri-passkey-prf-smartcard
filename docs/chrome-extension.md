@@ -1,6 +1,6 @@
 # Chrome extension: daily-wallet and stage flow
 
-Version: Chrome extension 0.2.0; repository 1.0.2 unreleased.
+Version: Chrome extension 0.2.0; repository 1.2.0.
 Updated 2026-10-20 by Hermes Agent; UI changes tracked in PR #28.
 
 ```mermaid

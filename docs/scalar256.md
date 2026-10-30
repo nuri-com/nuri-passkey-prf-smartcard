@@ -21,11 +21,12 @@ and modulus `2^768-1`. The largest input is 257 bits, so no square reduces.
 The difference is shifted right once. Fixed byte-product folds use
 `2^256 = c (mod m)` for m=n or p, then a masked conditional subtraction.
 The implementation is independently authored from this identity, not inherited code.
-Unsupported RSA providers fail installation closed. All scratch is transient;
-RSA public key setup occurs at install only.
+Unsupported RSA providers fail installation closed; since 1.17 the full-width
+known-answer tests run on first use ([details](musig2-fast-mul.md#fail-closed-and-test-gates)).
+All scratch is transient; RSA public key setup occurs at install only.
 
-Five real-card signatures verified, FINALIZE 5164.75–5195.32 ms (median 5194.75),
-GET_NONCES 290–293 ms. This is approximately 14.6x faster than the measured
+On v1.16, five real-card signatures verified, FINALIZE 5164.75–5195.32 ms (median 5194.75),
+GET_NONCES 290–294 ms. This is approximately 14.6x faster than the measured
 75.7 s regression, but does NOT meet the <3 s target. Native EC validation was
 not substituted: the independent field-equation check remains, since native
 scalar-one ECDH alone does not prove point validity. Blinding/double computation
@@ -38,7 +39,7 @@ not the current multiplication path.
 | Original | `4E5552494D5547` | `4E5552494D554701` | Historical artifact; not AID3 acceptance |
 | AID2 | `4E5552494D554732` | `4E5552494D55473201` | Historical PIN2 cosign receipt; no latency qualification |
 | AID3 v1.16 | `4E5552494D554733` | `4E5552494D55473301` | Five verified hardware signatures; 5.2 s FINALIZE |
-| AID3 v1.17 | `4E5552494D554733` | `4E5552494D55473301` | Live mainnet cosign ([receipt](proofs/e2e-proof.json)); FINALIZE about 2.0 s, operator timing |
+| AID3 v1.17 | `4E5552494D554733` | `4E5552494D55473301` | Released in v1.2.0; live mainnet cosign ([receipt](proofs/e2e-proof.json)); FINALIZE about 2.0 s, operator timing |
 
 `scripts/build-musig2-aid3.sh` copies current `card/musig2/*.java`, patches only
 its temporary APPLET_AID and normalizes CAP metadata. It leaves tracked Java
@@ -60,7 +61,7 @@ suitability. Physical qualification remains a separate, explicitly authorized
 spare-card task. No card is accessed by either build command.
 
 The W16/W20 algorithm, line references, hashes and simulator transcripts below
-are historical records, not measurements of an AID3 acceleration candidate.
+are historical records, not measurements of the released AID3 1.17 CAP.
 
 ## W20 current boundary (APDU 1.14)
 

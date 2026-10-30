@@ -15,7 +15,7 @@ not decode transaction fields or show recipient/amount. No screen; blind signing
 | Interface | ETH v1 demo | ETH v2 current |
 |---|---|---|
 | AID | `4E55524945544801` | `4E5552494554483201` |
-| Version | Current source 1.4 / SIGN; demo hardware reported 1.3.1 | 2.1.0 source; physical installation UNVERIFIED |
+| Version | Current source 1.5 / SIGN (1.4 plus EC cofactor); demo hardware reported 1.3.1 | 2.1.0 source; physical installation UNVERIFIED |
 | SIGN | `r32 || s32 || parity1`, software arithmetic | Native ECDSA, `r32 || low-s32 || pubkey65` |
 | Access | No PIN/touch gate | Mandatory PIN by default; explicit install-time public-demo exception |
 | KEYGEN | One-shot in current source; unsafe on old deployed versions | One-shot, PIN-gated by default |
@@ -23,6 +23,8 @@ not decode transaction fields or show recipient/amount. No screen; blind signing
 Sources: [ETH1 source](../card/eth/NuriEcdsaSigner.java),
 [ETH2 contract](eth-applet-v2.md), [native host](../host/nuri_card_host.py).
 Never send KEYGEN as a diagnostic to ETH1 below 1.4; it can rotate the existing key.
+ETH1 1.4 on NXP JCOP 2.4.1 answers `6F00` to KEYGEN and leaves the instance
+unusable; install 1.5 there ([receipt](proofs/real-card-57274221-eth1-cofactor.json)).
 Installing ETH2 creates a separate key, not migration/recovery of the ETH1 key.
 
 The native host uses four-byte little-endian JSON framing. Read `info` first on
