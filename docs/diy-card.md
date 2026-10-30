@@ -53,7 +53,7 @@ One 85.6 x 54 mm dual-interface card, one applet set, one PIN per applet.
 | OATH TOTP, one secret slot | Card | real card | cofactor receipt, 6/6 RFC 6238 vectors |
 | PIN-gated secret vault, 16 slots | Card | real card | cofactor receipt, HMAC and bearer match |
 | PKCS#11 module for OpenSSL and `pkcs11-tool` | Host module over the card | real card on ETH1 | [HSM guide](hsm.md), [limits](hsm.md#limits) |
-| Chrome wallet extension | Host extension plus native host | simulator | [extension guide](chrome-extension.md) |
+| Chrome wallet extension | ETH signing; Bitcoin account (balance, 3 addresses) via native host | real card (Bitcoin read-only, 2026-10-30) | [extension guide](chrome-extension.md) |
 | Attestation, per-applet P-256 identity | Card plus CA | simulator | [attestation](attestation.md) |
 
 Three MuSig2 applet instances exist because each hardware acceptance needs its own
@@ -537,6 +537,37 @@ Those two need no hardware and prove host plumbing only. The wallet side of the
 stack, PRF identity plus MuSig2, shares one card, so it is **not** independent
 two-device custody.
 
+#### See and use your Bitcoin wallet in Chrome
+
+The Chrome extension shows the card's Nuri Bitcoin account next to Ethereum: one
+total, then Arkade, boarding and onchain with full addresses. About 5 minutes.
+
+1. Install the host and its pinned dependencies:
+
+   ```sh
+   npm ci
+   bash host/install-macos.sh --python /opt/homebrew/bin/python3.13
+   ```
+
+2. Copy the settings file and fill in four public values (signer URL, MuSig2 AID,
+   your card's FIDO2 credential id, exact reader name). Never put a PIN in it.
+
+   ```sh
+   cp host/bitcoin.env.example ~/.nuri-card-host/bitcoin.env
+   chmod 600 ~/.nuri-card-host/bitcoin.env
+   ```
+
+3. Chrome: `chrome://extensions`, Developer mode, **Load unpacked** the
+   `extension/` folder. Open the side panel.
+
+Real result, 2026-10-30, demo card `87E5470B`: total 10,465 sats = Arkade 4,458 +
+boarding 0 + onchain 6,007, the same three addresses as the README money table.
+Read-only check and the three bugs that run found:
+[extension guide, Bitcoin section](chrome-extension.md#bitcoin-on-the-real-card-setup-and-proof).
+
+Sending from the panel is switched off (fails closed) until it uses the proven
+send path. To send today use `scripts/send/cli.mjs` ([send README](../scripts/send/README.md)).
+
 ### 7.6 TOTP
 
 One secret slot, one account. The card computes HMAC-SHA1 over a host-supplied
@@ -783,7 +814,10 @@ existing passkey or 2FA method, or the key stays unusable for the waiting period
 4. Type the FIDO2 PIN when the card prompt appears.
 5. Approve the new key in the "you added a key" mail and on the account page.
 
-<!-- PARENT-VERIFY:gmail -->
+Status: these steps follow Google's documented flow and the Safari PC/SC behaviour
+recorded in this repo (Safari sees the card, Chrome on macOS does not). The Google
+enrollment of the reference card itself is **not run yet** (UNVERIFIED); this
+section gets the real result after that test.
 
 Keep a second, non-card passkey enrolled. Google is the wrong place to discover that
 your only authenticator is one card.
