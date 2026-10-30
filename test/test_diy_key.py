@@ -85,6 +85,7 @@ class DiyKeyTest(unittest.TestCase):
         self.assertTrue(self.escrow.is_file())
         self.assertEqual(stat.S_IMODE(self.escrow.stat().st_mode), 0o600)
         self.assertIn(str(self.escrow), result.stdout)
+        self.assertIn(f"Escrow backup: {self.escrow}", result.stdout)
 
     def test_unlock_end_to_end_via_picker(self):
         self.assertEqual(self.lock().returncode, 0)

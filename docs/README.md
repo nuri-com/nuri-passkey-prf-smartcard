@@ -45,6 +45,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [proofs/real-card-87E5470B-eth2-pin.json](proofs/real-card-87E5470B-eth2-pin.json) — 2026-10-22 real-card ETH2 v2.1.0 PIN gate + signing receipt.
 - [proofs/real-card-87E5470B-musig2-aid2-cosign.json](proofs/real-card-87E5470B-musig2-aid2-cosign.json) — 2026-10-22 real-card MuSig2 PIN2 AID2 cosign receipt (not broadcast, not funded).
 - [proofs/real-card-57274221-eth1-cofactor.json](proofs/real-card-57274221-eth1-cofactor.json) — 2026-10-29 JCOP 2.4.1 card: ETH1 1.4 `6F00`, ETH1 1.5 two verified signatures, other applets unchanged (not funded).
+- [proofs/real-card-57274221-gp-lock.json](proofs/real-card-57274221-gp-lock.json) — 2026-10-30 real-card DIY GP key change: two lock/undo cycles verified, default key restored, existing-escrow refusal.
 - [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and three observed physical reader combinations.
 - [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items (2026-10-22 real-card runs).
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.

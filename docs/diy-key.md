@@ -102,9 +102,24 @@ CARD_LOCK_VERIFIED
 
 The escrow path is printed one step earlier. The default path is `~/.nuri-card/escrow/<FULL-CPLC>.json`.
 
-The whole run on this card profile is UNVERIFIED (pending the real-card run).
+Verified on the real card `57274221` on 2026-10-30, through this wizard, in two full lock/undo cycles. Real output of the second lock run (paths are the operator's home directory):
 
-<!-- REAL-CARD-OUTPUT:lock -->
+```text
+
+About to change the card's admin (GP) key. It is used to install or remove apps.
+Unchanged: your passkeys, wallet keys, card PINs and the installed applets.
+The card's serial number is shown and must be typed back before anything is sent.
+Choose escrow passphrase (16+ characters); it is never printed and never stored.
+Keep the escrow file AND the passphrase, in two separate places.
+Continue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3
+Type the card CPLC serial 57274221 to lock: Encrypted escrow durably published: ~/.nuri-card/escrow/demo-run2-57274221.json
+CARD_LOCK_VERIFIED
+
+Escrow backup: ~/.nuri-card/escrow/demo-run2-57274221.json
+Copy that file to a USB stick or a second place NOW.
+Keep the passphrase somewhere else (password manager, paper safe).
+Without both, a lost key cannot be recovered.
+```
 
 ## 8. Keep the escrow
 
@@ -127,9 +142,22 @@ CARD_DEFAULT_KEYS_RESTORED_VERIFIED
 
 The escrow file is kept. Management is public again after this, so reseal with a new escrow and a fresh key when you are done updating applets.
 
-The undo run on this card profile is UNVERIFIED (pending the real-card run).
+Verified on the same card on 2026-10-30. Real output of the second undo run:
 
-<!-- REAL-CARD-OUTPUT:unlock -->
+```text
+
+About to restore the card's factory-default admin (GP) key from the escrow backup.
+Unchanged: your passkeys, wallet keys, card PINs and the installed applets.
+The card's serial number is shown and must be typed back before anything is sent.
+Choose escrow passphrase (16+ characters); it is never printed and never stored.
+Keep the escrow file AND the passphrase, in two separate places.
+Continue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3
+Type the card CPLC serial 57274221 to unlock: CARD_DEFAULT_KEYS_RESTORED_VERIFIED
+
+Default admin key restored. The escrow file ~/.nuri-card/escrow/demo-run2-57274221.json is kept for reuse.
+```
+
+Afterwards an independent `gp -l` with the public default key listed the ISD and all 8 applets again ([proof receipt](proofs/real-card-57274221-gp-lock.json)).
 
 ## 10. Manual path for experts
 
@@ -161,6 +189,7 @@ The wizard is safer: it writes and reads back the escrow before the PUT KEY, ver
 | Linux `pcscd` not running | `sudo systemctl enable --now pcscd` |
 | Wrong passphrase | Unlock decrypts before any GP call, so the card is untouched. Check the passphrase and run again. |
 | Card profile refused | The card is not the profile in section 3. Do not bypass the check. |
+| Escrow file already exists | `REFUSED: Input/filesystem operation failed`, no rotation sent, card unchanged. The wizard never overwrites an escrow. Move the old file away or pass a fresh path with `--escrow`. |
 | Any failure after the key change started | State UNVERIFIED: keep the escrow, do not retry, read `../SECURITY.md`. |
 
 When a run fails, the engine prints `REFUSED: <reason>`. After a started rotation it adds `Rotation attempted; state is UNVERIFIED` and exits 1.
@@ -192,7 +221,7 @@ Exact runbook. Each step ends with a STOP condition.
 
 Rules:
 
-- Never retry authentication with a guessed key. Card retry limits are UNVERIFIED (pending the real-card run).
+- Never retry authentication with a guessed key. Card retry limits are UNVERIFIED.
 - Never edit or empty the deny-list.
 - Never use the manual gp path from section 10.
 - Never touch a card the human did not name.

@@ -370,7 +370,7 @@ set -e
 if [ "$RC" -eq 0 ]; then
     say ""
     if [ "$ACTION" = lock ]; then
-        SHOWN="$(sed -n 's/^Encrypted escrow durably published: //p' "$LOG" | tail -n 1 || true)"
+        SHOWN="$(sed -n 's/.*Encrypted escrow durably published: //p' "$LOG" | tail -n 1 || true)"
         [ -n "$SHOWN" ] && ESCROW="$SHOWN"
         say "Escrow backup: $ESCROW"
         say "Copy that file to a USB stick or a second place NOW."
