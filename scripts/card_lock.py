@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 
-from Crypto.Cipher import AES
+from Crypto.Cipher import AES, DES3
 from Crypto.Protocol.KDF import scrypt
 
 GP_VERSION = "24.10.15"
@@ -150,12 +150,19 @@ def validate_payload(payload):
     if (type(payload["key_version"]) is not int or not 1 <= payload["key_version"] <= 127
             or 0x10 <= payload["key_version"] <= 0x2F):
         raise ValueError("Bad key version")
+    key_type = payload.get("key_type", "AES")
+    if key_type not in ("AES", "DES3"):
+        raise ValueError("Bad key type")
     for field in ("old_keys", "new_keys"):
         if set(payload[field]) != {"enc", "mac", "dek"}:
             raise ValueError("Bad keyset")
         for value in payload[field].values():
             if not re.fullmatch(r"[0-9A-F]{32}", value):
                 raise ValueError("Bad key")
+    if key_type == "DES3":
+        for value in payload["new_keys"].values():
+            if any(bin(byte).count("1") % 2 != 1 for byte in bytes.fromhex(value)):
+                raise ValueError("DES3 keys must have odd parity")
     if set(payload["old_keys"].values()) != {DEFAULT_KEY}:
         raise ValueError("Not a default-key migration")
 
@@ -193,6 +200,26 @@ class GP:
         # The official 24.10.15 jar embeds the abbreviated release commit, not its tag.
         if not re.search(r"(?m)^# GlobalPlatformPro (?:v?24\.10\.15|f2af9ef)\r?$", version):
             raise Refusal("Only GlobalPlatformPro 24.10.15 is supported")
+        try:
+            result = subprocess.run([self.binary, "--reader"], capture_output=True, text=True,
+                                    env=self.env, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            raise Refusal("GP launch/transport failed; captured diagnostics suppressed to protect keys") from None
+        if result.returncode not in (0, 1):
+            raise Refusal("Could not list GP readers")
+        lines = result.stdout.splitlines()
+        if not lines or lines[0] != "Available readers:":
+            raise Refusal("Could not parse GP reader list")
+        readers = [line[2:] for line in lines[1:] if line.startswith("- ")]
+        if not readers:
+            raise Refusal("No GP readers found")
+        if any(not name or ";" in name for name in readers):
+            raise Refusal("GP reader names must be non-empty and must not contain ';'")
+        if self.reader not in readers:
+            raise Refusal("Reader must exactly match one of: " + " | ".join(readers))
+        other_readers = [name for name in readers if name != self.reader]
+        if other_readers:
+            self.env["GP_READER_IGNORE"] = ";".join(other_readers)
 
     def run(self, args, reader=True):
         command = [self.binary] + (["--reader", self.reader] if reader else []) + args
@@ -202,6 +229,8 @@ class GP:
         except (OSError, subprocess.TimeoutExpired):
             raise Refusal("GP launch/transport failed; captured diagnostics suppressed to protect keys") from None
         if result.returncode != 0:
+            if "Specify reader with -r" in result.stderr:
+                raise Refusal("gp could not select exactly this reader; leave only the target card inserted")
             raise Refusal("GP operation failed; captured diagnostics suppressed to protect keys")
         return result.stdout + "\n" + result.stderr
 
@@ -217,9 +246,12 @@ class GP:
             raise Refusal("Authenticated registry must include FIDO2, ETH2 and vault applet instances")
 
     def rotate(self, old, new, version):
+        if len({new["enc"], new["mac"], new["dek"]}) != 1:
+            raise Refusal("gp 24.10.15 sets one key for ENC/MAC/DEK (--lock); refusing split keys")
         # SAME version is crucial: GP otherwise adds a keyset and leaves defaults usable.
-        self.run(self.auth(old, version) + ["--new-keyver", f"0x{version:02X}"] +
-                 [x for kind in ("enc", "mac", "dek") for x in ("--lock-" + kind, new[kind])])
+        # --lock alone: the split lock flags NPE at HexBytes.v(null) (GPTool.java#L801).
+        self.run(self.auth(old, version) + ["--new-keyver", f"0x{version:02X}",
+                                            "--lock", new["enc"]])
 
 
 def identity(info):
@@ -255,11 +287,24 @@ def key_version(info):
     if len(versions) != 1 or len(rows) != 3:
         raise Refusal("Require exactly one existing three-key ISD keyset; refuse extra/factory/unknown keys")
     version = versions.pop()
+    key_types = {row[2] for row in rows}
     if (not 1 <= version <= 127 or 0x10 <= version <= 0x2F
-            or {(int(r[1]), r[2], int(r[3])) for r in rows} != {
-            (1, "AES", 16), (2, "AES", 16), (3, "AES", 16)}):
-        raise Refusal("Require one replaceable AES-128 keyset, version 01..0F or 30..7F (SCP03)")
-    return version
+            or {int(row[1]) for row in rows} != {1, 2, 3}
+            or {int(row[3]) for row in rows} != {16}
+            or len(key_types) != 1 or not key_types <= {"AES", "DES3"}):
+        raise Refusal("Require one replaceable AES-128 or DES3 keyset, version 01..0F or 30..7F")
+    return version, key_types.pop()
+
+
+def new_key(key_type):
+    if key_type == "AES":
+        return secrets.token_hex(16).upper()
+    for _ in range(8):
+        try:
+            return DES3.adjust_key_parity(secrets.token_bytes(16)).hex().upper()
+        except ValueError:
+            pass
+    raise Refusal("Could not generate a valid DES3 key after 8 attempts")
 
 
 def main(argv=None):
@@ -288,20 +333,29 @@ def main(argv=None):
         info = gp.run(["-i"])
         cplc, serial = identity(info)
         check_denylist(cplc, serial)
-        version = key_version(info)
-        if payload and (payload["cplc"], payload["key_version"]) != (cplc, version):
-            raise Refusal("Escrow belongs to a different CPLC/key version")
+        version, key_type = key_version(info)
+        if payload and ((payload["cplc"], payload["key_version"], payload.get("key_type", "AES"))
+                        != (cplc, version, key_type)):
+            raise Refusal("Escrow belongs to a different CPLC/key version/key type")
         defaults = dict.fromkeys(("enc", "mac", "dek"), DEFAULT_KEY)
         current = payload["new_keys"] if payload else defaults
         gp.listing(current, version)
-        print(f"Target CPLC serial: {serial}; key version: 0x{version:02X}")
+        print(f"Target CPLC serial: {serial}; key version: 0x{version:02X}; key type: {key_type}")
         if input(f"Type the card CPLC serial {serial} to {args.action}: ").strip() != serial:
             raise Refusal("CPLC serial confirmation mismatch")
         if args.action == "lock":
             password = password_from(args, confirm=True)
+            new_keys = None
+            for _ in range(8):
+                candidate = new_key(key_type)
+                if candidate != DEFAULT_KEY:
+                    new_keys = dict.fromkeys(("enc", "mac", "dek"), candidate)
+                    break
+            if new_keys is None:
+                raise Refusal("Could not generate a non-default key after 8 attempts")
             payload = {"gp_version": GP_VERSION, "cplc": cplc, "serial": serial,
-                       "key_version": version, "old_keys": defaults,
-                       "new_keys": {k: secrets.token_hex(16).upper() for k in defaults}}
+                       "key_version": version, "key_type": key_type, "old_keys": defaults,
+                       "new_keys": new_keys}
             escrow_path = Path(args.escrow).expanduser() if args.escrow else (
                 Path.home() / ".nuri-card/escrow" / (cplc + ".json"))
             atomic_escrow(escrow_path, encrypt(payload, password))

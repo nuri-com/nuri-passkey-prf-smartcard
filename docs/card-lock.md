@@ -6,7 +6,7 @@ flowchart TD
   E --> C[Read CPLC and mandatory no-lock deny-list]
   C --> R[Authenticate defaults: require FIDO2, ETH2, vault]
   R --> O[Owner types CPLC serial and supplies escrow passphrase]
-  O --> S[Random per-card ENC, MAC, DEK]
+  O --> S[One random per-card key, used as ENC = MAC = DEK]
   S --> F[Encrypt and durably publish escrow before PUT KEY]
   F --> K[Replace the SAME ISD keyset version]
   K --> V[Fresh gp -l using new keys]
@@ -19,8 +19,12 @@ flowchart TD
 
 `scripts/lock-card.sh` rotates the GlobalPlatform Issuer Security Domain (ISD)
 management keys away from the publicly known default
-`404142434445464748494A4B4C4D4E4F`. Each card gets three independent, random
-128-bit AES ENC/MAC/DEK keys. They are **not discarded**: their encrypted escrow
+`404142434445464748494A4B4C4D4E4F`. Each card gets one random 128-bit key, set as
+ENC = MAC = DEK, because gp 24.10.15 cannot set split keys
+([GPTool.java#L801](https://github.com/martinpaljak/GlobalPlatformPro/blob/v24.10.15/tool/src/main/java/pro/javacard/gptool/GPTool.java#L801)):
+`--lock <32 hex>` becomes ENC = MAC = DEK through `PlaintextKeys.fromMasterKey`,
+and `--lock-enc`/`--lock-mac`/`--lock-dek` never take effect there. The key is
+**not discarded**: its encrypted escrow
 makes the operation reversible for the owner. The script never changes card
 lifecycle state, sends SET STATUS, enters CARD_LOCKED, or terminates the card.
 
@@ -53,29 +57,32 @@ version banner; the exact release-tag banners `24.10.15` and `v24.10.15` are als
 accepted. Development/dirty suffixes and other versions are refused. The existing
 installer wrappers did not pin a GP version; this helper introduces its own gate.
 
-The preflight requires exactly one existing ISD keyset: IDs 1, 2, 3; AES; 16 bytes;
-version `01..0F` or `30..7F`. Versions `00`/`FF` are refused because upstream may
-**add** a new keyset rather than replace the factory keys. Versions `10..2F` are
-refused because upstream forces SCP01/SCP02 new-key handling for those ranges.
-Extra/unknown keysets and 3DES cards are refused rather than guessed at. Qualify
-those profiles separately; do not bypass the checks or automatically retry
-unknown credentials (card-specific authentication retry policy is UNVERIFIED).
+The preflight requires exactly one existing ISD keyset: IDs 1, 2, 3; one key type
+(AES, or DES3 for SCP02 keysets such as NXP JCOP 2.4.1); 16 bytes; version `01..0F`
+or `30..7F`. Versions `00`/`FF` are refused because upstream may **add** a new
+keyset rather than replace the factory keys. Versions `10..2F` are refused because
+upstream forces SCP01/SCP02 new-key handling for those ranges. Extra keysets, mixed
+key types, and unknown key types are refused rather than guessed at. For DES3 the
+single new key is generated with odd parity in every byte. Do not bypass the checks
+or automatically retry unknown credentials (card-specific authentication retry
+policy is UNVERIFIED).
 
 The exact command construction is:
 
 ```text
 gp --reader READER --key-ver 0xVV \
   --key-enc CURRENT_ENC --key-mac CURRENT_MAC --key-dek CURRENT_DEK \
-  --new-keyver 0xVV \
-  --lock-enc TARGET_ENC --lock-mac TARGET_MAC --lock-dek TARGET_DEK
+  --new-keyver 0xVV --lock TARGET_KEY
 
 gp --reader READER --key-ver 0xVV \
-  --key-enc TARGET_ENC --key-mac TARGET_MAC --key-dek TARGET_DEK -l
+  --key-enc TARGET_KEY --key-mac TARGET_KEY --key-dek TARGET_KEY -l
 ```
 
 `VV` is read from the existing key template; it is **the same in both version
-arguments**, never a new version. All three keys are replaced in one GP PUT KEY
-operation, not three separate rotations. Upstream evidence:
+arguments**, never a new version. `TARGET_KEY` is one 32-hex-digit key that gp
+applies as ENC, MAC, and DEK in one GP PUT KEY operation, not three separate
+rotations. Authentication still uses `--key-enc/--key-mac/--key-dek` (those work
+on the old keyset). Upstream evidence:
 [option definitions](https://github.com/martinpaljak/GlobalPlatformPro/blob/v24.10.15/tool/src/main/java/pro/javacard/gptool/GPCommandLineInterface.java#L92-L111),
 [replacement/addition and key-type logic](https://github.com/martinpaljak/GlobalPlatformPro/blob/v24.10.15/tool/src/main/java/pro/javacard/gptool/GPTool.java#L789-L844),
 [info/CPLC/key-template output](https://github.com/martinpaljak/GlobalPlatformPro/blob/v24.10.15/library/src/main/java/pro/javacard/gp/GPData.java#L325-L370).
@@ -202,6 +209,7 @@ npm test
 
 [`test/test_card_lock.py`](../test/test_card_lock.py) puts a fake `gp` on PATH; it
 records argv and models old/new-key authentication, escrow-before-rotation,
+the `--lock` form plus the 24.10.15 `--lock-enc`-without-`--lock` NPE,
 rejected and accepted-but-response-lost rotations, mandatory verification,
 unlock, passphrase/tamper failures, deny-lists, required applets, file/symlink
 safety, version gates, and directory-publication fsync ordering. The tests never
