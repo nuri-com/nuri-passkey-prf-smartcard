@@ -317,12 +317,15 @@ async function bitcoinAccount() {
   ]);
   let onchain = null;
   let onchainError = null;
-  try { onchain = await B.onchainSats(wallet.onchain_address, MEMPOOL_API); }
-  catch (e) { onchainError = e.message; }
+  if (Number.isFinite(Number(balance.onchain_sats))) onchain = Number(balance.onchain_sats);
+  else {
+    try { onchain = await B.onchainSats(wallet.onchain_address, MEMPOOL_API); }
+    catch (e) { onchainError = e.message; }
+  }
   const rails = [
     { rail: "Arkade", address: balance.ark_address || wallet.ark_address, sats: Number(balance.vtxo_sats || 0) },
     { rail: "Boarding", address: balance.boarding_address || wallet.boarding_address, sats: Number(balance.boarding_sats || 0) },
-    { rail: "Onchain (MuSig2 + CSV)", address: wallet.onchain_address, sats: onchain },
+    { rail: "Onchain (MuSig2 + CSV)", address: balance.onchain_address || wallet.onchain_address, sats: onchain },
   ];
   const total = rails.reduce((sum, r) => sum + (r.sats || 0), 0);
   return { info, wallet, rails, total, onchainError };

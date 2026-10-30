@@ -189,19 +189,33 @@ Node process (`scripts/ext-card-wallet.mjs`); cancelling kills it, so a late car
 result cannot reach the popup. Bitcoin needs a successful `info` in the same host
 process, and it has **no simulator mode** — the sim key is an ETH key.
 
-Host environment for the rail: `NURI_ARKADE_SIGNER_URL` (`/v4/arkade/*` and
-`/api/arkade/*`), `NURI_ARKADE_NODE_URL` (default `https://arkade.computer`),
-`NURI_CARD_RECEIVE_PROFILE` + `NURI_CARD_RECEIVE_PROFILE_PATH` (the
-`nuri-card-prf-profile-v1` owner profile), plus `NURI_MUSIG2_AID` when the applet
-is not the default AID. `NURI_NODE` overrides the Node binary. The PIN reaches
-the child through its environment (`NURI_CARD_PIN`), never argv, and is never
+Settings for the rail live in one file, `~/.nuri-card-host/bitcoin.env`, because
+Chrome starts the host with an empty environment. Copy
+[host/bitcoin.env.example](../host/bitcoin.env.example) and fill in four public values:
+`NURI_ARKADE_SIGNER_URL` (`https://arkade.nuri.com`), `NURI_MUSIG2_AID` (the
+MuSig2 applet that holds your wallet key), `NURI_CARD_CREDENTIAL` (the card's FIDO2
+credential id the Nuri server registered) and `NURI_READER` (exact reader name).
+`NURI_CARD_EXPECT_ARK` optionally pins the expected ark address and fails closed on
+any mismatch. Never put a PIN in that file: the PIN is typed in the popup, reaches
+the child only through its environment (`NURI_CARD_PIN`), never argv, and is never
 cached host-side.
 
-Lightning sends fund a Boltz submarine swap from the card's VTXO balance and then
-call `send/complete`. "Funded" is not a merchant settlement claim. Plain Arkade
-sends ride the same preview/sign pair but use the receive-claim approve endpoint
-with a synthetic swap id (`scripts/lib/card-arkade-identity.mjs`); whether the
-live server mints a cosign token for a non-swap PSBT that way is **UNVERIFIED**.
+Addresses come from the live Nuri contract `nuri_client_recovery_v1`, the same
+derivation the proven card send uses (`deriveAddresses` in
+`scripts/arkade-card-e2e.mjs`, used by `scripts/send/cli.mjs`): Arkade and boarding
+are a 3-leaf VtxoScript (cooperative `[MuSig2(card, Nuri), operator]`,
+`CSV [MuSig2]`, `CSV [card]`), onchain is
+`p2tr(MuSig2(card, Nuri), leaf = card CHECKSIGVERIFY CSV(nuri_server_csv))`. The
+SDK's default wallet contract derives **different** addresses, so it is never used
+for addresses or balances. Balance = Arkade indexer VTXOs on the derived script +
+mempool UTXOs of the boarding and onchain addresses.
+
+Sending from the side panel is **fail-closed for now**: `bitcoin_preview` refuses
+with `SEND_UNSUPPORTED` unless the SDK wallet resolves to the exact derived Nuri
+address, which it does not today. The send path that works on the real card is
+[scripts/send/cli.mjs](../scripts/send/README.md) (live, indexer-verified). Wiring
+the extension send to that same script-path signing is the next step; until then
+the panel is a real read-only account (balance, addresses, receive invoice).
 
 ## Approval integrity (W13 R7)
 
@@ -273,30 +287,63 @@ bash "$ROOT/host/install-macos.sh" --python "${PYTHON_BIN:-python3}"
 6. Negative stage check before the real send: reject or close one signing popup;
    the dApp must receive `4001`. No signing/broadcast should follow that request.
 
-## Parent-only Bitcoin check (real reader/card)
+## Bitcoin on the real card: setup and proof
 
-Nothing below ran in this change. Install the host with the Bitcoin environment
-set, reload the extension, then walk the rail. `NURI_MUSIG2_AID` must name the
-installed MuSig2 applet (AID3 on the demo card). Read-only first:
+Run once on a Mac with the card in the reader. Total time about 5 minutes.
 
 ```sh
-export NURI_ARKADE_SIGNER_URL="https://app.nuri.com"
-export NURI_CARD_RECEIVE_PROFILE=wallet
-export NURI_CARD_RECEIVE_PROFILE_PATH="$HOME/.nuri-card/wallet-profile.json"
-export NURI_MUSIG2_AID=4E5552494D55473301
-NURI_NODE="$(command -v node)" printf '%s\n' '{"id":1,"method":"info"}' | bash "$HOME/.nuri-card-host/run.sh"
+cd nuri-passkey-prf-smartcard
+npm ci
+bash host/install-macos.sh --python /opt/homebrew/bin/python3.13
+cp host/bitcoin.env.example ~/.nuri-card-host/bitcoin.env
+chmod 600 ~/.nuri-card-host/bitcoin.env
+# edit the four values in ~/.nuri-card-host/bitcoin.env
 ```
 
-1. Side panel: the total must equal Arkade + boarding + onchain to the sat, and
-   the three addresses must match the ones the README money table records.
-2. Create a small invoice (test with an external wallet paying it), then claim it
-   with `node scripts/card-arkade-claim.mjs` (stdin `mode: "claim"`).
-3. Send an invoice: inspect rail, destination, amount, payment hash and digest in
-   the popup, enter the **MuSig2** PIN there, approve, then confirm the txid on
-   arkade.space and that `send/complete` returned 200.
-4. Negative: reject one popup and confirm no broadcast; let one time out (120 s)
-   and confirm the same; approve once with a wrong PIN and confirm the digest
-   stays identical on retry.
+The installer copies the host, the bridge and the repo's pinned npm dependencies
+(`npm ci --omit=dev` from the committed lockfile) into `~/.nuri-card-host`, and the
+launcher points the card drivers at the host venv, because Chrome's bare `PATH`
+only has macOS Python 3.9.
+
+Check it the way Chrome talks to it (length-prefixed JSON, clean environment),
+read-only, no PIN:
+
+```sh
+env -i HOME="$HOME" PATH=/usr/bin:/bin python3 - <<'PY'
+import json, os, struct, subprocess
+p = subprocess.Popen([os.path.expanduser("~/.nuri-card-host/run.sh")], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+for i, m in enumerate(["info", "bitcoin_info", "bitcoin_balance"], 1):
+    b = json.dumps({"id": i, "method": m}).encode()
+    p.stdin.write(struct.pack("<I", len(b)) + b); p.stdin.flush()
+    print(m, json.loads(p.stdout.read(struct.unpack("<I", p.stdout.read(4))[0])))
+PY
+```
+
+Real run, 2026-10-30, demo card `87E5470B` (MuSig2 AID3 v1.17) on the OMNIKEY 5422
+top slot (`...Smartcard Reader 01`):
+
+| Call | Result |
+| --- | --- |
+| `info` | ok, ETH2 2.1.0 |
+| `bitcoin_info` | ark `ark1qzpq904am6clw3pgqwyh4p02708fy4xs0hcpwt7rwfdttuxsjameepfv6ed2mgaw4k2tdts49m4wkk3zqyrjv44sr2gcgxrm47gy7sqnlyjr3x`, boarding `bc1p48tcgtk50havqnyq7pswx7hux8szpfjrrv3477z7r6sl4s0vyaxspfzzwu`, onchain `bc1pxa43e00wl6a2qqfd7wu8xgmuz8vczauvmn0nt45zff2kuq9u4klsfrz0f5`, username `arkade`, registered |
+| `bitcoin_balance` | total 10,465 sats = Arkade 4,458 (2 VTXOs) + boarding 0 + onchain 6,007 |
+
+Three real bugs this run found, all fixed and covered by tests:
+
+1. The bridge derived addresses with the SDK default contract and showed 0 sats
+   for a funded wallet. Now `deriveAddresses` + a regression test on the live
+   public values above (`scripts/ext-card-wallet.test.mjs`, fails on the old code).
+2. Every `bitcoin_*` call failed `INFO_REQUIRED` right after a successful `info`:
+   run as a script the host module is `__main__`, so `import nuri_card_host` in
+   `bitcoin_commands.py` loaded a second copy with empty state. Fixed with a
+   `sys.modules` alias (`host/nuri_card_host.py`).
+3. Chrome's launcher had no Bitcoin settings, no npm dependencies and Python 3.9 on
+   `PATH`. Fixed with `bitcoin.env`, `npm ci` in the installer and
+   `REAL_CARD_COSIGN_PYTHON` pointing at the host venv.
+
+Then in Chrome: `chrome://extensions`, Developer mode, **Load unpacked** the
+`extension/` folder (or **Reload**), open the side panel. The Nuri account section
+must show the same total and the same three addresses.
 
 ## Fake-only checks
 

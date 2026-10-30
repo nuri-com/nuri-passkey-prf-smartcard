@@ -970,4 +970,10 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    # Run as a script, this module is `__main__`. bitcoin_commands and
+    # webauthn_bridge `import nuri_card_host`; without this alias they would get
+    # a second, fresh copy whose _INFO is None, so every bitcoin_* call after a
+    # successful info failed INFO_REQUIRED on the real host (tests import the
+    # module and never saw it).
+    sys.modules.setdefault("nuri_card_host", sys.modules[__name__])
     sys.exit(main(sys.argv[1:]))

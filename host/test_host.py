@@ -1419,7 +1419,7 @@ class InstallerLauncherTests(unittest.TestCase):
                         "scripts/nuri_pcsc.py", "scripts/nuri_attest.py", "scripts/nuri_musig2_card.py",
                         "scripts/card-cosign-tweaked.py", "scripts/real-card-arkade-signer-proof.py",
                         "scripts/card-arkade-claim-signer.py", "scripts/card-prf-backup.py",
-                        "scripts/musig2-card-status.py", "scripts/ext-card-wallet.mjs",
+                        "scripts/musig2-card-status.py", "scripts/ext-card-wallet.mjs", "scripts/arkade-card-e2e.mjs",
                         "scripts/lib/card-arkade-identity.mjs"}
             with (installed / "SHA256SUMS").open() as stream:
                 checksums = dict((parts[1], parts[0]) for parts in (line.split() for line in stream))

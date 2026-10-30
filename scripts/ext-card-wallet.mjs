@@ -48,6 +48,7 @@ import {
   pythonSendCosign,
   sendSession,
 } from './lib/card-arkade-identity.mjs';
+import { deriveAddresses } from './arkade-card-e2e.mjs';
 
 if (!globalThis.EventSource) {
   try { globalThis.EventSource = (await import('eventsource')).EventSource; } catch { /* offchain only */ }
@@ -101,23 +102,76 @@ async function readCardPk33() {
   return pk;
 }
 
-// 2-of-2 aggregate -> Arkade address (version 0 || server pk || tweaked vtxo key)
-function arkAddressFor(vtxoTaprootKey32, serverPk32, hrp) {
-  const data = new Uint8Array(1 + 32 + 32);
-  data.set(serverPk32, 1);
-  data.set(vtxoTaprootKey32, 33);
-  return bech32m.encode(hrp, bech32m.toWords(data), 1023);
+// Nuri wallet addresses come from the live nuri_client_recovery_v1 contract
+// (3 leaves: cooperative [aggregate, operator], CSV [aggregate], CSV [card]).
+// deriveAddresses is the same derivation the proven card send uses
+// (scripts/send/cli.mjs). The SDK default Wallet contract derives a DIFFERENT
+// address, so it must never be used for addresses or balances.
+function credentialId() { return env('NURI_CARD_CREDENTIAL'); }
+
+async function nuriInfo(cardPk33) {
+  const url = new URL(`${signerV4()}/arkade/info`);
+  url.searchParams.set('client_pk33', cardPk33);
+  url.searchParams.set('client_signer_pubkey', cardPk33);
+  if (credentialId()) url.searchParams.set('cred_id_b64u', credentialId());
+  const res = await fetch(url, { cache: 'no-store' });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Nuri Arkade info HTTP ${res.status}`);
+  if (!/^0[23][0-9a-f]{64}$/i.test(String(body?.server_pubkey || ''))) throw new Error('Nuri Arkade info returned no usable server public key');
+  return body;
 }
 
-// Onchain fallback: p2tr(internal = musig2(client, server), leaf = client CSV).
-// Same shape as scripts/nuri-card-wallet.mjs:nuriDerive, client = the card.
-function onchainAddress(cardPk33, serverPk33, network) {
-  const sorted = musig2.sortKeys([hexToBytes(cardPk33), hexToBytes(serverPk33)]);
-  const aggComp = musig2.keyAggExport(musig2.keyAggregate(sorted));
-  const Px = aggComp.length === 33 ? aggComp.slice(1) : aggComp;
-  const cardXOnly = hexToBytes(cardPk33).slice(1);
-  const leaf = { script: btc.Script.encode([cardXOnly, 'CHECKSIGVERIFY', CSV_BLOCKS, 'CHECKSEQUENCEVERIFY']), leafVersion: 0xc0 };
-  return btc.p2tr(Px, [leaf], network.btc, true).address;
+async function operatorInfo(cfg) {
+  const res = await fetch(`${cfg.nodeUrl}/v1/info`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Arkade operator info HTTP ${res.status}`);
+  const op = await res.json();
+  return { network: op.network, signerPubkey: op.signerPubkey, unilateralExitDelay: op.unilateralExitDelay, boardingExitDelay: op.boardingExitDelay };
+}
+
+// Onchain rail: p2tr(internal = musig2(card, server), leaf = card CHECKSIGVERIFY CSV(nuri_server_csv)).
+// Same as mobile/expo-nfc-prf-probe/src/onchainWallet.ts deriveOnchainAddress (test pins bc1pxa43...).
+function onchainAddress(cardPk33, aggregate33, csv, network) {
+  const value = Number(csv?.value);
+  let sequence;
+  if (csv?.type === 'seconds') {
+    if (!Number.isSafeInteger(value) || value <= 0 || value % 512 !== 0 || value / 512 > 65535) throw new Error('invalid nuri_server_csv');
+    sequence = (1 << 22) | (value / 512);
+  } else if (csv?.type === 'blocks' && Number.isSafeInteger(value) && value > 0 && value <= 65535) sequence = value;
+  else throw new Error('invalid nuri_server_csv');
+  const leaf = { script: btc.Script.encode([hexToBytes(cardPk33).slice(1), 'CHECKSIGVERIFY', sequence, 'CHECKSEQUENCEVERIFY']), leafVersion: 0xc0 };
+  return btc.p2tr(hexToBytes(aggregate33).slice(1), [leaf], network.btc, true).address;
+}
+
+async function walletAddresses(cfg, cardPk33) {
+  const net = NETWORKS[cfg.network];
+  if (!net) throw new Error(`unknown network ${cfg.network}`);
+  const [info, operator] = await Promise.all([nuriInfo(cardPk33), operatorInfo(cfg)]);
+  const derived = deriveAddresses(cardPk33, info, operator);
+  const expect = env('NURI_CARD_EXPECT_ARK');
+  if (expect && expect !== derived.ark_address) throw new Error(`derived ark address ${derived.ark_address} != NURI_CARD_EXPECT_ARK`);
+  return {
+    info, derived,
+    onchain: onchainAddress(cardPk33, derived.aggregate_pk33, info.nuri_server_csv, net),
+  };
+}
+
+async function sumUtxos(address) {
+  const res = await fetch(`${env('NURI_MEMPOOL_URL', 'https://mempool.space').replace(/\/+$/, '')}/api/address/${address}/utxo`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`mempool ${address} HTTP ${res.status}`);
+  const seen = new Set(); let confirmed = 0, unconfirmed = 0;
+  for (const u of await res.json()) {
+    const k = `${u.txid}:${u.vout}`; if (seen.has(k)) continue; seen.add(k);
+    if (!Number.isSafeInteger(u.value) || u.value < 0) throw new Error('malformed utxo');
+    if (u.status?.confirmed) confirmed += u.value; else unconfirmed += u.value;
+  }
+  return { confirmed, unconfirmed, total: confirmed + unconfirmed };
+}
+
+async function sumVtxos(cfg, script) {
+  const res = await fetch(`${cfg.nodeUrl}/v1/indexer/vtxos?scripts=${script}&spendableOnly=true`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Arkade indexer HTTP ${res.status}`);
+  const vtxos = (await res.json()).vtxos || [];
+  return { sats: vtxos.reduce((n, v) => n + Number(v.amount), 0), count: vtxos.length };
 }
 
 function digestOf(summary) {
@@ -125,14 +179,7 @@ function digestOf(summary) {
 }
 
 async function serverPubkey(cardPk33) {
-  const url = new URL(`${signerV4()}/arkade/info`);
-  url.searchParams.set('client_pk33', cardPk33);
-  const res = await fetch(url, { cache: 'no-store' });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Nuri Arkade info HTTP ${res.status}`);
-  const pk = body?.server_pubkey || body?.server_pubkey33;
-  if (!/^0[23][0-9a-f]{64}$/i.test(String(pk || ''))) throw new Error('Nuri Arkade info returned no usable server public key');
-  return String(pk).toLowerCase();
+  return String((await nuriInfo(cardPk33)).server_pubkey).toLowerCase();
 }
 
 async function openWallet(cfg, identity) {
@@ -186,22 +233,20 @@ async function modeInfo(cfg) {
   const status = await readCardStatus();
   const cardPk33 = String(status.card_pk33 || '').toLowerCase();
   if (!/^0[23][0-9a-f]{64}$/.test(cardPk33)) throw new Error('card returned an invalid MuSig2 public key');
-  const serverPk33 = await serverPubkey(cardPk33);
-  const net = NETWORKS[cfg.network];
-  if (!net) throw new Error(`unknown network ${cfg.network}`);
-  const identity = readOnlyIdentity(cardPk33, serverPk33);
-  const wallet = await openWallet(cfg, identity);
-  const [arkAddress, boardingAddress] = await Promise.all([wallet.getAddress(), wallet.getBoardingAddress()]);
-  const aggregate33 = bytesToHex(identity.aggregatedPk33);
+  const { info, derived, onchain } = await walletAddresses(cfg, cardPk33);
   return {
     status: 'NURI_CARD_BITCOIN_INFO_OK',
     network: cfg.network,
     card_pubkey33: cardPk33,
-    server_pubkey33: serverPk33,
-    aggregate_pubkey33: aggregate33,
-    ark_address: arkAddress,
-    boarding_address: boardingAddress,
-    onchain_address: onchainAddress(cardPk33, serverPk33, net),
+    server_pubkey33: derived.server_pk33,
+    aggregate_pubkey33: derived.aggregate_pk33,
+    ark_address: derived.ark_address,
+    offchain_script: derived.offchain_script,
+    boarding_address: derived.boarding_address,
+    onchain_address: onchain,
+    username: info.username ?? null,
+    registered: info.recovery?.registered === true,
+    contract: info.nuri_contract_type ?? null,
     card_applet: status.version,
     card_capabilities: status.capabilities,
     card_pin_required: status.pin_required,
@@ -225,26 +270,28 @@ async function modeBalance(cfg, ctx) {
   const status = await readCardStatus();
   const cardPk33 = String(status.card_pk33 || '').toLowerCase();
   if (!/^0[23][0-9a-f]{64}$/.test(cardPk33)) throw new Error('card returned an invalid MuSig2 public key');
-  const serverPk33 = await serverPubkey(cardPk33);
-  const identity = readOnlyIdentity(cardPk33, serverPk33);
-  const wallet = await openWallet(cfg, identity);
-  const [arkAddress, boardingAddress, balance] = await Promise.all([
-    wallet.getAddress(),
-    wallet.getBoardingAddress(),
-    wallet.getBalance(),
+  const { info, derived, onchain } = await walletAddresses(cfg, cardPk33);
+  const [vtxo, boarding, chain] = await Promise.all([
+    sumVtxos(cfg, derived.offchain_script),
+    sumUtxos(derived.boarding_address),
+    sumUtxos(onchain),
   ]);
   return {
     status: 'NURI_CARD_BITCOIN_BALANCE_OK',
     network: cfg.network,
-    aggregate_pubkey33: bytesToHex(identity.aggregatedPk33),
-    ark_address: arkAddress,
-    boarding_address: boardingAddress,
-    // Every rail, so the caller can lead with the total: VTXOs + boarding + onchain.
-    vtxo_sats: Number(balance?.available ?? 0),
-    settled_sats: Number(balance?.settled ?? 0),
-    boarding_sats: Number(balance?.boarding?.total ?? 0),
-    onchain_address: onchainAddress(cardPk33, serverPk33, NETWORKS[cfg.network]),
-    total_ark_and_boarding_sats: Number(balance?.available ?? 0) + Number(balance?.boarding?.total ?? 0),
+    username: info.username ?? null,
+    aggregate_pubkey33: derived.aggregate_pk33,
+    // Every rail, total first: Arkade VTXOs + boarding + onchain MuSig2+CSV.
+    total_sats: vtxo.sats + boarding.total + chain.total,
+    ark_address: derived.ark_address,
+    vtxo_sats: vtxo.sats,
+    vtxo_count: vtxo.count,
+    boarding_address: derived.boarding_address,
+    boarding_sats: boarding.total,
+    onchain_address: onchain,
+    onchain_sats: chain.total,
+    onchain_confirmed_sats: chain.confirmed,
+    onchain_unconfirmed_sats: chain.unconfirmed,
   };
 }
 
@@ -332,6 +379,14 @@ async function modeSend(cfg, ctx) {
   }
 
   const wallet = await openWallet(cfg, ctx.identity);
+  // Fail closed: the SDK default contract is not the Nuri recovery contract.
+  // Spending is only allowed when the SDK wallet resolves to the exact derived
+  // Nuri address; otherwise it would build a spend over coins it does not own.
+  const { derived } = await walletAddresses(cfg, ctx.cardPk33);
+  const sdkArk = await wallet.getAddress();
+  if (sdkArk !== derived.ark_address) {
+    throw new Error(`SEND_UNSUPPORTED: extension send is not wired to the Nuri recovery contract yet (SDK ${sdkArk.slice(0, 24)}... != wallet ${derived.ark_address.slice(0, 24)}...). Use scripts/send/cli.mjs`);
+  }
   let swaps = null;
   let funding = null;
   if (kind === 'lightning') {
@@ -447,7 +502,7 @@ async function main() {
       network: cfg.network,
     };
     const digest = digestOf(summary);
-    return modeSend(cfg, { identity, summary, digest, session: sendSession });
+    return modeSend(cfg, { identity, summary, digest, session: sendSession, cardPk33 });
   }
   const summary = {
     kind: 'ark',
@@ -457,7 +512,7 @@ async function main() {
     network: cfg.network,
   };
   const digest = digestOf(summary);
-  return modeSend(cfg, { identity, summary, digest, session: sendSession });
+  return modeSend(cfg, { identity, summary, digest, session: sendSession, cardPk33 });
 }
 
 main().then((out) => {
