@@ -2,7 +2,8 @@
 
 State file (FAKE_CARD_STATE, the same JSON the gp fake uses): aids, serial,
 atr. A SELECT answers 9000 for an installed AID and 6A82 otherwise; the CPLC
-APDU (80 CA 9F 7F 00) answers a 42-byte CPLC with the state serial inside.
+APDU (80 CA 9F 7F 00) answers like a real card: tag 9F7F, length 2A, then the
+42-byte CPLC with the state serial inside (state "cplc_raw": true drops the tag).
 """
 import json
 import os
@@ -57,7 +58,10 @@ class CardConnection:
                 return list(b""), 0x90, 0x00
             return list(b""), 0x6A, 0x82
         if apdu == [0x80, 0xCA, 0x9F, 0x7F, 0x00]:
-            return list(_cplc(state)), 0x90, 0x00
+            body = bytes(_cplc(state))
+            if not state.get("cplc_raw"):
+                body = b"\x9f\x7f\x2a" + body
+            return list(body), 0x90, 0x00
         return list(b""), 0x6D, 0x00
 
 

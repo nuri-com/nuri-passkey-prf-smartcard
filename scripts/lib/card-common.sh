@@ -21,17 +21,27 @@ card_common_init_env() {
         case "$ID_LIKE" in *debian*|*ubuntu*) DEBIAN=1 ;; esac
     fi
 
+    # Python 3.10+. On macOS `python3` on PATH is often Apple's 3.9, where the
+    # pyscard wheel fails to load (PyInit__scard). Prefer a newer interpreter.
     BASE_PY="${PYTHON_BIN:-}"
     if [ -z "$BASE_PY" ]; then
-        BASE_PY="$(command -v python3 2>/dev/null || true)"
+        local cand
+        for cand in python3.13 python3.12 python3.11 python3.10 \
+                    /opt/homebrew/bin/python3 /usr/local/bin/python3 python3; do
+            cand="$(command -v "$cand" 2>/dev/null || true)"
+            [ -n "$cand" ] || continue
+            if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+                BASE_PY="$cand"; break
+            fi
+        done
     fi
     if [ -z "$BASE_PY" ]; then
-        say "python3 was not found." >&2
+        say "Python 3.10 or newer was not found." >&2
         card_common_print_fix
         exit 1
     fi
-    if ! "$BASE_PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' 2>/dev/null; then
-        say "python3 3.9 or newer is required ($BASE_PY is older or unusable)." >&2
+    if ! "$BASE_PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        say "Python 3.10 or newer is required ($BASE_PY is older or unusable)." >&2
         card_common_print_fix
         exit 1
     fi
@@ -147,6 +157,11 @@ card_common_python() {
     fi
     local venv="$NURI_DIR/venv"
     PY="$venv/bin/python"
+    # A venv left over from an older run on Python 3.9 cannot load pyscard: rebuild it.
+    if [ -x "$PY" ] && ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+        say "Rebuilding the private Python environment on $("$BASE_PY" --version 2>&1) ..."
+        rm -rf "$venv"
+    fi
     if [ ! -x "$PY" ]; then
         say "Preparing a private Python environment ..."
         "$BASE_PY" -m venv "$venv" || { say "could not create $venv" >&2; card_common_print_fix; exit 1; }
@@ -224,7 +239,8 @@ card_common_list_readers() {
         if [ "${v#GP_}" != "$v" ]; then unset "$v"; fi
     done
     set +e
-    out="$("$GP" --reader)"
+    # gp also complains on stderr when several readers hold a card: not an error here.
+    out="$("$GP" --reader 2>/dev/null)"
     rc=$?
     set -e
     [ -n "$keep_gp_bin" ] && export GP_BIN="$keep_gp_bin"
@@ -236,6 +252,8 @@ card_common_list_readers() {
     local seen_header=0
     while IFS= read -r line; do
         if [ "$seen_header" = 0 ]; then
+            # gp 24.10.15 prints "Available readers:" for one reader and
+            # "Specify reader with -r/$GP_READER; available readers:" for several.
             [ "$line" = "Available readers:" ] && seen_header=1
             continue
         fi

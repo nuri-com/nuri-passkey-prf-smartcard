@@ -43,6 +43,11 @@ def read_info(reader: str) -> dict[str, str]:
         data, sw = applet.transmit(GET_CPLC)
     if sw != 0x9000:
         raise SystemExit(f"ERROR: CPLC read returned {sw:04X}")
+    # Real cards answer with the BER-TLV header 9F 7F 2A before the 42 bytes
+    # (seen on NXP JCOP 2.4.1 and the Infineon demo card); strip it.
+    data = bytes(data)
+    if len(data) == CPLC_SIZE + 3 and data[:2] == b"\x9f\x7f" and data[2] == CPLC_SIZE:
+        data = data[3:]
     if len(data) != CPLC_SIZE:
         raise SystemExit(f"ERROR: CPLC is {len(data)} bytes, expected {CPLC_SIZE}")
     values, offset = {}, 0
