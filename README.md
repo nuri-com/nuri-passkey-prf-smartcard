@@ -97,10 +97,15 @@ Full agent runbook with STOP conditions: [docs/diy-key.md](docs/diy-key.md#12-fo
 
 ## DIY: build your own Nuri card
 
-Buy the reference card, install every applet, use every feature, change the admin key.
-The full guide names the exact card profile, the proven reader, the install order, every PIN path and the recovery boundaries. Read it before you buy anything.
+Blank card EUR 9.99 at [xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/), option "Full card size" (not sim size, shipping from Belgium) plus a contact smartcard reader: HID Global OMNIKEY 5422 is proven, a cheap ACS ACR39U or Realtek `0bda:0165` reader also worked. Then one command installs all eight applets, checks them and stops on anything unexpected:
 
-[Build your own card](docs/diy-card.md).
+```sh
+git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git && cd nuri-passkey-prf-smartcard && bash scripts/card-setup.sh
+```
+
+About 10 minutes. It never deletes, refuses a non-blank card, and asks you to type the card serial before the first write. `--dry-run` writes nothing.
+
+The [full guide](docs/diy-card.md) has the exact card profile, arrival checks, every PIN path, use cases and the recovery boundaries. Read it before you buy anything.
 
 ## Why it beats YubiKey
 

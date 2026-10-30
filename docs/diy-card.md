@@ -21,6 +21,26 @@ Two rules hold for the whole page:
 1. Never put a PIN on a command line. Type it at the prompt.
 2. Never fund a key before you have tested recovery.
 
+## Shopping list
+
+Everything you need. Read section 3 before you pay anything.
+
+| Item | Where | Price |
+|---|---|---|
+| Blank card, NXP JCOP profile, "Full card size" (not sim size) | https://xmrstreet.store/product/smartcard-j3r180/ | EUR 9.99 plus about EUR 10 shipping to the EU plus VAT (EUR 24.19 to Berlin); the shop takes Bitcoin Lightning and Monero only |
+| Contact smartcard reader | HID Global OMNIKEY 5422 (proven), or a cheap T=0 reader: ACS ACR39U, Realtek `0bda:0165` (both proven, see [reader compatibility](reader-compatibility.md)) | price: check the shop |
+| Mac (or Linux, **UNVERIFIED** there) | your desk | - |
+| Java 11 or newer, Python 3.9 or newer (what the script checks) | https://adoptium.net, https://www.python.org | free |
+
+The listing says J3R180. The card that arrived in the reference order is NXP JCOP 2.4.1.
+The script handles both; check the chip output in step 2 before you install.
+
+Then one command does the rest:
+
+```sh
+git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git && cd nuri-passkey-prf-smartcard && bash scripts/card-setup.sh
+```
+
 ## 1. The path
 
 ```mermaid
@@ -184,7 +204,7 @@ gp --reader "EXACT READER NAME" -l
 `-l` prints the registry. On a blank card you expect a short list: the ISD
 `A000000151000000`, plus whatever the vendor preinstalled (`A0000001515350`,
 `A000000151535041`, sometimes an NXP or MIFARE package). If you see any applet AID
-from section 5.1, the card is not blank for this procedure, and
+from section 5.3, the card is not blank for this procedure, and
 `provision-card-v1.sh` will refuse it.
 
 What the CPLC fields mean: `ICFabricator` is the silicon maker, `4790` is NXP.
@@ -202,7 +222,55 @@ serial: ____  ATR: ____  fabricator: ____  ICType: ____  OS ID: ____
 
 ## 5. Install the applets
 
-### 5.1 The applets and the order
+### 5.1 One command
+
+From the repository root, card in the reader:
+
+```sh
+bash scripts/card-setup.sh
+```
+
+It prints eight numbered steps, reads the card, shows the chip and the serial, and
+stops before the first write until you type the serial back. Expected output,
+trimmed (the real run is longer and the paths are yours):
+
+```text
+[1/8] Check the machine and install the tools
+[2/8] Find the card and read it (no write)
+Chip: NXP JCOP 2.4.1
+Serial: 57274221   OS date: 5134
+[3/8] Check that the public default admin key opens the card
+[4/8] Check that the card is blank
+Blank card, none of the eight applets present.
+[5/8] Confirm the plan
+Type the card serial 57274221 to install:
+[6/8] Install the applets (log: ~/.nuri-card/logs/setup-57274221-....log)
+...
+[7/8] Verify the result (read-only)
+All eight applets are listed.
+Every applet answered SELECT (9000, or 61xx on T=0-only readers).
+CARD_SETUP_VERIFIED 57274221
+```
+
+About 10 minutes, most of it waiting for the CAPs to load. The script never
+deletes anything, so a broken run costs time, not the card.
+
+| Flag | Effect |
+|---|---|
+| `--reader NAME` | use this exact reader, skip the picker |
+| `--serial 8HEX` | expect this serial and skip the typed confirmation (agents) |
+| `--dry-run` | run every read-only step and print the plan, write nothing |
+| `--resume` | install only the missing applets, still never delete |
+
+Known limits: it stops when the serial is on `~/.nuri-card/no-lock-cplc.txt`, when
+the card is not blank (unless `--resume`), and when the public default admin key
+does not open the card. It sets no PIN and generates no key: that is section 6.
+
+### 5.2 What the script does
+
+The rest of this section is the same five steps by hand, in the same order.
+
+### 5.3 The applets and the order
 
 Five install steps in this exact order. The order is not cosmetic: `install-eth2-card.sh`
 and `install-vault-card.sh` refuse unless FIDO2 is already there, because they only
@@ -247,7 +315,7 @@ Verify the artifacts before the first write:
 npm run card:release:verify
 ```
 
-### 5.2 Install the bundle
+### 5.4 Install the bundle
 
 ```sh
 CARD_PROVISION_CONFIRM=YES scripts/provision-card-v1.sh
@@ -283,7 +351,7 @@ CARD_V1_APPLETS_INSTALLED
 Four `APP: <aid> (SELECTABLE)` lines follow. The Java `WARNING: A restricted method`
 block from JNA is normal and can be ignored.
 
-### 5.3 Check ETH1 is 1.5 before going on
+### 5.5 Check ETH1 is 1.5 before going on
 
 ```sh
 NURI_ALLOW_ETH1_DEMO=1 NURI_READER="$GP_READER" scripts/run-card-python.sh scripts/card-eth-test.py
@@ -295,7 +363,7 @@ signatures verifying. This test refuses once ETH2 is installed, so run it now.
 Reference-card note: ETH1 1.4 returned `6F00` at KEYGEN and the instance had to be
 deleted and reinstalled at 1.5.
 
-### 5.4 Install ETH2
+### 5.6 Install ETH2
 
 ```sh
 scripts/install-eth2-card.sh
@@ -309,7 +377,7 @@ and refuses when ETH2 is already there. Success line:
 ETH2_INSTALLED_ALONGSIDE_V1 package=4E55524945544832 applet=4E5552494554483201 fido2=A0000006472F0001
 ```
 
-### 5.5 Install MuSig2 AID2, then AID3
+### 5.7 Install MuSig2 AID2, then AID3
 
 `install-musig2-card.sh` takes the AIDs from the environment and only accepts a
 reader name, so pass `GP_READER` explicitly.
@@ -330,7 +398,7 @@ Both scripts load the CAP, create the instance and re-list the registry. They ar
 not install-only: with `MUSIG2_REINSTALL=YES` they delete first, which destroys that
 instance's key. Without it they exit when the AID exists.
 
-### 5.6 Install the vault
+### 5.8 Install the vault
 
 ```sh
 scripts/install-vault-card.sh
@@ -344,7 +412,7 @@ AID survives. Success line:
 VAULT_INSTALLED_ALONGSIDE_FIDO2 package=4E555249564C54 applet=4E555249564C5401 fido2=A0000006472F0001
 ```
 
-### 5.7 Confirm the final registry
+### 5.9 Confirm the final registry
 
 ```sh
 gp --reader "$GP_READER" -l
@@ -848,29 +916,29 @@ not retry blindly.
 
 Runbook with STOP conditions. Each numbered step ends at a gate.
 
-1. Confirm with the human: which card, which reader, and whether the card is blank.
-   STOP if any of the three is unnamed.
-2. Read only: `gp --reader`, then `gp --reader "NAME" -i`. Read the serial back to
-   the human. STOP if the CPLC fabricator is not `4790` or the OS ID is not `4700`.
-3. Run `gp --reader "NAME" -l`. STOP if any applet AID from 5.1 is present and the
-   human wanted a clean install.
-4. Record the serial, ATR and CPLC in the report. This is the only identity anchor
-   for the rest of the run.
-5. Ask the human to remove every other card from the reader. STOP if a second card
-   stays in.
-6. Export `GP_READER`, `GP_READER_INDEX` and `GP_READER_IGNORE`, then run
-   `npm run card:release:verify`. STOP on a non-zero exit.
-7. Install in the fixed order of 5.2 to 5.6, one step per command. STOP at the
-   first non-zero exit and report the line verbatim.
-8. `gp -l` and compare against 5.7. STOP on any missing AID.
-9. Hand the terminal to the human for every PIN. Four applets, four different PINs.
-   STOP if the human wants to reuse a PIN across applets.
-10. Run the feature checks. Report each result separately. A pass on one path is not
-    a pass on another.
-11. Only now run `bash scripts/diy-key.sh` and accept success only on
-    `CARD_LOCK_VERIFIED`.
-12. Report the escrow path, tell the human to copy it now and to store the
-    passphrase separately. Then re-run `gp -l` with the new key to confirm.
+1. Confirm with the human: which reader, and that exactly one blank card is in it.
+   STOP if either is unnamed.
+2. Dry run first, no write: `bash scripts/card-setup.sh --dry-run --reader "NAME"`.
+   Read the printed chip, ATR and serial back to the human. Record them. STOP if the
+   fabricator is not `4790` or `4090`, or if the human did not buy the card.
+   A `not blank` result here means the human bought a used card; ask before
+   continuing, `--resume` installs only what is missing.
+3. Run `bash scripts/card-setup.sh --reader "NAME" --serial <SERIAL>`. It is the
+   whole install, the registry diff and the SELECT check.
+4. Accept success only on `CARD_SETUP_VERIFIED <SERIAL>`. STOP at the first
+   non-zero exit and report the failing line verbatim plus the log path.
+   Never re-run with a guessed key: the card locks after a few wrong tries.
+5. Hand the terminal to the human for every PIN (section 6). Four applets, four
+   different PINs. STOP if the human wants to reuse a PIN across applets.
+6. Run the feature checks. Report each result separately. A pass on one path is not
+   a pass on another.
+7. Only now run `bash scripts/diy-key.sh` and accept success only on
+   `CARD_LOCK_VERIFIED`.
+8. Report the escrow path, tell the human to copy it now and to store the
+   passphrase separately. Then re-run `gp -l` with the new key to confirm.
+
+If the script cannot be used (no Mac, exotic reader), the by-hand steps are
+sections 5.3 to 5.9: same order, same gates.
 
 Rules:
 
@@ -880,6 +948,7 @@ Rules:
   UNVERIFIED.
 - Never bypass a `Refusing:` line from an install script. Each one encodes a real
   precondition.
+- Never set `MUSIG2_REINSTALL=YES`; it deletes the instance and its key.
 - Never delete an applet to "start clean" without saying that its key dies with it.
 - Never claim a touch happened. Report `UP assumed true`.
 - Never fund an address before the human has tested recovery.
