@@ -54,7 +54,9 @@ class CardConnection:
         if apdu[:2] == [0x00, 0xA4]:
             length = apdu[4]
             aid = bytes(apdu[5:5 + length]).hex().upper()
-            if aid == "A000000003000000" or aid in state.get("aids", []):
+            # Like the real NXP JCOP 2.4.1: card manager A000000151000000,
+            # 6A82 for the old A000000003000000 (state "isd" overrides).
+            if aid == state.get("isd", "A000000151000000") or aid in state.get("aids", []):
                 return list(b""), 0x90, 0x00
             return list(b""), 0x6A, 0x82
         if apdu == [0x80, 0xCA, 0x9F, 0x7F, 0x00]:

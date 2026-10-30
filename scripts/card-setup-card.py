@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nuri_pcsc  # noqa: E402
 from card_lock import CPLC_FIELDS  # noqa: E402
 
-ISD_AID = "A000000003000000"
+# Card manager AIDs: GlobalPlatform/NXP JCOP first, then the older Visa one
+# (Infineon demo card). A real NXP JCOP 2.4.1 answers 6A82 to the second.
+ISD_AIDS = ("A000000151000000", "A000000003000000")
 GET_CPLC = bytes.fromhex("80CA9F7F00")
 EXPECTED_AIDS = (
     "A0000006472F0001",  # FIDO2
@@ -37,9 +39,19 @@ CPLC_SIZE = sum(size for _, size in CPLC_FIELDS)
 
 
 def read_info(reader: str) -> dict[str, str]:
-    with nuri_pcsc.open_applet(ISD_AID, reader) as applet:
-        atr = applet.atr()
-        data, sw = applet.transmit(GET_CPLC)
+    last = None
+    for isd in ISD_AIDS:
+        try:
+            with nuri_pcsc.open_applet(isd, reader) as applet:
+                atr = applet.atr()
+                data, sw = applet.transmit(GET_CPLC)
+            break
+        except nuri_pcsc.CardError as error:
+            last = error
+            if error.code != "NO_APPLET":
+                raise
+    else:
+        raise last
     if sw != 0x9000:
         raise SystemExit(f"ERROR: CPLC read returned {sw:04X}")
     # Real cards answer with the BER-TLV header 9F 7F 2A before the 42 bytes

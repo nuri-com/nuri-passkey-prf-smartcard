@@ -157,6 +157,18 @@ say "Log: $LOG"
 
 # --------------------------------------------------------------------- 3 auth
 step 3 "Check that the public default admin key opens the card"
+# A card whose admin key was changed on this machine (scripts/diy-key.sh) has an
+# escrow named after its CPLC. Never try the default key on it: a wrong try
+# counts toward locking the card for good.
+ESCROW_DIR="${NURI_ESCROW_DIR:-$HOME/.nuri-card/escrow}"
+ESCROW="$ESCROW_DIR/$CPLC.json"
+if [ -n "$CPLC" ] && [ -f "$ESCROW" ]; then
+    say "Card $SERIAL: its admin key was changed on this machine (escrow $ESCROW)."
+    say "The public default key is not tried; a wrong try counts toward locking the card."
+    say ""
+    say "This card is not blank. Nothing was written."
+    exit 0
+fi
 set +e
 REGISTRY="$("$GP" -r "$READER" -k "$DEFAULT_KEY" -l 2>&1)"
 AUTH_RC=$?

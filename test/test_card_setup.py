@@ -119,6 +119,26 @@ class CardSetupTest(unittest.TestCase):
         self.assertIn("A0000006472F0001", result.stdout)
         self.assertEqual(self.installs(), [])
 
+    def test_card_with_changed_admin_key_is_never_tried(self):
+        # The fake CPLC is fabricator 4790, fixed fields, the serial, zero padding.
+        cplc = ("4790" + "D3214700000000000000" + SERIAL).ljust(84, "0").upper()
+        escrow = self.home / ".nuri-card/escrow"
+        escrow.mkdir(mode=0o700)
+        (escrow / f"{cplc}.json").write_text("{}")
+        self.write_state(key="00112233445566778899AABBCCDDEEFF")
+        result = self.run_setup(stdin=SERIAL + "\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("admin key was changed on this machine", result.stdout)
+        self.assertIn("Nothing was written", result.stdout)
+        self.assertEqual(self.auth_calls(), [])
+        self.assertEqual(self.installs(), [])
+
+    def test_reads_an_infineon_card_manager_too(self):
+        self.write_state(isd="A000000003000000", aids=["A0000006472F0001"])
+        result = self.run_setup(["--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Serial: {SERIAL}", result.stdout)
+
     def test_wrong_default_key_stops_after_one_auth(self):
         self.write_state(key="00112233445566778899AABBCCDDEEFF")
         result = self.run_setup(stdin=SERIAL + "\n")
