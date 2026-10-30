@@ -23,11 +23,14 @@ Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
 | MuSig2 AID2 | `4E5552494D554732` / `4E5552494D55473201` | 1.17 | `972848969e3e58dc72d30b511247b7f4eb01f7b0350f58f78b5ee6c2c2ee889b` |
 | MuSig2 original | `4E5552494D5547` / `4E5552494D554701` | 1.17 | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
 | ETH signer v2 (PIN) | `4E55524945544832` / `4E5552494554483201` | 2.1.0 | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
+| ETH signer v1 (demo) | `4E555249455448` / `4E55524945544801` | 1.5 | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 
-FIDO2, FIDO2-up, ETH v1, OATH TOTP, vault and the PKCS#11 module are
+FIDO2, FIDO2-up, OATH TOTP, vault and the PKCS#11 module are
 byte-identical to `v1.1.0`. CI job `card-release` rebuilt every CAP from main
 `f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components
 (`CARD_V1_RELEASE_VERIFIED`, [run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+ETH v1 1.5 (d4dbdd9, below) came after that run; the `card-release` job of
+#42 rebuilt it with identical components.
 
 Card and signing:
 
@@ -57,6 +60,17 @@ Card and signing:
 - ETH2: tear-safe transactional SET/CHANGE/UNBLOCK for PIN and PUK with
   simulator tests (#26). Version bytes stay 2.1.0; the CAP hash changes. The
   `v1.1.0` ETH2 hardware receipt covers the previous CAP.
+- ETH1 1.5: set the secp256k1 cofactor (`setK(1)`) on both EC keys. On NXP
+  JCOP 2.4.1 card `57274221` (CPLC fabricator `4790`, ATR `JCOPv241`), ETH1 1.4
+  answered `6F00` to KEYGEN and then to GET_PUBKEY. KEYGEN marks the key as born
+  before the EC operation, so that instance stays unusable: delete package
+  `4E555249455448` and install 1.5. On the same card 1.5 returned KEYGEN `9000`,
+  one-shot guard `6989` and two EIP-191 signatures, each recovered by
+  python-ecdsa and ethers to `0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500`
+  ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), d4dbdd9;
+  source comment 470c985, same CAP).
+  ETH2 and MuSig2 already set the cofactor. The Infineon demo card (fabricator
+  `4090`) has not run 1.5.
 
 Bitcoin and Arkade:
 

@@ -41,7 +41,7 @@ with nuri_pcsc.open_applet("4E55524945544801") as applet:
     print(data.hex(), f"{sw:04X}")
 ```
 
-This example selects the legacy ETH applet and requests its version; it does not generate a key. Sources: [scripts/pkcs11-helper.py:81-86](../scripts/pkcs11-helper.py#L81-L86), [card/eth/NuriEcdsaSigner.java:151-171](../card/eth/NuriEcdsaSigner.java#L151-L171). Execution on your reader: **UNVERIFIED**.
+This example selects the legacy ETH applet and requests its version; it does not generate a key. Sources: [scripts/pkcs11-helper.py:81-86](../scripts/pkcs11-helper.py#L81-L86), [card/eth/NuriEcdsaSigner.java:156-176](../card/eth/NuriEcdsaSigner.java#L156-L176). Execution on your reader: **UNVERIFIED**.
 
 ## Software coverage, not hardware proof
 
@@ -61,10 +61,11 @@ The suite injects fake readers and a stand-in FIDO2 module; its import check als
 
 ## Hardware runs (parent, physical card)
 
-Each row is one run on the public demo card (CPLC fabricator 4090, OS id 86aa) with the stated reader. Rows record what ran, not a certified reader list.
+Each row is one run with the stated reader on the public demo card (CPLC fabricator 4090, OS id 86aa) unless the row names another card. Rows record what ran, not a certified reader list.
 
 | Reader (USB id / ATR) | Date | Protocol `nuri_pcsc` chose | Paths that passed |
 |---|---|---|---|
 | HID Global OMNIKEY 5422, contact slot | 2026-10-18 | `default` | SSH login (operator-controlled test server), FIDO2 PIN status, ETH v1 sign verified with python-ecdsa, PKCS#11 `pkcs11-tool --sign` verified, native host `info`/`sign_hash`, card-secrets `put`/`run`/`rm` |
 | Generic Realtek `0bda:0165`, ATR `3b119580` | 2026-10-17/18 | `T0` (default connect: `0x80100066`, T=1: `0x8010000F`) | SSH login, FIDO2 PIN status, ETH SELECT/version/pubkey |
 | ACS ACR39U ICC Reader | 2026-10-18 | `T0` | SSH login, FIDO2 PIN status, ETH v1 sign verified, PKCS#11 sign verified, native host `info`/`sign_hash` (as Chrome launches it), card-secrets `put`/`run`/`rm` |
+| HID Global OMNIKEY 5422, contact slot; card `57274221` (NXP JCOP 2.4.1, CPLC fabricator 4790), ATR `3BF81300008131FE454A434F5076323431B7` | 2026-10-29 | `default` | GP install of the v1.2.0 applet set; FIDO2 PIN + WebAuthn PRF; MuSig2 AID1/AID2/AID3 cosign verified; TOTP RFC 6238 vectors; ETH2 PIN gate + sign verified; vault HMAC/bearer; ETH v1 1.5 sign verified with python-ecdsa and ethers. ETH v1 1.4 returned `6F00` to KEYGEN. [Receipt](proofs/real-card-57274221-eth1-cofactor.json) |

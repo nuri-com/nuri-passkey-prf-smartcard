@@ -1,0 +1,121 @@
+{
+  "status": "ETH1_REAL_CARD_TEST_OK",
+  "date": "2026-10-29",
+  "card": {
+    "serial": "57274221",
+    "cplc": {
+      "ic_fabricator": "4790",
+      "ic_type": "D321",
+      "os_id": "4700",
+      "os_release_date": "0000"
+    },
+    "atr_contact": "3BF81300008131FE454A434F5076323431B7",
+    "atr_contactless": "3B8880014A434F50763234315E",
+    "atr_historical_ascii": "JCOPv241",
+    "reader": "HID Global OMNIKEY 5422 Smartcard Reader",
+    "reader_slot": "contact",
+    "protocol": "default"
+  },
+  "before": {
+    "applet_version": "1.4",
+    "cap_sha256": "0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217",
+    "get_version": "01040145544831",
+    "get_pubkey_before_keygen_sw": "6986",
+    "keygen_sw": "6F00",
+    "get_pubkey_after_keygen_sw": "6F00",
+    "cause": "ETH1 up to 1.4 never set the EC cofactor (setK) on privKey/nonceKey; this JCOP 2.4.1 rejects the EC operation. keygen() sets keyGenerated before the EC operation, so the failed instance was deleted and reinstalled."
+  },
+  "after": {
+    "applet_version": "1.5",
+    "source_commit": "d4dbdd9fd5b75cd56e7e0f7b3578c9435abdc584",
+    "build_provenance_source_commit": "ceb447a82a755f8df49dd0e211089e4a100b4239",
+    "build_provenance_note": "ceb447a and d4dbdd9 have the same tree; only the commit message differs. 470c985 changes only a source comment; npm run card:release:verify rebuilds the same cap_sha256.",
+    "cap_sha256": "627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470",
+    "get_version": "01050145544831",
+    "get_pubkey_before_keygen_sw": "6986",
+    "keygen_sw": "9000",
+    "keygen_again_sw": "6989",
+    "pubkey33": "02b7c9a0d5d6d6f9054540f5bd0762842ba260243dbdd7fb74c3a474cd6ea4ee9a",
+    "address": "0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500",
+    "message": "nuri card 57274221 eth1 test",
+    "eip191_digest": "b12c0bcb5ee891b247b7c6d3d44d9141ac9b24591ca3109be03699808c74302f",
+    "signatures": [
+      {
+        "sig": "0xd5258105304034d4b46dc6ce31016bd37a3eddf2c6cfb2f434bec7988f9fe13436bcba8511779bb2f093c3981097cde0bff6b8a30bb9b0c1a0e778026307931a1c",
+        "card_v": 1,
+        "low_s": true,
+        "python_ecdsa_verifies": true,
+        "ethers_verifyMessage": "0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500"
+      },
+      {
+        "sig": "0x7b5efb5a949933836910e7cf8ee127342b9e8d2bef6cef07e0565fcc4f79ec52682fed2cc6e2bfa8530f4e3c5dc213b6d55d68f664fd9c77d042be763b11614a1b",
+        "card_v": 0,
+        "low_s": true,
+        "python_ecdsa_verifies": true,
+        "ethers_verifyMessage": "0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500"
+      }
+    ],
+    "verifiers": {
+      "python-ecdsa": "0.19.2",
+      "ethers": "6.17.0"
+    }
+  },
+  "other_applets_unchanged": [
+    {
+      "name": "FIDO2-up",
+      "aid": "A0000006472F0001",
+      "cap_sha256": "ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9",
+      "result": "PIN set, WebAuthn PRF with UV required OK"
+    },
+    {
+      "name": "MuSig2",
+      "aid": "4E5552494D554701",
+      "version": "1.17",
+      "cap_sha256": "2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741",
+      "pubkey33": "021c53ee2dfd4707d40c9156757eaed9425d5cb492ac9536e1d9273d8404e62894",
+      "result": "REAL_CARD_COSIGN_FLOW_OK, partial and final signature verified"
+    },
+    {
+      "name": "MuSig2 AID2",
+      "aid": "4E5552494D55473201",
+      "version": "1.17",
+      "cap_sha256": "972848969e3e58dc72d30b511247b7f4eb01f7b0350f58f78b5ee6c2c2ee889b",
+      "pubkey33": "024fdaaa64a170d85c427eb2e08c71251415f6ce8da08fc5f405d776bc47064b91",
+      "result": "REAL_CARD_COSIGN_FLOW_OK, partial and final signature verified"
+    },
+    {
+      "name": "MuSig2 AID3",
+      "aid": "4E5552494D55473301",
+      "version": "1.17",
+      "cap_sha256": "d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9",
+      "pubkey33": "02b4f4629dd23c6449087cb240d4eb0d0c6c9bcbf6114cd06e5026fb760b0846f9",
+      "result": "REAL_CARD_COSIGN_FLOW_OK, partial and final signature verified"
+    },
+    {
+      "name": "OATH TOTP",
+      "aid": "4E555249544F5450",
+      "cap_sha256": "2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0",
+      "result": "TOTP_RAW_TEST_OK, six RFC 6238 vectors match"
+    },
+    {
+      "name": "ETH2",
+      "aid": "4E5552494554483201",
+      "version": "2.1.0",
+      "cap_sha256": "f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403",
+      "address": "0x12de0f6cfee64568b20554f84e589e20487e9663",
+      "result": "ETH2_REAL_CARD_TEST_OK, PIN gate 6982, wrong PIN 63C4, two verified signatures"
+    },
+    {
+      "name": "Vault",
+      "aid": "4E555249564C5401",
+      "cap_sha256": "70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33",
+      "result": "HMAC MATCH OK, BEARER MATCH OK, run on HMAC slot refused"
+    }
+  ],
+  "funded": false,
+  "not_proven": [
+    "SIGN on ETH1 1.4 was never sent on this card; the 1.4 failure covers KEYGEN and GET_PUBKEY only.",
+    "Contactless (ISO-DEP) use of ETH1 1.5.",
+    "ETH1 1.5 on the Infineon demo card (CPLC fabricator 4090)."
+  ]
+}

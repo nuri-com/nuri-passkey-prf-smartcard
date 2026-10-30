@@ -30,7 +30,9 @@ public class NuriEcdsaSigner extends Applet {
     //      producing wrong ECDSA s on every signature (zrd and s were wrong).
     // 1.4: removed debug INS 05/06/08 for production; KEYGEN is one-shot (6989
     //      once keyed). Keys can only be born on-card via ALG_SECURE_RANDOM.
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x04};
+    // 1.5: cofactor setK(1) on both EC keys; JCOP 2.4.1 answered 6F00 to
+    //      KEYGEN and GET_PUBKEY without it (card 57274221, 2026-10-29).
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x05};
 
     private static final byte INS_GET_VERSION = (byte)0x01;
     private static final byte INS_GET_PUBKEY  = (byte)0x02;
@@ -113,12 +115,15 @@ public class NuriEcdsaSigner extends Applet {
         privKey.setB(SECP256K1, (short)64, (short)32);
         privKey.setR(SECP256K1, OFF_N, (short)32);
         privKey.setG(SECP256K1, OFF_G, (short)65);
+        // Cofactor: NXP JCOP 2.4.1 throws (6F00) in EC KeyAgreement without it.
+        privKey.setK((short)1);
 
         nonceKey.setFieldFP(SECP256K1, OFF_P, (short)32);
         nonceKey.setA(SECP256K1, (short)32, (short)32);
         nonceKey.setB(SECP256K1, (short)64, (short)32);
         nonceKey.setR(SECP256K1, OFF_N, (short)32);
         nonceKey.setG(SECP256K1, OFF_G, (short)65);
+        nonceKey.setK((short)1);
 
         rng = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 
