@@ -246,9 +246,12 @@ class GP:
             raise Refusal("Authenticated registry must include FIDO2, ETH2 and vault applet instances")
 
     def rotate(self, old, new, version):
+        if len({new["enc"], new["mac"], new["dek"]}) != 1:
+            raise Refusal("gp 24.10.15 sets one key for ENC/MAC/DEK (--lock); refusing split keys")
         # SAME version is crucial: GP otherwise adds a keyset and leaves defaults usable.
-        self.run(self.auth(old, version) + ["--new-keyver", f"0x{version:02X}"] +
-                 [x for kind in ("enc", "mac", "dek") for x in ("--lock-" + kind, new[kind])])
+        # --lock alone: the split lock flags NPE at HexBytes.v(null) (GPTool.java#L801).
+        self.run(self.auth(old, version) + ["--new-keyver", f"0x{version:02X}",
+                                            "--lock", new["enc"]])
 
 
 def identity(info):
@@ -342,9 +345,17 @@ def main(argv=None):
             raise Refusal("CPLC serial confirmation mismatch")
         if args.action == "lock":
             password = password_from(args, confirm=True)
+            new_keys = None
+            for _ in range(8):
+                candidate = new_key(key_type)
+                if candidate != DEFAULT_KEY:
+                    new_keys = dict.fromkeys(("enc", "mac", "dek"), candidate)
+                    break
+            if new_keys is None:
+                raise Refusal("Could not generate a non-default key after 8 attempts")
             payload = {"gp_version": GP_VERSION, "cplc": cplc, "serial": serial,
                        "key_version": version, "key_type": key_type, "old_keys": defaults,
-                       "new_keys": {k: new_key(key_type) for k in defaults}}
+                       "new_keys": new_keys}
             escrow_path = Path(args.escrow).expanduser() if args.escrow else (
                 Path.home() / ".nuri-card/escrow" / (cplc + ".json"))
             atomic_escrow(escrow_path, encrypt(payload, password))

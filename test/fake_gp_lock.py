@@ -24,11 +24,9 @@ def value(flag):
     return args[args.index(flag) + 1]
 
 
-if state.get("key_type", "AES") == "DES3" and "--lock-enc" in args:
+if state.get("key_type", "AES") == "DES3" and "--lock" in args:
     record["new_keys_odd_parity"] = all(
-        bin(byte).count("1") % 2 == 1
-        for kind in ("enc", "mac", "dek")
-        for byte in bytes.fromhex(value("--lock-" + kind)))
+        bin(byte).count("1") % 2 == 1 for byte in bytes.fromhex(value("--lock")))
 with Path(os.environ["FAKE_GP_LOG"]).open("a") as stream:
     stream.write(json.dumps(record) + "\n")
 
@@ -94,15 +92,22 @@ if "-l" in args:
     for aid in sorted(lock.REQUIRED_APPS - set(state.get("missing_apps", []))):
         print("APP: " + aid + " (SELECTABLE)")
     sys.exit(0)
-if "--lock-enc" in args:
+if any(kind in args for kind in ("--lock-enc", "--lock-mac", "--lock-dek")) and "--lock" not in args:
+    # Real 24.10.15 NPEs in HexBytes.v(args.valueOf(OPT_LOCK)) -> keyFromPlugin returned empty.
+    print("java.lang.NullPointerException", file=sys.stderr)
+    sys.exit(17)  # Nothing sent: fake keys unchanged.
+if "--lock" in args:
     if not record["escrow_exists"] or record["mode"] != 0o600:
         sys.exit(13)
     if int(value("--new-keyver"), 16) != state.get("key_versions", [1])[0]:
         sys.exit(14)
     if state.get("rotate_fail"):
         sys.exit(15)  # PUT KEY rejected atomically: old keys stay on fake.
-    state["keys"] = {kind: value("--lock-" + kind) for kind in ("enc", "mac", "dek")}
+    # PlaintextKeys.fromMasterKey: one key becomes ENC = MAC = DEK, replacing the keyset.
+    state["keys"] = dict.fromkeys(("enc", "mac", "dek"), value("--lock"))
     state_path.write_text(json.dumps(state))
+    print("A000000151000000 locked with: " + value("--lock"))
+    print("Write this down, DO NOT FORGET/LOSE IT!")
     if state.get("fail_after_commit"):
         sys.exit(16)  # Simulate response loss AFTER the new keys took effect.
     sys.exit(0)
