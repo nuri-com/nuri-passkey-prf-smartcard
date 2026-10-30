@@ -84,6 +84,33 @@ Not in this release: OpenPGP/PIV, fingerprint gating, nginx TLS with the card, a
 any settlement claim from a signature alone. No private key is ever exportable:
 there is no export INS, and `getS` is only used inside a signing operation.
 
+## 2.1 Or buy something else
+
+This build is one option among several. The short version of a longer comparison.
+The blank card costs 9.99 EUR from the reference seller and 19.99 USD as the finished
+Nuri product, which is a different article. The release-spec table with Ledger,
+Trezor and the original Bitkey is in the root [README](../README.md#compare-the-card).
+
+| Device | Price, 2026-10-30 | What its vendor page says | Button, display |
+|---|---|---|---|
+| This card | 9.99 EUR blank card, plus a contact reader | Passkey with PRF, SSH, bitcoin MuSig2 2-of-2 with a Nuri server, Ethereum with PIN, TOTP, vault, PKCS#11 | none |
+| Tangem | 54.90 USD two cards, 69.90 USD three | Cold wallet for tokens on many chains, signed from the phone app | none on the card |
+| YubiKey 5 / Bio | 58 USD 5 NFC, 98 USD C Bio | FIDO2, U2F, PIV, OTP, OpenPGP. No bitcoin wallet of its own | touch button, fingerprint on Bio |
+| Bitkey | 230 EUR (bitkey.world/buy, from Germany) | Bitcoin only, 2-of-3 multisig, phone key plus hardware key plus Block's server | fingerprint, OLED screen |
+| YubiHSM 2 | 650 EUR | Server and CA keys, PKCS#11, RSA, ECC, ed25519 | none, server slot |
+
+What the card gives up against all four: no button, no screen, no support line, no
+seed phrase. What no other row gives you: applet source you can read, change and
+install on any blank card of the same family.
+
+Vendor sources, read 2026-10-30, list price in the vendor's own currency, before VAT
+and shipping: [tangem.com](https://tangem.com/en/pricing/),
+[YubiKey 5 NFC](https://www.yubico.com/product/yubikey-5-series/yubikey-5-nfc/),
+[YubiKey C Bio](https://www.yubico.com/product/yubikey-bio-series/yubikey-c-bio/),
+[bitkey.world](https://bitkey.world/buy) (2-of-3 and custody: [product page](https://bitkey.world/product)),
+[YubiHSM 2](https://www.yubico.com/product/yubihsm-2-series/). The full table and a
+"which fits you" list are in the article: <https://emin.de/posts/build-your-own-nuri-card>.
+
 ## 3. Buy the card
 
 ### 3.1 The reference card

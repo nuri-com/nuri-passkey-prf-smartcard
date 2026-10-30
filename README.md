@@ -105,7 +105,7 @@ git clone https://github.com/nuri-com/nuri-passkey-prf-smartcard.git && cd nuri-
 
 About 10 minutes. It never deletes, refuses a non-blank card, and asks you to type the card serial before the first write. `--dry-run` writes nothing.
 
-The [full guide](docs/diy-card.md) has the exact card profile, arrival checks, every PIN path, use cases and the recovery boundaries. Read it before you buy anything.
+The [full guide](docs/diy-card.md) has the exact card profile, arrival checks, every PIN path, use cases, the recovery boundaries and where it differs from Tangem, YubiKey, Bitkey and YubiHSM. Read it before you buy anything.
 
 ## Why it beats YubiKey
 
