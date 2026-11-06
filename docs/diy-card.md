@@ -23,6 +23,14 @@ Two rules hold for the whole page:
 
 1. Never put a PIN on a command line. Type it at the prompt.
 2. Never fund a key before you have tested recovery.
+## Readers and fingerprint cards
+
+Any CCID reader works. `python3 scripts/card-readers.py` shows what is plugged
+in, read only, and setup picks the reader itself when one card is present.
+Details and the measured reader matrix: [readers.md](readers.md).
+
+A fingerprint card (IDEX TrustedBio) unlocks signing with your thumb OR the
+PIN. Our interface and the real-card results: [fingerprint.md](fingerprint.md).
 
 ## Shopping list
 

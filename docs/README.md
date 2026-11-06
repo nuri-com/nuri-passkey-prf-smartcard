@@ -30,11 +30,15 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [eth-applet-v2.md](eth-applet-v2.md) — Current ETH2 mandatory-default PIN, commands, attestation and simulator coverage.
 - [eth-signing-spec.md](eth-signing-spec.md) — ETH1 demo versus ETH2 digest-signing contract and host verification.
 - [fail-closed-signers.md](fail-closed-signers.md) — Audit of every signer entry point: card absent is an error, simulators only with explicit flags, ETH1 behind `NURI_ALLOW_ETH1_DEMO=1`.
+- [fingerprint.md](fingerprint.md) — Fingerprint OR PIN on the IDEX TrustedBio card: our VERIFY_FINGER interface, real-card results, honest limits; vendor NDA code stays private.
+- [fingerprint.md](fingerprint.md) — Fingerprint OR PIN on the IDEX TrustedBio card: our VERIFY_FINGER interface, real-card results, honest limits; vendor NDA code stays private.
 - [fido2-prf-baseline.md](fido2-prf-baseline.md) — Pinned FIDO2 build inputs, patches and simulator PRF mapping.
 - [fido2-user-presence.md](fido2-user-presence.md) — UP is assumed, not a measured touch; PIN/UV and browser compatibility are separate.
 - [gp-macos-troubleshooting.md](gp-macos-troubleshooting.md) — Classify GP/transport/install errors before attempting destructive changes.
 - [hardware.md](hardware.md) — Exact CPLC observations, required algorithms and unqualified batch/model limits.
 - [helper-servers-security.md](helper-servers-security.md) — Loopback-only HTTP/MCP pairing, scoped bearer files and resource/framing limits.
+- [readers.md](readers.md) — Any CCID reader: read-only inventory tool, auto-selection, NURI_READER, measured reader matrix incl. the broken CASTLES EZCCID on macOS.
+- [readers.md](readers.md) — Any CCID reader: read-only inventory tool, auto-selection, NURI_READER, measured reader matrix incl. the broken CASTLES EZCCID on macOS.
 - [home-cosigner.md](home-cosigner.md) — Permanent local signing service: LaunchAgent/systemd user unit, PIN from the OS keystore, `POST /api/send` one-liner, no spending limits.
 - [how-it-works.md](how-it-works.md) — Host transaction construction, PRF-derived secrets and card partial signing overview.
 - [hsm.md](hsm.md) — secp256k1 PKCS#11/OpenSSL use: real card by default, labelled simulator only on request, ETH2 preferred, ETH1 only with the demo opt-in.
