@@ -273,11 +273,23 @@ card_common_reader_exists() {
 }
 
 card_common_pick_reader() {
-    local i=0 choice ok=0 attempt
+    # Exactly one reader holding a card: use it, no question. With several
+    # cards show each card serial, so the choice is a card, not a USB name.
+    if [ "${#READERS[@]}" -eq 1 ]; then
+        READER="${READERS[0]}"
+        say "Using the only reader with a card: $READER"
+        return 0
+    fi
+    local i=0 choice ok=0 attempt info serial key value
     say ""
     say "Readers holding a card:"
     while [ "$i" -lt "${#READERS[@]}" ]; do
-        say "  $((i + 1))) ${READERS[$i]}"
+        serial=""
+        info="$("$PY" "$ROOT/scripts/card-setup-card.py" info --reader "${READERS[$i]}" 2>/dev/null)" || info=""
+        while IFS='=' read -r key value; do
+            [ "$key" = "SERIAL" ] && serial="$value"
+        done <<< "$info"
+        say "  $((i + 1))) ${READERS[$i]}${serial:+  card serial $serial}"
         i=$((i + 1))
     done
     for attempt in 1 2 3; do

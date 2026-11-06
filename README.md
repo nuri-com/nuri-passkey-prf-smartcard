@@ -13,6 +13,7 @@ The Nuri Card release specification:
 - **No battery.** Nothing to charge. Carry it in your wallet.
 - **Mobile NFC.** Tap your phone, or use a USB smartcard reader on your computer.
 - **PIN + phone biometrics.** Familiar phone approval, with separate card PIN protection.
+- **Fingerprint on the card.** On the IDEX TrustedBio card your thumb OR the PIN unlocks signing. The match happens on the card, the host only gets yes/no. [Fingerprint](docs/fingerprint.md).
 - **HSM secure chip.** Bitcoin and Ethereum signing keys stay on the card.
 - **Bitcoin with three keys, like Bitkey.** Card, Nuri server and Arkade operator, in one three-leaf Taproot program. On-chip partial signing, with a reported ~2 s fast path, and a timelocked card-only recovery if Nuri is gone.
 - **FIDO2 physical passkey.** Sign in to websites with the card.
@@ -67,6 +68,16 @@ flowchart LR
 ```
 
 Only the Android balance and the AID3 speed are operator reports without receipts in this checkout.
+
+## Fingerprint card, any reader (2026-11-03)
+
+- Thumb OR PIN authorizes MuSig2 and ETH signing on the IDEX TrustedBio card,
+  proven on the real card with the owner's thumb. Interface and limits:
+  [docs/fingerprint.md](docs/fingerprint.md). The vendor biometric API is under
+  NDA, so those applet builds live in the private backup repo.
+- `python3 scripts/card-readers.py` lists every reader, card serial and applet,
+  read only. Setup picks the reader itself when one card is present.
+  [docs/readers.md](docs/readers.md).
 
 ## DIY: change your card's admin key
 

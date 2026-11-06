@@ -6,6 +6,26 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-03 — fingerprint card and reader handling
+
+```mermaid
+flowchart LR
+  T[Owner thumb] -->|MATCH 0.8-1.4 s| UV[MuSig2-UV / ETH2-UV]
+  P[PIN] --> UV
+  R[card-readers.py] -->|SELECT + GET DATA only| X[ATR, CPLC serial, applets]
+```
+
+- Fingerprint OR PIN on the IDEX TrustedBio card B2183751, real-card proof with
+  the owner's thumb: 3 of 4 rounds MATCH, each match unlocked the applet, the
+  fourth was a 4 s no-finger timeout. Interface and limits in
+  `docs/fingerprint.md`; vendor NDA builds stay in the private repo.
+- `scripts/card-readers.py`: read-only inventory of every PC/SC reader (ATR,
+  CPLC serial, chip, Nuri applets), plus a measured reader matrix in
+  `docs/readers.md` (OMNIKEY contact and contactless work, CASTLES EZCCID
+  answers a pseudo ATR and fails every APDU on macOS 15.5).
+- `card-setup.sh` no longer asks for a reader when exactly one card is present,
+  and shows card serials when several are.
+- Tests: `test/test_card_readers.py` (6), `test_card_setup.py` (17).
 
 ## Unreleased — 2026-10-30 — Home cosigner: the card as a permanent local service — Hermes Agent
 
