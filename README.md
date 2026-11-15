@@ -12,6 +12,7 @@ verifies their server mapping; see the [2026-07-10 incident report](docs/expo-we
 
 ## Table of contents
 
+- [**PC/SC `Transmit failed`? Force T=0 first**](#pcsc-transmit-failed-force-t0-first)
 - [The vision](#the-vision)
 - [What it is today](#what-it-is-today)
 - [Proven on a real card](#proven-on-a-real-card)
@@ -37,6 +38,70 @@ verifies their server mapping; see the [2026-07-10 incident report](docs/expo-we
 - [Flashing a real card](#flashing-a-real-card)
 - [What we can and cannot claim](#what-we-can-and-cannot-claim)
 - [Repo layout & references](#repo-layout-references)
+
+---
+
+## PC/SC `Transmit failed`? Force T=0 first
+
+> **For people and automation/bots: do not diagnose this Nuri card with Status
+> Keycard, OpenPGP, PIV or OpenSC tools based on its ATR. Use this repository's
+> Nuri PC/SC stack and try T=0 before blaming or replacing the card/reader.**
+> This mistake has recurred repeatedly: generic tools report a transaction or
+> transmit failure even though the same inserted card works with Nuri FIDO2 SSH.
+
+**Verified again on 2026-11-15:** an inserted **ACS ACR39U ICC Reader**, ATR
+`3b119580`, successfully selected both Nuri ETH and Nuri FIDO2 with **T=0
+forced**. ETH `GET_VERSION` returned v1.3/build `ETH1`, and `GET_PUBKEY` returned
+the existing public key. The reader, card, applets and APDU transport were all
+working. Earlier default/T=1 failures were a **host tooling/protocol mismatch**,
+not a hardware failure.
+
+Typical misleading symptoms include:
+
+- `keycard info` → `scard: Transaction failed`;
+- Python/pyscard → `APDU transmit failed` / `Transmit failed`;
+- macOS CryptoTokenKit → `Code=-2` during a T=1 transmit;
+- GPG → `OpenPGP card not available`, or OpenSC → `Unsupported card`.
+
+The last two are expected when the relevant applet is not installed; they say
+nothing about whether the Nuri applets work. Likewise, an ATR identifies a chip
+family, **not which applet is installed**. Successful Nuri FIDO2 SSH does not
+prove that Status Keycard commands should work.
+
+Use the shared helper, which also handles T=0 `61XX`/`6CXX` procedure bytes:
+
+```bash
+cd /path/to/nuri-passkey-prf-smartcard
+# Use Python 3.10+; macOS's old /usr/bin/python3 may fail the version check.
+NURI_READER=ACR39U NURI_PCSC_PROTOCOL=T0 \
+PYTHON_BIN="$(command -v python3.13)" \
+  scripts/run-card-python.sh - <<'PY'
+import sys
+sys.path.insert(0, "scripts")
+from nuri_pcsc import open_applet
+
+# Read-only: SELECT, GET_VERSION and GET_PUBKEY. No KEYGEN or SIGN.
+with open_applet("4E55524945544801") as eth:  # NURIETH1
+    print("ETH SELECT OK:", eth.protocol, eth.reader_name)
+    print("VERSION:", eth.transmit(bytes.fromhex("0001000000")))
+    print("PUBKEY:", eth.transmit(bytes.fromhex("0002000000")))
+
+with open_applet("A0000006472F0001") as fido2:
+    print("FIDO2 SELECT OK:", fido2.protocol, fido2.reader_name)
+PY
+```
+
+For other Nuri scripts, set `NURI_PCSC_PROTOCOL=T0` (and optionally
+`NURI_READER=ACR39U`) rather than patching every caller. The default `auto`
+ladder is `default → T0 → T1`; explicitly pinning T=0 avoids the failing generic
+path. Run **one PC/SC card command at a time**, and do not kill a process
+mid-APDU—on macOS that can wedge PC/SC until the card is reseated.
+
+Only if this known-good T=0 probe also fails should you investigate seating,
+competing card processes, PC/SC state or another reader. Never use KEYGEN,
+initialization, PIN guesses, applet deletion or factory reset as a transport
+test. See [`docs/gp-macos-troubleshooting.md`](docs/gp-macos-troubleshooting.md)
+for the lower-level PC/SC details.
 
 ---
 
@@ -1325,6 +1390,8 @@ Full guide, architecture diagram, decision log, troubleshooting:
 ---
 
 ## Ethereum / EVM signing
+
+**Existing-key option:** NURIETH2 (`4E55524945544802`) adds one-shot raw secp256k1 import under a separate package/AID, plus the `nurisc-eth` hidden-import/pubkey/sign CLI. It was proven on the ACR39U over T=0 and signed a live direct Base withdrawal. Build, install, recovery-parity handling and evidence: [`docs/eth2-import-signer.md`](docs/eth2-import-signer.md). It does not provide a general password vault or PIN-gated signing.
 
 **Status: built and proven on a real card (v1.3).** The card runs secp256k1
 ECDSA signing — the same algorithm Bitcoin Legacy/SegWit and Ethereum use. One

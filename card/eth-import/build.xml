@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="NuriImportEcdsaSigner" default="build" basedir=".">
+    <description>Build NuriImportEcdsaSigner applet CAP</description>
+
+    <property name="ajc.jar" location="../../tools/ant-javacard-proven.jar"/>
+    <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ajc.jar}"/>
+
+    <fail unless="jckit.path" message="Pass -Djckit.path=/absolute/path/to/jc304_kit"/>
+    <property name="cap.output" location="../../dist/nuri-eth-import-signer.cap"/>
+
+    <target name="build">
+        <mkdir dir="../dist"/>
+        <javacard jckit="${jckit.path}">
+            <cap aid="4E55524945544849" version="1.0" output="${cap.output}" sources="." jca="3.0.4">
+                <applet class="com.nuri.ethimport.NuriImportEcdsaSigner" aid="4E55524945544802"/>
+            </cap>
+        </javacard>
+    </target>
+</project>
