@@ -28,6 +28,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [e2e-proof.md](e2e-proof.md) — Generated end-to-end evidence, run with `node scripts/send/e2e-proof.mjs --dry-run`.
 - [proofs/e2e-proof.json](proofs/e2e-proof.json) — Public stage-by-stage receipt, dry results do not claim physical execution.
 - [eth-applet-v2.md](eth-applet-v2.md) — Current ETH2 mandatory-default PIN, commands, attestation and simulator coverage.
+- [eth2-import-signer.md](eth2-import-signer.md) — Optional PIN-less NURIETH2 existing-key import, ACR39U/T=0 workflow and physical-card proof.
 - [eth-signing-spec.md](eth-signing-spec.md) — ETH1 demo versus ETH2 digest-signing contract and host verification.
 - [fail-closed-signers.md](fail-closed-signers.md) — Audit of every signer entry point: card absent is an error, simulators only with explicit flags, ETH1 behind `NURI_ALLOW_ETH1_DEMO=1`.
 - [fingerprint.md](fingerprint.md) — Fingerprint OR PIN on the IDEX TrustedBio card: our VERIFY_FINGER interface, real-card results, honest limits; vendor NDA code stays private.

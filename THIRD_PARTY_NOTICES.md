@@ -26,6 +26,7 @@ third-party notices remain in force. This is a mixed-licence distribution,
 | `card/eth/Biginteger.java` | GPL-2.0-or-later. Satochip/Toporin modifications, OV-chip 2.0 / Digital Security group, Radboud Universiteit Nijmegen (2008–2009), plus JCMathLib attribution in the file. Original headers retained. |
 | `card/eth/BigIntegerWrapper.java` and the combined ETH v1 applet | Satochip-derived arithmetic with the GPL implementation. Independently Nuri-authored portions retain MIT; the combined work is GPL-2.0-or-later, not MIT-only. |
 | `dist/nuri-eth-signer.cap` | GPL-2.0-or-later combined ETH v1 binary; corresponding source in `card/eth/` and build scripts in this release. |
+| `card/eth-import/Biginteger.java`, `card/eth-import/BigIntegerWrapper.java` and `dist/nuri-eth-import-signer.cap` | GPL-2.0-or-later combined import-capable signer; inherited Satochip/OV-chip arithmetic notices are retained and corresponding source is in `card/eth-import/`. Independently Nuri-authored portions retain MIT. |
 | `extension/third_party/ethers.umd.min.js` | ethers 6.17.0, MIT, Copyright (c) 2016–2025 Richard Moore. Preserve [adjacent licence](extension/third_party/ethers.LICENSE.md). Completeness of embedded-component notices remains UNVERIFIED. |
 
 ## GPL distribution and historical binaries

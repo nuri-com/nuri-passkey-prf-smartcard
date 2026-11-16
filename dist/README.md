@@ -19,6 +19,7 @@ attestation and vault CAPs are simulator only. [Feature status](../README.md#fea
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
 | `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.5 / SIGN; demo, no PIN; cofactor fix for NXP JCOP 2.4.1 | GPL-2.0-or-later combined | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 | `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; transactional SET/CHANGE/UNBLOCK; hardware tear unverified | MIT | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
+| `nuri-eth-import-signer.cap` | `card/eth-import/` | `4E55524945544802` | 1.4; optional one-shot existing-key import; PIN-less; ACR39U physical-card proof | GPL-2.0-or-later combined | `620d3f3c2a72fad18516c4a45da1c327fdd7640581d62f015c77cd5c520c6d44` |
 | `nuri-vault.cap` | `card/vault/` | `4E555249564C5401` | package 1.1; PIN slots and attestation | MIT | `70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33` |
 | `pkcs11-nuri.so` | `scripts/pkcs11-nuri.c` | `not an applet` | macOS native module; rebuild for your platform | MIT source | `b27a41734535d15d032ef553974643a4f97cabc1d67216fca1b1069d19b21299` |
 

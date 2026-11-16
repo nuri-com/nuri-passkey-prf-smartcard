@@ -153,7 +153,7 @@ Nuri cells describe the release specification above. Competitor cells describe d
 
 ³ HMAC-SHA1 plus a host-supplied counter/truncation enables TOTP with YubiHSM 2; it is not a dedicated OATH applet. Nuri also uses host time and truncation. — means support was not established for that specific model; historical Nano S OTP software does not prove Nano X support.
 
-⁴ Nuri-authored applet code is MIT; the legacy ETH1 CAP contains GPL arithmetic. Ledger's open apps do not make its secure-element OS open. See [licences](#licence). Update support does not promise that replacing an applet preserves its keys.
+⁴ Nuri-authored applet code is MIT; the legacy ETH1 and import-capable NURIETH2 CAPs contain GPL arithmetic. Ledger's open apps do not make its secure-element OS open. See [licences](#licence). Update support does not promise that replacing an applet preserves its keys.
 
 Three keys guard a Nuri bitcoin balance, like Bitkey's three keys and unlike a plain 2-of-2. The wallet contract is one Taproot program with three leaves: `MuSig2(card, Nuri)` plus the Arkade operator for the everyday instant path, `MuSig2(card, Nuri)` after a CSV timelock for the unilateral exit without the operator, and the card alone after a longer CSV timelock for recovery if Nuri is gone ([board-core.mjs:53-82](scripts/send/board-core.mjs#L53-L82), [contract notes](docs/arkade-card-e2e.md#correct-contract-construction-and-applet-parity)). Neither Nuri nor the operator can move coins alone; if both disappear, the card alone recovers after the timelock. The difference to Bitkey is one sentence: there Block's server plus your phone can sign, here the card is always required and is also the recovery key. A lost card is still a lost client key.
 
@@ -223,6 +223,8 @@ Run the **software-only ETH2** suite: PIN authorization, signing and independent
 npm run card:eth2:test:sim
 python3 -m unittest discover -s host -p 'test_host.py' -v
 ```
+
+A separate **optional, PIN-less** NURIETH2 applet supports one-shot import of an existing secp256k1 key. It does not replace the PIN-gated ETH2 signer or FIDO2. Its ACR39U/T=0 setup, physical-card proof and security limits are documented in [the import-signer guide](docs/eth2-import-signer.md). Prefer a newly generated key whenever possible.
 
 ### PGP: a separate roadmap item
 

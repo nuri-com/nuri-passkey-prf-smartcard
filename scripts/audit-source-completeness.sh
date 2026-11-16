@@ -15,6 +15,8 @@ required_files=(
   card/totp/NuriOathTotp.java
   card/eth/NuriEcdsaSigner.java
   card/eth2/NuriEthSignerV2.java
+  card/eth-import/NuriImportEcdsaSigner.java
+  card/eth-import/Biginteger.java
   card/vault/NuriVault.java
   card/vault/build.xml
   mobile/expo-nfc-prf-probe/App.tsx
@@ -30,6 +32,7 @@ required_files=(
   dist/nuri-oath-totp.cap
   dist/nuri-eth-signer.cap
   dist/nuri-eth2-signer.cap
+  dist/nuri-eth-import-signer.cap
   dist/nuri-vault.cap
   dist/SHA256SUMS
   LICENSES/GPL-2.0-or-later.txt
