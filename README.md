@@ -4,7 +4,7 @@ Your Bitcoin wallet, physical passkey and pocket HSM. One battery-free card.
 
 [**Explore Nuri Card →**](https://nuri-com.github.io/nuri-passkey-prf-smartcard/)
 
-**Free with a $1,000+ BTC deposit, otherwise $19.99**
+**Free with at least €2,000 swap volume, otherwise $19.99**
 
 ## What it does
 
@@ -124,7 +124,7 @@ Or buy the finished card, applets already installed, at <https://www.nuri.com>.
 
 - **A crypto wallet on the chip.** Bitcoin MuSig2 and native Ethereum signing alongside passkeys, OpenSSH and TOTP.
 - **Open + updatable.** Inspect the applet source and add features. YubiKey firmware is closed and [cannot be updated](https://docs.yubico.com/hardware/yubikey/yk-tech-manual/yk5-firmware-overview.html).
-- **About a third of the price.** $19.99 versus $58 for a YubiKey 5 NFC—or free with a $1,000+ BTC deposit.
+- **About a third of the price.** $19.99 versus $58 for a YubiKey 5 NFC—or free with at least €2,000 swap volume.
 
 ## Compare the card
 
@@ -132,7 +132,7 @@ Nuri cells describe the release specification above. Competitor cells describe d
 
 | Feature | Nuri Card | YubiKey 5 NFC | YubiHSM 2 | Ledger Nano X | Trezor Safe 3 | Bitkey original | Tangem |
 |---|---|---|---|---|---|---|---|
-| Price · USD | **$19.99 / free with $1,000+ BTC deposit** | $58 | $650¹ | $99 | $59 | $150 | $54.90 / 2 cards |
+| Price · USD | **$19.99 / free with at least €2,000 swap volume** | $58 | $650¹ | $99 | $59 | $150 | $54.90 / 2 cards |
 | No battery | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
 | Mobile NFC | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ |
 | Phone biometrics + card PIN/access code | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |

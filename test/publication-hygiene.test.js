@@ -37,7 +37,7 @@ test('README evidence labels stay bounded and demo tooling stays explicit', () =
   ]) assert.ok(readme.includes(heading), `Missing restored section: ${heading}`);
   assert.match(readme, /```mermaid/);
   const selling = readme.split('## For developers')[0];
-  assert.match(selling, /Free with a \$1,000\+ BTC deposit, otherwise \$19\.99/);
+  assert.match(selling, /Free with at least €2,000 swap volume, otherwise \$19\.99/);
   assert.ok(selling.indexOf('## What it does') < selling.indexOf('## Compare the card'));
   assert.doesNotMatch(selling, /Research stack|no product certification established|no screen|blind signing/);
   assert.doesNotMatch(readme, /Verify applet PIN; request public nonces/);
