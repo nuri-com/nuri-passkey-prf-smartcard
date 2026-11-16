@@ -1,82 +1,34 @@
-# Arkade / Lightning Card Paths
+# Arkade and Lightning integration boundaries
 
-> **Status update (2026-07-10):** Android NFC produced two verified card/server
-> MuSig2 rounds and broadcast an Ark transaction returned by the live indexer.
-> The profile now uses the authenticated username for the inserted
-> credential/card pair; it does not substitute an older username or local
-> account. The final monitor/`send/complete` ordering requires the next real
-> payment for completion and Lightning-settlement proof. See
-> [`expo-web-parity-incident-2026-07-10.md`](expo-web-parity-incident-2026-07-10.md).
-
-This file is a map, not the source of truth. For the implemented card-client
-signer proof, use [`arkade-card-signer-proof.md`](arkade-card-signer-proof.md)
-and the code it references.
-
-## Recommended Signing Model
-
-The simple secure model is:
-
-```text
-card MuSig2 key = Arkade client signer
-Arkade ASP key = second MuSig2 signer
-phone/app = relay, verifier, transaction builder, and Lightning/Boltz driver
+```mermaid
+flowchart LR
+  C["Card-client interface<br/>src/musig2/arkade-client-signer.js:155-189"] --> V["Verify and aggregate<br/>src/musig2/arkade-client-signer.js:239-256"]
+  S["Local simulated ASP<br/>src/musig2/arkade-client-signer.js:205-207,231-240"] --> V
+  V -. "not settlement evidence" .-> L["Live Lightning completion: UNVERIFIED"]
 ```
 
-The phone does not receive a PRF-derived spend key in this model. It receives
-only public keys, public nonces, and partial signatures, then verifies and
-aggregates with the same `@scure/btc-signer` MuSig2 semantics used by Arkade.
+## Two different key models
 
-Proof commands in this repo:
+**Card as MuSig2 client signer.** The local proof asks a signer for its public key, public nonce and partial, verifies both parties' partials, then verifies the aggregate BIP340 signature. The default client is a simulator and the ASP secret is local software, not a live remote operator. [src/musig2/arkade-client-signer.js:193-256](../src/musig2/arkade-client-signer.js#L193-L256)
+
+The PC/SC adapter exercises the real-card interface with a local simulated ASP, in untweaked and script-root-tweaked cases. Source support is not a fresh device run. [scripts/real-card-arkade-signer-proof.py:214-246](../scripts/real-card-arkade-signer-proof.py#L214-L246)
+
+**Card as PRF identity root.** The compatibility adapter obtains PRF output, derives a Bitcoin client key in host memory and returns it through `getSigningKey()`. This is not a non-exporting card-client signing path. [scripts/card-arkade-identity.mjs:32-72](../scripts/card-arkade-identity.mjs#L32-L72)
+
+## Offline check
+
+Requires the declared Node dependencies to be installed. [package.json:86-94](../package.json#L86-L94)
 
 ```bash
-npm run card:arkade:signer:sim   # local scure-compatible proof, no hardware
-npm run card:arkade:signer:real  # PC/SC proof with the current MuSig2 applet
+node scripts/arkade-card-signer-proof.mjs --json
 ```
 
-Both untweaked MuSig2 signing and Arkade-style x-only Taproot tweak signing are
-covered by the proof path.
+This command selects local simulated/software signers and exercises both signing cases by default; its output reports partial/final signature verification. It neither sends Lightning nor contacts a live ASP. [scripts/arkade-card-signer-proof.mjs:19-25](../scripts/arkade-card-signer-proof.mjs#L19-L25), [scripts/arkade-card-signer-proof.mjs:58-85](../scripts/arkade-card-signer-proof.mjs#L58-L85), [src/musig2/arkade-client-signer.js:193-256](../src/musig2/arkade-client-signer.js#L193-L256)
 
-## Current Real-Card APDU
+## Integration limits
 
-The installed card applet currently exposes a reduced APDU flow:
+- A FIDO2 credential and the MuSig2 public key are separate inputs. The wallet obtains its client seed through a PRF profile and obtains the independent card public key through its signing helper; one successful FIDO2 operation is not evidence of a remote account mapping. [scripts/nuri-card-wallet.mjs:109-127](../scripts/nuri-card-wallet.mjs#L109-L127), [scripts/read-musig2-card-key.py:15-27](../scripts/read-musig2-card-key.py#L15-L27)
+- Current MuSig2 requires its own PIN and session token, not FIDO2 PIN/UV or fresh touch. Earlier demo applets lack the PIN gate; see [current protocol](musig2-pin-and-hardening.md). Host approval policies remain separate. [card/musig2/NuriMuSig2v019.java:178-203](../card/musig2/NuriMuSig2v019.java), [card/musig2/NuriMuSig2v019.java:369-415](../card/musig2/NuriMuSig2v019.java)
+- **UNVERIFIED:** live Arkade/ASP policy, Boltz swap completion, merchant settlement, deployed identity mapping and current phone/browser compatibility. A local signature or indexed broadcast is not fresh end-to-end Lightning-payment evidence.
 
-```text
-GET_PUBKEY
-GET_NONCES
-FINALIZE(a_i, b, parity, e)
-```
-
-`scripts/real-card-arkade-signer-proof.py` adapts that to the clean app role:
-the card is labelled as `card_client_pk33`, the local software signer simulates
-the ASP, and the host verifies both partials plus the final BIP340 signature.
-
-This is still proof/dev until the card applet enforces PIN or UV before nonce
-generation and signing.
-
-## PRF Compatibility
-
-The older PRF path remains useful, but it is a different model:
-
-```bash
-npm run card:arkade:key
-npm run card:arkade:identity
-```
-
-Those commands prove the card FIDO2 PRF can derive the same app-compatible
-client key material. That can support login, pairing, migration, recovery, or
-browser fallback. It is not the preferred spend-signing path when the card can
-hold and use the Arkade client MuSig2 key directly.
-
-## App integration
-
-The Expo probe now implements the card-backed identity directly over NFC. It
-uses the Arkade SDK for transaction construction, the live Nuri server for the
-second partial, and one pinned `@scure/btc-signer` session for card inputs,
-partial verification, aggregation, and final BIP340 verification.
-
-The FIDO credential and MuSig2 applet key remain separate identities. The app
-must verify their server mapping before displaying account data or signing.
-
-The Lightning path remains Arkade plus Boltz. The card changes who supplies the
-client MuSig2 partial; it does not replace Arkade, the ASP, or the Boltz payment
-flow.
+See [signing architecture](signing-architecture.md) for key locations and [historical signer evidence](proofs/arkade-card-signer-proof.md) for bounded records. Do not promote historical Signet spends into a live Lightning-settlement claim.

@@ -1,0 +1,3 @@
+# PC/SC access for the one-command card setup. Only needed when the private
+# Python environment has no pyscard yet.
+pyscard==2.3.1

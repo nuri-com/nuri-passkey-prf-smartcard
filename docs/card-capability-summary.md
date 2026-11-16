@@ -1,200 +1,28 @@
-# Nuri Smartcard — What It Can and Cannot Do
+# Card capabilities and limits
 
-A plain-English summary for hardware suppliers and manufacturers.
-
----
-
-## What the card is
-
-A Java Card secure element (e.g. Feitian FT-JCOS BioCARD) running **four
-independent applets** side by side, each behind its own AID:
-
-| Applet | AID | What it does |
-|---|---|---|
-| FIDO2 / Passkey | `A0000006472F0001` | WebAuthn authenticator + CTAP2 `hmac-secret` (PRF). Also acts as a hardware SSH key via OpenSSH. |
-| MuSig2 cosigner | `4E5552494D554701` | On-card secp256k1 key generation, returns only the public key, signs MuSig2 partials. The private key never leaves the card. |
-| OATH-TOTP | `4E555249544F5450` | Stores a 2FA secret, computes HMAC-SHA1 on-card. The secret is written in and never read back. |
-| ETH / EVM signer | `4E55524945544801` | Generates a secp256k1 key on-card and produces recoverable ECDSA signatures. |
-
-All four applets have complete corresponding source and prebuilt `.cap` files
-in `dist/`. FIDO2/TOTP are MIT; MuSig2/ETH include GPL-2.0-or-later portions.
-See `THIRD_PARTY_NOTICES.md`. The card must be **unfused/unlocked** with
-**GlobalPlatform/SCP transport keys** provided by the seller.
-
----
-
-## What the card CAN do
-
-### 1. SSH hardware key (proven on a real Hetzner server, 2026-07-05)
-
-The card acts as an OpenSSH `sk-ecdsa-sha2-nistp256` hardware key:
-
-- `ssh-keygen -t ecdsa-sk` generates a key pair **on the card**. The private key
-  stays in the secure element. Only the public key + a credential ID come back.
-- Every SSH login requires the card in a PC/SC reader and a **physical tap**
-  (user presence). Without the tap, no signature, no login.
-- The "private key" file on disk (`~/.ssh/id_nuri_pcsc_sk`) contains **no
-  secret** — just the public key and a credential ID (a reference telling the
-  card which credential to use). Copying this file to another machine is
-  useless without the physical card.
-- Works on any computer after a one-time install of a small provider bridge
-  (`nuri-pcsc-sk-provider.so` + Python helper) that translates OpenSSH's FIDO
-  calls into PC/SC CTAP2 calls to the card. The provider does no crypto and
-  holds no key — it's a wire.
-- **Proven:** real login to `root@89.167.91.99` (Hetzner Ubuntu server) with
-  two independent cards. Both work. Private key never left the card.
-
-### 2. Passkey / WebAuthn login (proven)
-
-- The card is a CTAP2.1 authenticator: `makeCredential` / `getAssertion` work
-  over PC/SC and native NFC.
-- Supports `hmac-secret` (PRF extension) — same card + same salt → same 32-byte
-  output, forever. This is what ties the card to the Nuri app wallet.
-- Verified on hardware: `REAL_CARD_WEBAUTHN_PRF_OK`.
-
-### 3. Bitcoin signer (proven on signet, confirmed in blocks)
-
-- The MuSig2 applet generates a secp256k1 cosigner key **on the card** via
-  `INS_KEYGEN` and returns only the 33-byte public key. There is no APDU to
-  read the private key out.
-- Signs MuSig2 partial signatures. The host builds the transaction; the card
-  only protects keys and returns a partial.
-- **Proven:** co-signed a live Bitcoin Signet transaction, broadcast and
-  confirmed in block `308802`.
-
-### 4. 2FA / TOTP (proven, RFC 6238 verified)
-
-- The OATH-TOTP applet stores a secret, computes HMAC-SHA1 on-card, returns
-  the 6-digit code. The secret never leaves the card after being written.
-- Verified against the RFC 6238 test vector.
-
-### 5. Ethereum/EVM signing (proven)
-
-- The ETH applet's version 1.3 key is generated on-card and non-exportable.
-- Recoverable ECDSA signatures were independently verified against the card's
-  public key across multiple hashes.
-
-### 6. Native Nuri terminal and profile
-
-- The Expo app reads the card over Android NFC, authenticates the registered
-  card identity, sends card/server MuSig2 rounds, and monitors incoming claims.
-- The FIDO credential and MuSig2 signer are separate keys. The live server
-  explicitly binds them; the application does not infer that they are the same.
-
----
-
-## What the card CANNOT do (yet)
-
-| Limitation | Why | Status |
-|---|---|---|
-| **FIDO2 credential cloning** | The private key is generated inside the secure element and there is no APDU to read it out. This is the core security guarantee — if you could clone it, an attacker who steals one card would have everything. | By design, not a bug. Backup = a second independent card. |
-| **Browser PRF on macOS** | The card enables `hmac-secret`, but Safari returns `prf:null` for external security keys and Chrome can't see a PC/SC contact reader. This is a **platform limitation** (macOS browser), not a card limitation. Browser PRF works via native NFC app or Windows. | Platform issue. Card works; browser doesn't pass it through. |
-| **Fingerprint unlock in our own applet** | Feitian confirms a Java applet can call the match-on-card fingerprint API to gate a private-key operation, but the BioCARD SDK is **NDA-gated**. Today: PIN/UV, or Feitian's own preloaded biometric FIDO2 stack. | Needs NDA SDK. Hardware path identified. |
-| **MuSig2 on older OS cards** | secp256k1 EC point-multiply (`ALG_EC_SVDP_DH_PLAIN_XY`) is only available on cards with OS **`2025-05-14`** (ATR `3b:81:80:01:80:80`). The `2023-03-30` OS lacks it → keygen returns `6A81`. The OS is mask-ROM, **not user-updatable**. | Silicon-gated. Must screen each batch with `gp -i`. |
-| **Transaction display / on-card approval** | MuSig2 and ETH sign protocol inputs/hashes but do not independently display or parse the human-readable transaction. | Research-grade; the host and PIN/tap flow provide the current approval boundary. |
-| **Production tamper resistance** | Dev cards are not EAL-certified. Production needs an EAL-certified chip with documented keys. | Hardware decision, not software. |
-| **MuSig2 applet audit** | The applet is a proven device primitive, not a reviewed production signer. Nonce policy, PIN/fingerprint policy, and final host-flow hardening are still needed before production use. | Research-grade, not production. |
-
----
-
-## Hardware requirements
-
-| Requirement | Minimum | Recommended |
-|---|---|---|
-| Java Card Classic | 3.0.4+ | 3.0.5 |
-| GlobalPlatform | install/delete (SCP03 preferred) | SCP03 |
-| P-256 keygen | yes | yes |
-| ECDSA-SHA256 | yes | yes |
-| ECDH plain | yes | yes |
-| SHA-256 | yes | yes |
-| AES-256-CBC no-pad | yes | yes |
-| TRNG | yes | yes |
-| User NVM | ~100KB+ for FIDO-only | 200K for the complete four-applet stack |
-| secp256k1 (`ALG_EC_SVDP_DH_PLAIN_XY`) | needed for MuSig2/Bitcoin | needed for full capability |
-| Match-on-card fingerprint API | optional (NDA SDK) | needed for biometric unlock |
-
-**Critical for suppliers:** the card must be **unfused/unlocked** and the
-**GlobalPlatform/SCP transport keys** must be provided to the buyer. Without
-these, the buyer cannot install the applets. Same model number is not enough
-— the OS date matters for secp256k1 support. Screen each batch with
-`gp -i`, then require a successful MuSig2 `INS_KEYGEN`; the date applies to the
-tested FEITIAN family and is not a universal cross-vendor version rule.
-
----
-
-## How SSH works with the card (simple explanation)
-
-Three pieces:
-
-1. **The card** holds the private key. It was generated *inside* the card's
-   secure element. There is no command to read it out. The card does the
-   actual signing. Without the card, nothing can sign.
-
-2. **Two files on the computer** (`~/.ssh/id_nuri_pcsc_sk` and `.pub`):
-   - The `.pub` file is the **public key** — safe to share, goes in the
-     server's `authorized_keys`.
-   - The "private" key file looks like a normal SSH key but **contains no
-     secret**. It holds the public key + a credential ID (a name tag telling
-     the card "use credential #X"). Without the physical card, this file is
-     useless.
-
-3. **The provider** (`nuri-pcsc-sk-provider.so` + Python helper) is a
-   **translator**. OpenSSH has built-in support for hardware SSH keys, but it
-   only talks to USB security keys (YubiKey-style). This card is a smartcard
-   reached through a PC/SC reader, not USB. The provider sits in between:
-
-   ```
-   ssh says "sign this" → provider .so → python helper → PC/SC reader → card signs
-   ```
-
-   The provider does no crypto and holds no key. It's a wire. Every computer
-   needs it installed **once**. After that, `ssh user@host` works normally.
-
-**Security model:**
-- Private key never leaves the card (non-exportable by design).
-- Every signature requires a **physical tap** (user presence).
-- The key file on disk is inert without the card.
-- A stolen laptop + stolen key file = useless without the card.
-- A stolen card = useless if you remove its public key from the server.
-
----
-
-## Backup strategy
-
-You **cannot clone** a FIDO2 credential — the private key is non-exportable.
-The backup is a **second independent card** with its own key, both authorized
-on the same server:
-
-```
-card A (pocket)    → public key A → authorized_keys line 1
-card B (home safe) → public key B → authorized_keys line 2
+```mermaid
+flowchart LR
+  F[FIDO2 + PRF + SSH] --> E[README feature evidence]
+  S[ETH2 + MuSig2 + vault] --> E
+  H[PKCS11 + OpenSSL + MCP + extension] --> E
 ```
 
-- Both cards log into the same server independently.
-- If card A is lost/stolen, log in with card B and **remove public key A**
-  from `authorized_keys`. The stolen card is now useless.
-- This is **stronger than a clone**: a stolen card does not compromise the
-  backup.
+The [README feature table](../README.md#feature-status) is the maintained release
+status, separating physical-card runs from software/fake/simulator checks.
+[Security model](security-model.md) is the maintained authorization/recovery boundary.
 
----
-
-## Proven on real hardware (2026-07-05)
-
-| What | Result |
+| Interface | Protocol / guide |
 |---|---|
-| Card A logs into `root@89.167.91.99` via SSH | ✅ `OK_FROM_REAL_SERVER` |
-| Card B (backup) logs into same server | ✅ `OK_FROM_BACKUP_CARD` |
-| Private key never left either card | ✅ by design (no export APDU) |
-| Every login required a tap | ✅ user presence enforced |
-| Card co-signed live Bitcoin Signet tx | ✅ confirmed in block `308802` |
-| Native Android card terminal completes both MuSig2 rounds and Ark broadcast | ✅ proven; merchant settlement remains a separate fresh-run proof boundary |
-| Card computes TOTP (RFC 6238) | ✅ verified |
-| Card creates recoverable ETH/EVM ECDSA signatures | ✅ version 1.3 verified |
+| FIDO2 / PRF | [Baseline](fido2-prf-baseline.md), [assumed UP, not touch](fido2-user-presence.md) |
+| SSH | [OpenSSH FIDO2 sk bridge](ssh-smartcard.md); current bridge does not verify PIN |
+| ETH v1 demo / v2 | [Digest contract](eth-signing-spec.md), [mandatory-default v2 PIN](eth-applet-v2.md) |
+| MuSig2 | [Current PIN/session-token contract](musig2-pin-and-hardening.md), [nonce lifetime](musig2-nonce-lifetime-fix.md) |
+| Vault | [Broker and disk vault](card-secrets.md), [on-card applet](card-vault-applet.md) |
+| TOTP | [Applet](totp-applet.md); CALC is not PIN-gated |
+| PKCS#11 / OpenSSL | [secp256k1 adapter](hsm.md); ETH1 key, no PIN authentication |
+| Chrome wallet / MCP | [Extension](chrome-extension.md), [local helpers](helper-servers-security.md) |
+| Attestation / GP management | [CA-backed applet identity](attestation.md), [reversible GP escrow](card-lock.md) |
 
----
-
-## Open source
-
-Full source, prebuilt applets, host toolkit, and documentation are public.
-Licensing is MIT plus the documented GPL-2.0-or-later applet portions:
-`https://github.com/nuri-com/nuri-passkey-prf-smartcard`
+No screen, no independent transaction-intent check, no external audit and no
+product certification. PRF/client secrets and bearer credentials can reach the host.
+A lost card can lose access or funds; no general lost-card recovery is shipped.

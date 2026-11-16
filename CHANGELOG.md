@@ -1,290 +1,329 @@
 # Changelog
 
-Running release log. For narrative session notes (Q&A, card states, next steps)
-see [`docs/logbook.md`](docs/logbook.md).
+```mermaid
+flowchart LR
+  S[Source changes] --> T[Software tests]
+  T --> B[Artifact verification]
+  B --> H[Separate physical-card acceptance]
+```
+## 2026-11-03 — fingerprint card and reader handling
 
-## 2026-07-29 — SSH multi-card backup hardened (N independent cards)
+```mermaid
+flowchart LR
+  T[Owner thumb] -->|MATCH 0.8-1.4 s| UV[MuSig2-UV / ETH2-UV]
+  P[PIN] --> UV
+  R[card-readers.py] -->|SELECT + GET DATA only| X[ATR, CPLC serial, applets]
+```
 
-- Provisioned and **live-verified a third independent backup card** with the
-  documented `ssh-keygen -t ecdsa-sk -w <provider>` flow, confirming the N-card
-  backup model end to end: three distinct on-card credentials, each its own
-  non-exportable key, all authorized on the same hosts. A card is never a clone
-  of another — losing one and revoking its pubkey leaves the others intact.
-- Documented that on-card SSH enrollment is **non-resident** by default: the
-  credential handle lives in the `~/.ssh/…` key file, **nothing is written to
-  card storage and no PIN prompt is required**, so adding a backup card never
-  disturbs what is already on the card.
-- Added a **"which card is in the reader?"** procedure. All Nuri cards share
-  AAGUID `0000…`, so you cannot tell them apart by info alone — instead offer
-  each candidate pubkey: the matching card signs, the others fail with
-  `invalid format`. See [`docs/ssh-smartcard.md`](docs/ssh-smartcard.md).
-- Added a generic, idempotent **"authorize one card across many servers"**
-  rollout snippet (`grep -q … || echo … >> authorized_keys`).
+- Fingerprint OR PIN on the IDEX TrustedBio card B2183751, real-card proof with
+  the owner's thumb: 3 of 4 rounds MATCH, each match unlocked the applet, the
+  fourth was a 4 s no-finger timeout. Interface and limits in
+  `docs/fingerprint.md`; vendor NDA builds stay in the private repo.
+- `scripts/card-readers.py`: read-only inventory of every PC/SC reader (ATR,
+  CPLC serial, chip, Nuri applets), plus a measured reader matrix in
+  `docs/readers.md` (OMNIKEY contact and contactless work, CASTLES EZCCID
+  answers a pseudo ATR and fails every APDU on macOS 15.5).
+- `card-setup.sh` no longer asks for a reader when exactly one card is present,
+  and shows card serials when several are.
+- Tests: `test/test_card_readers.py` (6), `test_card_setup.py` (17).
 
-## 2026-07-12 — Card V1.0.2 clone-to-proof release
+## Unreleased — 2026-10-30 — Home cosigner: the card as a permanent local service — Hermes Agent
 
-- Added `npm run reproduce:v1`, a single clean-checkout path across source
-  auditing, virtual card behavior, deterministic CAP rebuilding, and Expo
-  source verification.
-- Added a source-to-artifact inventory and explicit virtual-versus-hardware
-  coverage matrix to the main README and dedicated reproduction guide.
-- Added a CI virtual-card job covering MuSig2/APDU/Arkade simulations and the
-  complete FIDO2 PRF applet in jCardSim.
-- Updated simulator-only JPype to 1.7.1 after a clean Python 3.14 run exposed a
-  native crash in the historical 1.5.0 bridge.
-- Included the complete MIT source corresponding to the proven
-  `ant-javacard` 18.05.01 build-tool JAR.
+- `scripts/home-cosigner/install-macos.sh` installs a LaunchAgent
+  (`~/Library/LaunchAgents/com.nuri.home-cosigner.plist`, `RunAtLoad`,
+  `KeepAlive` on unsuccessful exit, `ThrottleInterval` 30) that runs `run.sh`, so
+  the card in the reader signs for a local agent across logins and crashes. Logs
+  go to `~/.nuri-card/logs/home-cosigner.log` (0600 in a 0700 directory). The
+  installer never asks for or prints the PIN; it prints the one-time
+  `security add-generic-password` command.
+- `scripts/home-cosigner/run.sh` reads the PIN via
+  `security find-generic-password -w` (or a 0600 file, Linux source), loads
+  `NURI_READER` from `~/.nuri-card-host/bitcoin.env`, requires Python 3.10+/Node
+  22+, exports `NURI_CARD_PIN`/`NURI_FIDO_PIN` and execs the existing server in
+  real-card mode. The value stays out of argv and out of every log line; a
+  missing PIN exits 78 with the exact keychain command.
+- `POST /api/send {to, amount, execute}` in
+  `scripts/local-card-cosign-server.mjs` is the agent one-liner: it shells out to
+  the proven `scripts/send/cli.mjs` path, derives the CLI's `NURI_SEND_CONFIRM`
+  from the request, gives every request a unique receipt, and redacts the PIN in
+  failure text only (a substring swap over successful JSON also rewrites
+  addresses that contain it). No limits or allowlist: the calling agent owns
+  policy.
+- `scripts/home-cosigner/install-linux.sh`: `systemd --user` unit with the PIN in
+  a 0600 file. Written against the macOS twin; UNVERIFIED on hardware.
+- Tests: `test/home-cosigner.test.js` checks the plist (and `plutil -lint`), file
+  modes, the no-PIN refusal, the 0600 file gate, and the endpoint's argument
+  passthrough, confirmation binding, 503/502 paths and PIN redaction with a fake
+  CLI. No reader, no card, no network.
+- Docs: `docs/home-cosigner.md` (health check, dry run, one-liner, uninstall,
+  troubleshooting, honest limits), linked from the README agent-tools table and
+  `docs/diy-card.md`.
 
-## 2026-07-12 — Card V1.0.1 portability fix
+## Unreleased — 2026-10-30 — One command from blank card to working card — Hermes Agent
 
-- Removed the last machine-specific Java home from the vendored FIDO2 Gradle
-  properties. The release builder now supplies its validated JDK 8 through the
-  environment on macOS and Linux.
-- Added after the first public CI run exposed the stale macOS-only property;
-  local builds had masked it because the same JDK existed on the development
-  machine.
+- `scripts/card-setup.sh`: eight numbered steps from a bought blank card to all
+  seven applets installed and verified in about 10 minutes. Preflight, pinned
+  GlobalPlatformPro, private Python environment, deny-list and the exact PC/SC
+  reader picker are shared with `scripts/diy-key.sh` through the new
+  `scripts/lib/card-common.sh`, so both scripts run the same code.
+- ETH1 is no longer part of the standard set. `card-setup.sh` passes the new
+  `PROVISION_SKIP_ETH1=YES` opt-out to `scripts/provision-card-v1.sh`, so a new
+  card gets FIDO2, MuSig2 AID1, TOTP, ETH2, MuSig2 AID2, MuSig2 AID3 and the vault,
+  and ETH2 (PIN, 5 tries + PUK) is the only Ethereum signer. The bundle installer
+  keeps ETH1 by default, because the demo card still uses the PIN-less 1.5 applet;
+  with the opt-out it also guards on ETH2 instead of ETH1. A card that already has
+  ETH1 still verifies, and `--resume` never installs it.
+- Safety: reads CPLC and ATR before anything else, refuses a deny-listed serial,
+  checks the public default admin key with **one** auth attempt, refuses a
+  non-blank card (exit 0, nothing written), and always requires the serial typed
+  back (`--serial` for agents). The five proven install steps run unchanged.
+  `--dry-run` writes nothing, `--resume` installs only what is missing,
+  `MUSIG2_REINSTALL` is always unset so nothing is ever deleted.
+- Ends with a read-only registry diff and a SELECT of every applet, then
+  `CARD_SETUP_VERIFIED <serial>`, a private log under `~/.nuri-card/logs/` and
+  the PIN, SSH, Chrome and seal steps.
+- `scripts/card-setup-card.py`: CPLC/ATR read and applet SELECT over
+  `scripts/nuri_pcsc.py`, so cheap T=0-only readers work.
+- Tests: `test/test_card_setup.py` plus `test/fake_gp_setup.py` and a fake
+  pyscard package, no hardware. Runs in CI next to `test_diy_key.py`.
+- Docs: shopping list and the one command at the top of `docs/diy-card.md` and in
+  the README DIY section; the by-hand steps stay below as "What the script does".
 
-## 2026-07-12 — Reproducible Card V1 release foundation
+## Unreleased — 2026-10-30 — Chrome 0.3.0: Bitcoin account in the extension — Hermes Agent
 
-### Added
+- Side panel is now a Nuri account view: one Bitcoin total over Arkade VTXOs,
+  boarding and the onchain MuSig2+CSV rail (each with its full address), then the
+  unchanged Ethereum balance.
+- **Proven on the real card** (demo card `87E5470B`, AID3 v1.17, OMNIKEY 5422 top
+  slot) through the installed host exactly as Chrome calls it: `info`,
+  `bitcoin_info`, `bitcoin_balance` all ok, total 10,465 sats = Arkade 4,458 +
+  boarding 0 + onchain 6,007, username `arkade`, addresses equal the README money
+  table.
+- Addresses from the live `nuri_client_recovery_v1` contract (`deriveAddresses`,
+  the same derivation `scripts/send` spends from), never the SDK default contract.
+  Regression test on the live public values fails on the previous code.
+- Fixed: host module loaded twice when run as a script, so every `bitcoin_*` call
+  failed `INFO_REQUIRED` after a good `info` (`sys.modules` alias).
+- Installer: Bitcoin settings in `~/.nuri-card-host/bitcoin.env`
+  (template `host/bitcoin.env.example`), pinned npm dependencies via `npm ci
+  --omit=dev`, card drivers on the host venv Python instead of Chrome's bare `PATH`.
+- Receive: ark address, boarding address and a Lightning invoice (invoice not yet
+  run live).
+- Send from the panel is fail-closed (`SEND_UNSUPPORTED`) until it uses the
+  proven `scripts/send` script-path signing; use `scripts/send/cli.mjs` to send.
+- host: `bitcoin_info`, `bitcoin_balance`, `bitcoin_invoice`, `bitcoin_preview`,
+  `bitcoin_sign_partial`, `bitcoin_cancel` (`host/bitcoin_commands.py`).
+- Tests: host 86 (1 skipped), bitcoin host 13, webauthn 10, extension 58, bridge 9,
+  `npm test` 131.
 
-- Imported the exact MuSig2 v1.10/KGEN Java source that produced the proven
-  real-card CAP; it no longer depends on an uncommitted sibling workbench.
-- Vendored the exact Nuri FIDO2 source base and preserved the PRF/user-presence
-  changes as separate patches.
-- Added portable builds for FIDO2, MuSig2, TOTP, and ETH using pinned Java Card
-  SDK and build-tool inputs.
-- Added deterministic CAP normalization, internal component comparison, complete
-  SHA-256 coverage, guarded blank-card provisioning, and host/real-card
-  acceptance entrypoints.
-- Added full Card V1 rebuild, licensing, provisioning, acceptance, and handoff
-  documentation.
-- Added a pinned, self-creating Python card environment and removed active
-  developer-machine virtual-environment paths from the real-card tools.
-- Added a pinned private design-system checkout plus Expo source and optional
-  native Android verification entrypoints.
 
-### Fixed
+## Unreleased — 2026-10-30 — DIY card admin-key change, real-card proven — Hermes Agent
 
-- Corrected stale FIDO2 provenance and the incomplete checksum manifest.
-- Promoted the locally proven ETH v1.3 CAP into the reproducible `dist/` set;
-  the previous tracked CAP was an older build despite the documentation saying
-  v1.3.
-- Removed absolute developer-machine paths from every custom applet build.
-- Made ETH testing non-destructive by default; key replacement now requires
-  explicit `--regenerate`.
-- Documented the actual mixed MIT/GPL-2.0-or-later licensing boundary.
+- `879eb79` card_lock: SCP02/DES3 keysets, exact dual-slot reader selection, CI step.
+- `db5aea1` rotation via `--lock`; gp 24.10.15 NPEs on `--lock-enc/mac/dek` (GPTool.java L801).
+- `09d66ff` `scripts/diy-key.sh`: one-command wizard, pinned gp.jar, reader picker, deny-list, encrypted escrow.
+- `f842fab` docs/diy-key.md exact how-to + README section + LLM agent runbook.
+- `f6807d1` real-card E2E on `57274221` (JCOP 2.4.1, SCP02 DES3): two lock/undo cycles through the wizard,
+  `CARD_LOCK_VERIFIED` + `CARD_DEFAULT_KEYS_RESTORED_VERIFIED` both times, final default-key `gp -l` lists
+  ISD + 8 applets. Fixed wizard escrow-path display (prompt-prefixed line). Reusing an existing escrow
+  path refuses before any rotation. Receipt: `docs/proofs/real-card-57274221-gp-lock.json`.
+  Not merged, not released. Card-specific GP retry limits stay UNVERIFIED.
 
-### Verified
+## v1.2.0 — 2026-10-29 — Card-signed Bitcoin on mainnet, fast MuSig2 — Hermes Agent
 
-- A clean build reproduces every executable CAP component from the proven
-  artifacts. After timestamp normalization, repeated builds have stable hashes.
-- All five release CAP files pass the Java Card converter/verifier and are
-  covered by `dist/SHA256SUMS`.
-- The Expo design-system guard, TypeScript check, Android Metro export, arm64
-  native build, and USB-device installation passed. The same lockfile reports
-  zero npm audit findings.
-- The current physical-card acceptance rerun remained unclaimed because macOS
-  exposed no PC/SC reader; only the Samsung phone was attached by USB.
+Before: `v1.1.0` co-signed MuSig2 on the card only in an unfunded test, on the
+software scalar path, which later measured 75.7 s per FINALIZE on hardware. Now: card
+`87E5470B` co-signed a live mainnet Arkade send through the new AID3 applet 1.17,
+and the operator reports about 2.0 s per FINALIZE. The 1 s target is not reached.
 
-## 2026-07-11 — Design-system terminal, profile, and receive claim flow
+Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
+`npm run card:release:verify`), new or changed since `v1.1.0`:
 
-### Changed
+| Applet | Package / applet AID | Version | CAP sha256 |
+|---|---|---|---|
+| MuSig2 AID3 (new) | `4E5552494D554733` / `4E5552494D55473301` | 1.17 | `d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9` |
+| MuSig2 AID2 | `4E5552494D554732` / `4E5552494D55473201` | 1.17 | `972848969e3e58dc72d30b511247b7f4eb01f7b0350f58f78b5ee6c2c2ee889b` |
+| MuSig2 original | `4E5552494D5547` / `4E5552494D554701` | 1.17 | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
+| ETH signer v2 (PIN) | `4E55524945544832` / `4E5552494554483201` | 2.1.0 | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
+| ETH signer v1 (demo) | `4E555249455448` / `4E55524945544801` | 1.5 | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 
-- Rebuilt the Expo terminal with Nuri design-system components only: one
-  editable Lightning address prefilled with `smartcard@nuri.com`, a sats amount
-  display, the embedded button keypad, and one `Charge` action. Removed the
-  nested app-authored card and the merchant/memo form fields.
-- Rebuilt payment confirmation around the same keypad, one `Confirm` action,
-  design-system card/progress states, human-readable English status messages,
-  and clear success/error exits.
-- Simplified the profile into a balance-first design-system list. Lightning,
-  wallet, and card references are copyable; status, copy confirmation, and
-  errors use design-system alerts; each state exposes exactly one primary
-  action.
+FIDO2, FIDO2-up, OATH TOTP, vault and the PKCS#11 module are
+byte-identical to `v1.1.0`. CI job `card-release` rebuilt every CAP from main
+`f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components
+(`CARD_V1_RELEASE_VERIFIED`, [run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+ETH v1 1.5 (d4dbdd9, below) came after that run; the `card-release` job of
+#42 rebuilt it with identical components.
 
-### Fixed
+Card and signing:
 
-- Removed double horizontal profile-list inset: balance, alerts, and the primary
-  action retain the canonical screen `lg` padding while `List` is full width and
-  owns only its descriptor-defined `sm` padding.
-- Made card-reading state explicit after PIN confirmation. The keypad is hidden
-  while reading, a design-system alert reports the current state, and transient
-  NFC connection loss retries automatically within a bounded read window.
-  The alert distinguishes waiting, card detected/authenticating, and card
-  read/profile loading. PIN/auth/server failures remain fail-closed and require
-  an explicit retry.
-- Receive claims no longer route through outgoing `send/prepare` state. The
-  mobile card identity now uses `/api/arkade/receive/claim/approve` and
-  approval-token `/arkade/sign` rounds for `claimVHTLC`.
-- Claimable incoming payments start automatically after authenticated profile
-  sync while retry remains an explicit single-action error state.
-- Corrected the local `@nuri/rn` and `@nuri/spec` package paths and added the
-  native `expo-clipboard` dependency.
+- AID3: `scripts/build-musig2-aid3.sh` builds package `4E5552494D554733`, applet
+  `4E5552494D55473301` from the current MuSig2 sources in a temporary tree and
+  normalizes CAP ZIP metadata. Release build, manifest, component verification
+  and source inventory include it. Additive install; no existing instance deleted.
+- Independently authored MIT RSA-square multiply: `2ab=(a+b)^2-a^2-b^2`,
+  768-bit RSA NOPAD exponent two, fixed folding reduction modulo n and p.
+  Unsupported providers fail installation closed. No GPL arithmetic was read or
+  copied (a287784, ed73ea7).
+- Applet 1.17: the full-width known-answer tests moved from INSTALL, where they
+  returned `6985` on the real card, to the first multiply. A failure throws
+  `6F31` and they run again on the next call; install still probes 3^2 = 9. The
+  test buffer is transient (407691b, da94f7a).
+- Regression disclosure: `00ce5b2` replaced inherited scalar multiplication
+  with the MIT clean-room fixed-iteration software loop. Its hardware latency
+  was not timed during that integration; simulator correctness did not establish
+  acceptable physical-card performance. The software path later measured 75.7 s.
+- Timing history on card `87E5470B`, OMNIKEY 5422. v1.16: five verified BIP340
+  signatures, FINALIZE 5164.75 / 5194.75 / 5195.32 ms min/median/max, GET_NONCES
+  290–294 ms; SSH checks passed before/after each card-write step; one wrong PIN
+  returned 63C4, the correct PIN restored five tries
+  ([receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json)). v1.17: about
+  2.0 s, operator-reported, no timing receipt. Blinding, double computation and
+  PIN/session/nonce protections are unchanged.
+- ETH2: tear-safe transactional SET/CHANGE/UNBLOCK for PIN and PUK with
+  simulator tests (#26). Version bytes stay 2.1.0; the CAP hash changes. The
+  `v1.1.0` ETH2 hardware receipt covers the previous CAP.
+- ETH1 1.5: set the secp256k1 cofactor (`setK(1)`) on both EC keys. On NXP
+  JCOP 2.4.1 card `57274221` (CPLC fabricator `4790`, ATR `JCOPv241`), ETH1 1.4
+  answered `6F00` to KEYGEN and then to GET_PUBKEY. KEYGEN marks the key as born
+  before the EC operation, so that instance stays unusable: delete package
+  `4E555249455448` and install 1.5. On the same card 1.5 returned KEYGEN `9000`,
+  one-shot guard `6989` and two EIP-191 signatures, each recovered by
+  python-ecdsa and ethers to `0xe08bDE52Fa83C6a7b96cbd8dE1437aF1036cC500`
+  ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), d4dbdd9;
+  source comment 470c985, same CAP).
+  ETH2 and MuSig2 already set the cofactor. The Infineon demo card (fabricator
+  `4090`) has not run 1.5.
 
-### Verified
+Bitcoin and Arkade:
 
-- Android Metro export succeeds for the complete app bundle.
-- A clean native Android debug build succeeds with JDK 17 and autolinks
-  `expo-clipboard`.
-- The updated debug APK loads through Metro on a physical Android device.
+- Live mainnet end-to-end receipt, 2026-10-28 19:12:58 UTC, card `87E5470B`:
+  passkey + PRF, Nuri auth, card and Nuri MuSig2 partials, operator finalization.
+  546-sat Arkade self-send, fee 0, 4/4 steps verified, transaction
+  `13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8`
+  ([receipt](docs/proofs/e2e-proof.json), bbd291e). The receipt does not record
+  the applet version or the installed CAP hash.
+- Arkade bridge with public-only PRF proof; reusable card send CLI
+  `npm run arkade:send` and guarded end-to-end proof `npm run arkade:proof`
+  (e93fa31, bd1f85f, ecd051e). Receipt and log paths are repo-relative; dry runs
+  write under `_launch/out/e2e-proof` and never overwrite the committed hardware
+  receipt (0dafcc5).
+- Add `scripts/send/board.mjs`: settle confirmed onchain boarding UTXOs into a
+  card-owned Arkade VTXO. Dry run is GET-only and prints the boarding UTXOs,
+  the operator-fee plan and the exact approval requests; `--execute` needs
+  `NURI_SEND_CONFIRM=board-<sats>`. One passkey assertion, then card MuSig2 for
+  the proof, the batch tree and the boarding input. Software-card tests cover
+  the nested tree share end to end. Live mainnet fixes: two-round tree signing,
+  per-input sighash, `/v4` paths, one reader reconnect for pubkey/nonces, never
+  for FINALIZE (#39).
+- Zero-funds live Arkade 2-of-2 harness with a pluggable card signer (#32).
+- Android NFC demo: card MuSig2 PIN signature and a card wallet with derived
+  onchain balance (#30).
 
-## 2026-07-11 — Expo profile reads the authenticated Lightning account
+Docs and CI:
 
-### Fixed
+- README and site: product-first README, comparisons, HSM + PKCS#11 guide,
+  capability reference, live money table checked 2026-10-29 00:07 UTC
+  (#33–#36, e49a811, b89a1f8).
+- MuSig2 CAP triplet imported from a pinned cloud CI build and refreshed after
+  the transient KAT buffer fix ([import record](dist/README.md)); CI retains
+  rebuilt release artifacts and parses README and proof Mermaid diagrams
+  (2f48a1c, 1037186, e0b72a5, 5e61e55).
+- Repository package and lockfile version: `1.2.0`; Chrome stays `0.2.0`.
 
-- The Expo profile no longer expects `/api/arkade/receive/sync` to return
-  `account.username`. The deployed endpoint returns receive arrays but no
-  account field, while the desktop bridge separately authenticated
-  `/arkade/lnurl/status` and therefore showed `smartcard@nuri.com`.
-- Expo now mirrors that proven flow inside one NFC session: read the physical
-  MuSig2 key, require the existing `/arkade/info` registration, request an auth
-  challenge, produce the PIN-authorized FIDO assertion, and read the registered
-  username/address from `/arkade/lnurl/status`.
-- The profile origin remains the exact configured credential origin. The live
-  server returns a comma-separated origin allowlist, which is validated for
-  membership instead of being mistaken for one literal origin.
-- Receive sync remains the source of receive rows only. If a future deployment
-  also returns an account field, Expo verifies that it matches the separately
-  authenticated account and rejects disagreement.
+Open: the 1 s FINALIZE target, a v1.17 timing receipt, the installed CAP hash on
+the card, the KAT pass-flag tear window (`card/musig2/RsaMultiply.java:23,104-111`),
+hardware tear tests for ETH2, physical fault/side-channel qualification. Not
+externally audited; not a certified hardware wallet.
 
-## 2026-07-10 — Expo/web parity incident and live card payment repair
+## v1.1.0 — 2026-10-22 — Real-card PIN signers — Hermes Agent
 
-### Fixed
+Applets (CAPs in `dist/`, sha256 in `dist/SHA256SUMS`, reproducible via
+`npm run card:release:verify`):
 
-- Removed hardcoded profile identity, balance/list substitutions, merchant
-  details, and implicit credential enrollment from the live card profile and
-  checkout paths. Card key, username, Lightning address, balance, receive data,
-  merchant, memo, and recipient must now come from the inserted card, live
-  responses, or visible user input.
-- Corrected Android CTAP PIN authorization: protocol-v1 PIN token plus
-  `pinUvAuthParam`, without the incompatible `uv: true` option that returned
-  status `0x2c`.
-- Updated the Expo Nuri send request to the current flat `send/cosign` contract,
-  including the required top-level `challenge_token` and assertion fields.
-- Deleted the mobile-only `sessionMath.ts` transcript implementation and the
-  unused duplicate `cardIdentity.ts` integration. Expo now uses one active
-  identity path and one pinned `@scure/btc-signer` 2.2.0 session for
-  nonce/challenge scalars, parity folding, both partial verifications,
-  aggregation, and final BIP340 verification.
-- Started the Boltz funded monitor before Ark broadcast in both Expo and the
-  desktop runner, and made `send/complete` and monitor failures fatal instead
-  of returning success with a hidden error.
+| Applet | Package / applet AID | Version | CAP sha256 |
+|---|---|---|---|
+| ETH signer v2 (PIN) | `4E55524945544832` / `4E5552494554483201` | 2.1.0 | `158088eec670eab578fc81d4621087c3752e4001f7afcf288e8ff48b01f9261e` |
+| MuSig2 PIN2, AID2 | `4E5552494D554732` / `4E5552494D55473201` | v1.15 build, protocol pin-1.14 | `bb28841d923b4a709ac1c688d3c0926753b5abd46aefe8678e9d986dd6f81f8b` |
 
-### Proven
+- Real card `87E5470B` (OMNIKEY 5422), additive installs, no DELETE; FIDO2
+  `A0000006472F0001` and SSH access preserved (`ssh -o BatchMode=yes` checked
+  before/after every step).
+- ETH2: SET_PIN, VERIFY, on-card KEYGEN; SIGN without VERIFY returns `6982`;
+  native host `sign_hash` returns `PIN_REQUIRED` without PIN.
+  Receipt `docs/proofs/real-card-87E5470B-eth2-pin.json`.
+- MuSig2 AID2: `scripts/build-musig2-aid2.sh` (now part of the release build);
+  host scripts select it via `NURI_MUSIG2_AID=4E5552494D55473201`.
+  `REAL_CARD_COSIGN_FLOW_OK`, both partials and BIP340 signature verified;
+  KEYGEN/GET_NONCES without VERIFY return `6982`. Not broadcast, not funded.
+  Receipt `docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json`.
+- Connect WebAuthn+PRF via native host on the real card (`8a8ebbc`).
+- Fix: `scripts/package-chrome.py` now ships `host/webauthn_bridge.py`, which
+  `host/install-macos.sh` requires.
+- README audited claim by claim against code; per-feature evidence moved to
+  `docs/feature-status.md`.
+- Open: live connect.nuri.com browser E2E, on-chain spend from the new MuSig2
+  key, CA attestation (`verified=false`).
 
-- Android NFC completed two card/server MuSig2 rounds with both partials and
-  both final aggregate signatures verified.
-- Ark transaction
-  `965a299bcf8b788eb0ef23896323c4ed97133836e84df19fffcbbcd63a33cc1a`
-  is returned by the live Ark indexer.
-- This proves card signing, Nuri cosigning, final aggregation, SDK transaction
-  construction, and Ark broadcast. A fresh payment is still required to prove
-  the final monitor ordering through `send/complete`, Boltz funded status, and
-  merchant-confirmed Lightning settlement.
+## 1.0.2 launch-branch notes
 
-See [`docs/expo-web-parity-incident-2026-07-10.md`](docs/expo-web-parity-incident-2026-07-10.md)
-for the complete incident timeline, identity explanation, runbook, and proof
-boundary.
+### 2026-10-20 — Readable Nuri side panel — Hermes Agent
 
-## 2026-07-05 (session 2) — ETH signer v1.3: end-to-end ecrecover green
+Version: 1.0.2 unreleased; Chrome extension 0.2.0.
 
-### Fixed
-- **ETH applet v1.3: `INS_SIGN` produced wrong signatures (v1.0–v1.2).** The
-  signature was a valid ECDSA signature for *some* key Q, but Q ≠ the keygen
-  pubkey and Q varied across `sign()` calls (impossible for correct ECDSA where
-  Q = d·G must be stable). Root cause: `BigIntegerWrapper.addMod` was not
-  aliasing-safe when `result == b` — the prologue `Util.arrayCopy(a, result)`
-  clobbered `b` before it was read, so `addMod(z, rd, rd)` computed `2·z`
-  instead of `z + rd`. `sign()` and `dbgSignK()` both hit this path
-  (`addMod(scratchA, scratchC, scratchC)`), so every signature had wrong `zrd`
-  and `s`. Fix: `addMod`/`subMod` now operate index-by-index (read `a[i]` and
-  `b[i]` together per byte, write `result[i]` last), so `result` may overlap
-  with `a` and/or `b`. `subMod` fixed the same way for robustness (not the
-  acute bug, but same latent pattern). Verified end-to-end: `keygen →
-  sign(5 hashes) → ecrecover → matches card pubkey` (5/5, v-bit correct,
-  low-s enforced). See `docs/gp-macos-troubleshooting.md` "Resolved: INS_SIGN
-  produced wrong signatures".
+- `ab6a413`: native side panel, 17px body/30px title, official production-app
+  icons and collapsed technical/attestation details. Simulator remains labelled.
+- `ab6a413`: preserve OKX's existing injected provider; 34 extension tests pass.
+  Signing inside OKX is not implemented; PIN on/off is deferred, without card changes.
+- `ab6a413`: register the simulator host in the isolated Chromium user-data
+  profile; preserve signature-match DOM nodes when appending test logs.
+  Local Chromium verifies a live SIDE_PANEL context, layout and three recovered
+  signatures. Host suite: 86 tests run, one intentional skip. No physical card,
+  installed host, personal browser profile or production changes.
 
-### Diagnosis methodology (documented for future bignum work)
-- `dbgKG(k=1)` → exactly G (sanity check on curve parameters).
-- `dbgKG(k=random 256-bit)` ×3 → all match host `k·G` (proves the card's
-  `generateSecret(k, G)` is correct for production-sized `k`; small `k=2` is
-  *not* a valid test — constant-time scalar mult returns a valid but wrong
-  point for tiny scalars with 31 leading zero bytes).
-- `dbgModInv(a)` ×6, `dbgMulMod(a,b)` ×5 → all match host (isolates the bug
-  to the `sign()` composition, not the primitives).
-- `dbgSignK(z, k)` (leaks `d`+`k`, debug only) → `r`, `rd`, `kinv` correct;
-  `zrd = 2z` instead of `z+rd` → pins the aliasing bug. This INS **must be
-  removed before production** (d-leak).
+### 2026-10-20 — Chrome installation package — Hermes Agent
 
-## 2026-07-05 — ETH signer on-card; gp post-mortem; SIGN infinite-loop fix
+Version: 1.0.2 unreleased; Chrome extension 0.2.0.
 
-### Added
-- **`card/eth/`** (`NuriEcdsaSigner.java` + Satochip bignum classes) +
-  **`dist/nuri-eth-signer.cap`**: secp256k1 ECDSA signer applet for
-  Ethereum/EVM — key generated on-card, signs 32-byte hashes, returns
-  `r(32)‖s(32)‖v(1)` with EIP-2 low-s. AID `4E55524945544801` ("NURIETH1").
-  Spec: `docs/eth-signing-spec.md`; host test: `scripts/card-eth-test.py`.
-- **`docs/gp-macos-troubleshooting.md`**: full post-mortem of a lost day —
-  "gp can't find the reader" was a broken gp *snapshot* build (jnasmartcardio
-  card-present detection); release v26.06.04 worked first try. Plus the macOS
-  PC/SC wedge pattern (stalled APDU → system-wide `SCardConnect` hang → re-seat
-  the card) and the OMNIKEY 5422 T=0 requirement.
+- `3639a7c`: create a clean folder with root `manifest.json`, ZIP, START HERE
+  instructions and minimal host installer; refuse to overwrite existing paths.
+- Add actual Chromium UI and Python native-messaging acceptance in explicit
+  simulator mode, repeated three times in cloud CI with downloadable evidence.
+  Physical-card signing, PIN, broadcast and release qualification remain separate.
+- Existing working card, SSH keys, installed host and production remain unchanged.
 
-### Fixed
-- **ETH applet v1.1: `INS_SIGN` hung the card forever (v1.0).** Three bugs in
-  the software `modInverse` (binary extended GCD): guaranteed infinite loop
-  (`u` hits 0, `while(isEven(u))` spins on zero; termination waited for `v==0`
-  which is unreachable), parity checked on the big-endian MSB instead of the
-  LSB, and odd-value halving computed `(x+n) mod n` (a no-op) instead of the
-  257-bit integer `(x+n)/2`. New loop terminates on `u==1 || v==1`, halves via
-  `add_carry` with the carry re-inserted, reduces the result into `[0,n)`, and
-  the iteration cap now throws `6988` instead of never firing. Verified
-  off-card against `pow(a,-1,n)` (5000+ cases) before flashing.
-- `scripts/card-eth-test.py`: force **T=0** (OMNIKEY 5422 contact slot fails
-  T=1 transmits with `0x80100016`).
+### 2026-10-19 — ETH1 acceptance hardening — Hermes Agent
 
-### Changed
-- `~/bin/gp.jar` (dev machine): snapshot `f2af9ef` → **release v26.06.04**
-  (backup kept as `gp.jar.f2af9ef.bak`). Rule: only gp release jars.
+Version: 1.0.2 (unreleased launch changes). Updated: 2026-10-19 CEST.
 
-## 2026-06-30 — Card-as-wallet (browser + reader), FIDO2 user-presence, hardware findings
+- `7b394bcb914aa89bd0ad9757822cdb445d8a4470`: malformed, mismatched and
+  unrecoverable ETH1 signatures close the connection and exit non-zero, preventing
+  a false downstream card-acceptance success.
+- `e7c98280b59a337d8c9e1f7c8919a6c10689b8c7`: fake-reader regressions exercise
+  the actual script process and expose acceptance of invalid zero/order scalars.
+- `7fb9cf83d715b36cd67b0c39a2d8d2c88e4889ea`: reject out-of-range ECDSA
+  scalars and invalid secp256k1 recovery points before recovery arithmetic.
+  [Cloud CI](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/39173633215)
+  passed `node-tests`, `card-release` and `virtual-card`; 47 PC/SC fake tests and
+  79 Node tests passed. No physical-card access, merge or deployment in this change.
 
-### Added
-- **`web/card-wallet.html`** + server `POST /api/wallet/{address,utxos,spend}`:
-  card-does-both wallet — client key = card FIDO2 PRF → `HKDF(app:nuri.com|wallet|v1)`
-  → BIP86 `m/86'/0'/0'/0/0`; cosigner = card MuSig2 applet;
-  `musig2(client,card)` + `CSV(52500)`. Reader path proven end-to-end on **mainnet**;
-  browser path falls back to the reader (this card can't do browser WebAuthn PRF).
-- **`web/passkey-wallet.html`** + `POST /api/cosign/passkey-sign`: localhost passkey
-  → valid card-cosigned BIP340 signature demo.
-- **`patches/0002-advertise-user-presence.patch`** + **`dist/FIDO2-up.cap`**: FIDO2
-  applet advertises CTAP2 `up:true` so browsers/macOS accept the card as a passkey
-  (the applet already set `UP=1` in every assertion). v1 `dist/FIDO2.cap` preserved.
-- **`docs/fido2-user-presence.md`**, **`docs/logbook.md`**, this `CHANGELOG.md`.
+- Minimal public documentation: consolidated user guides; deleted stale session,
+  planning, incident and vendor-email/PDF material. Historical proof records are
+  isolated under `docs/proofs/` and are not fresh launch acceptance.
+- MuSig2 nonce lifetime and PC/SC transport handling are documented in
+  [nonce handling](docs/musig2-nonce-lifetime-fix.md) and [readers](docs/reader-compatibility.md).
+- ETH v2 is a separate applet with simulator coverage and optional PIN protection;
+  fresh physical-card acceptance is UNVERIFIED. [ETH v2](docs/eth-applet-v2.md).
+- TOTP has software HMAC-SHA1 fallback and PIN-protected secret replacement;
+  code calculation remains ungated. [TOTP](docs/totp-applet.md).
+- Local helper guards and extension/native-host trust boundaries are documented
+  without claiming fresh browser or hardware acceptance. [Helpers](docs/helper-servers-security.md),
+  [extension](docs/chrome-extension.md).
 
-### Changed
-- `scripts/nuri-card-wallet.mjs`: optional `clientSeedHex` (browser/reader PRF) +
-  a key-ownership safety check that refuses to sign a spend unless the passkey/card
-  owns the funded address.
+## 1.0.2 — public-core reproduction entrypoint
 
-### Findings (hardware / platform)
-- **secp256k1 / MuSig2 needs card OS `2025-05-14`** (ATR `3b:81:80:01:80:80`). The
-  `2023-03-30` OS lacks the EC point-multiply (`ALG_EC_SVDP_DH_PLAIN_XY`) → keygen
-  returns `6A81`. Card OS is mask-ROM, not user-updatable. Screen with `gp -i`
-  (OS date); confirm with `cosign:real-card:keygen`.
-- **macOS Safari does not expose WebAuthn PRF for external security keys** — the
-  card enables `hmac-secret` (assertion ED flag true) but Safari returns `prf:null`;
-  Chrome can't see a PC/SC contact reader. Browser PRF works only via native-NFC
-  app or Windows. `up:true` fix confirmed working on hardware regardless.
-
-## Earlier milestones (from git history)
-- `176de67` — card wallet (browser + reader) + FIDO2 user-presence CAP (this session).
-- `eba645c` — README rewritten product-first (vision, app/PWA same-wallet story, roadmap).
-- `4670451` — Arkade/Lightning: card-backed client identity + tree-round tweak.
-- `1012a4c` — full real-card 2-of-2 round proof + headline chart.
-- `168a584` — wallet client key derived from card FIDO2 PRF (no host secret).
-- `5fa7c95` — Nuri smartcard wallet: stable `musig2(client,card)`+CSV address + real spend.
-- Real card co-signed live Signet txs (blocks 308802 / 308804) and a mainnet wallet.
-</content>
+- Source, virtual tests and artifact comparison entrypoint:
+  [scripts/reproduce-v1.sh:7–22](scripts/reproduce-v1.sh#L7-L22).
+- Mobile verification still requires separate private design-system access;
+  use `REPRODUCE_EXPO=NO` for the public-core path.
+- Reproducibility is not hardware qualification. See [release](docs/release.md)
+  and [acceptance](docs/acceptance.md).

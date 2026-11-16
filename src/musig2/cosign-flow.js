@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { SimulatedMuSig2Card, bytes } from './card-sim.js';
 
 export function sha256Bytes(value) {
@@ -51,18 +51,20 @@ export function parseMsg32({ msg32, message } = {}) {
   };
 }
 
-export function createOnCardGeneratedCard() {
+export function createOnCardGeneratedCard({ mode } = {}) {
+  if (mode !== 'sim') throw new Error('software card creation requires explicit mode: sim');
   return new SimulatedMuSig2Card();
 }
 
 export function runCardCosignFlow({
-  card = createOnCardGeneratedCard(),
+  card,
   clientSecret = randomBytes(32),
   msg32,
   message,
   sessionId = makeSessionId(),
   backend = 'simulated-on-card-keygen',
 } = {}) {
+  if (!card) throw new Error('card signer is required; explicitly provide a simulator for simulation');
   const parsed = parseMsg32({ msg32, message });
   const clientSk = bytes(clientSecret, 'clientSecret');
   const clientPk = musig2.IndividualPubkey(clientSk);
@@ -97,6 +99,7 @@ export function runCardCosignFlow({
   if (!finalSignatureVerified) throw new Error('final aggregate signature verification failed');
 
   return {
+    mode: card instanceof SimulatedMuSig2Card ? 'sim' : 'card',
     status: 'NURI_CARD_COSIGN_FLOW_OK',
     backend,
     key_origin: 'card-generated-non-exportable-in-backend',

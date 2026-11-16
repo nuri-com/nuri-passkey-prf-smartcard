@@ -45,19 +45,26 @@ fi
 [[ -z "${GP_KEY_MAC:-${SCP03_MAC:-}}" ]] || GP_ARGS+=("--key-mac" "${GP_KEY_MAC:-${SCP03_MAC}}")
 [[ -z "${GP_KEY_DEK:-${SCP03_DEK:-}}" ]] || GP_ARGS+=("--key-dek" "${GP_KEY_DEK:-${SCP03_DEK}}")
 
+# ETH1 (4E55524945544801) is the legacy PIN-less applet. It is kept only for the
+# demo card; new cards get ETH2, which signs the same digests behind a PIN.
+# PROVISION_SKIP_ETH1=YES drops it and guards on ETH2 instead. Default unchanged.
+if [[ "${PROVISION_SKIP_ETH1:-}" == "YES" ]]; then
+  guard_aids=(A0000006472F0001 4E5552494D554701 4E555249544F5450 4E5552494554483201)
+  caps=(FIDO2-up.cap nuri-musig2-v20-keygen.cap nuri-oath-totp.cap)
+else
+  guard_aids=(A0000006472F0001 4E5552494D554701 4E555249544F5450 4E55524945544801)
+  caps=(FIDO2-up.cap nuri-musig2-v20-keygen.cap nuri-oath-totp.cap nuri-eth-signer.cap)
+fi
+
 registry="$($GP_BIN "${GP_ARGS[@]}" --list 2>&1)"
-for aid in A0000006472F0001 4E5552494D554701 4E555249544F5450 4E55524945544801; do
+for aid in "${guard_aids[@]}"; do
   if grep -q "$aid" <<<"$registry"; then
     echo "Refusing to provision a non-blank target: applet $aid is already present." >&2
     exit 1
   fi
 done
 
-for cap in \
-  FIDO2-up.cap \
-  nuri-musig2-v20-keygen.cap \
-  nuri-oath-totp.cap \
-  nuri-eth-signer.cap; do
+for cap in "${caps[@]}"; do
   echo "Installing $cap"
   "$GP_BIN" "${GP_ARGS[@]}" --install "$ROOT/dist/$cap"
 done

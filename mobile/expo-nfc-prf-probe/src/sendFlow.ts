@@ -24,20 +24,20 @@ import { ArkAddress } from '@arkade-os/sdk';
 import { musig2SignOverNfc, readCardPubkey, type LogSink } from './musig2Card';
 import { webauthnAssert } from './ctapPrf';
 
-// ponytail: the phone holds no key. The card is the MuSig2 client signer
-// (NFC), the ASP is the cosigner (HTTP). Ceiling: the applet has no PIN gate
-// on the MuSig2 applet yet (FIDO2 UV is separate), documented in
-// docs/tap-to-pay-concept.md.
+// The card supplies the MuSig2 client partial over NFC; the ASP cosigns over
+// HTTP. Applet/host versions must agree on the current PIN/session contract.
+// FIDO2 UV is separate; see docs/musig2-pin-and-hardening.md.
+// Native NFC acceptance of the new protocol remains unverified.
 
 export type SendConfig = {
   // ASP endpoints (from /arkade/info)
-  aspSignUrl: string;         // https://arkade.nuri.com/v4/arkade/sign
-  aspAuthUrl: string;         // https://arkade.nuri.com/v4/arkade/auth
-  aspInfoUrl: string;         // https://arkade.nuri.com/v4/arkade/info
-  intentUrl: string;          // https://arkade.nuri.com/v4/arkade/swap-intent/create
-  prepareUrl: string;         // https://nuri.com/api/arkade/send/prepare
-  cosignUrl: string;          // https://nuri.com/api/arkade/send/cosign
-  completeUrl: string;        // https://nuri.com/api/arkade/send/complete
+  aspSignUrl: string;         // https://asp.example.com/v4/arkade/sign
+  aspAuthUrl: string;         // https://asp.example.com/v4/arkade/auth
+  aspInfoUrl: string;         // https://asp.example.com/v4/arkade/info
+  intentUrl: string;          // https://asp.example.com/v4/arkade/swap-intent/create
+  prepareUrl: string;         // https://wallet.example.com/api/arkade/send/prepare
+  cosignUrl: string;          // https://wallet.example.com/api/arkade/send/cosign
+  completeUrl: string;        // https://wallet.example.com/api/arkade/send/complete
   nodeUrl: string;            // https://arkade.computer
   boltzNetwork: 'bitcoin';
   // Card receive credential (from the profile)

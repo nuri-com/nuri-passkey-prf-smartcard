@@ -1,65 +1,102 @@
-# Card V1 flash artifacts
+# Release artifacts
 
-This directory contains the normalized, reproducible CAP set for Nuri Card V1.
-Run `npm run card:release:verify` to rebuild every applet from source, verify the
-Java Card converters, compare every internal CAP component with these artifacts,
-and check `SHA256SUMS`.
+```mermaid
+flowchart LR
+  S[Source and pinned tools] --> B[Build and normalize CAPs]
+  B --> C[Component and checksum verification]
+  C --> H[Separate physical-card acceptance]
+```
 
-ZIP timestamps and the generated CAP creation-time manifest field are normalized.
-This makes the outer CAP hashes deterministic without changing any loadable Java
-Card component.
+Current checksum inventory from [SHA256SUMS](SHA256SUMS); filenames and successful
+hashes do not prove the installed card revision or certification. New PIN,
+attestation and vault CAPs are simulator only. [Feature status](../README.md#feature-status).
 
-| Artifact | Source | Applet AID | Runtime version | License | SHA-256 |
-| --- | --- | --- | --- | --- | --- |
-| `FIDO2.cap` | `third_party/fido2-applet/` + patch 0001 | `A0000006472F0001` | package 0.4, `up:false` | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
-| `FIDO2-up.cap` | same + patches 0001 and 0002 | `A0000006472F0001` | package 0.4, `up:true` | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
-| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.11 / `KGEN` — no host seed import, one-shot KEYGEN | GPL-2.0-or-later portions | `a9b2eea825561f31da708836927290fd92b430c5084cdc614020fd5da3648126` |
-| `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | package 1.0 | MIT | `6f33f7c4aedea49238d3ac33867999b787972d8cc0c4f4948ad302c5e9ab1af2` |
-| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.4 / `SIGN` — debug INS removed, one-shot KEYGEN | GPL-2.0-or-later portions | `0093e7b2b9c15435fd853ac4e6a64180f0779aa5230e56b652b6b8217d1b5217` |
+| Artifact | Source | Applet AID | Version / scope | Licence | SHA-256 |
+|---|---|---|---|---|---|
+| `FIDO2.cap` | `third_party/fido2-applet/ + patch 0001` | `A0000006472F0001` | 0.4, advertises up:false | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
+| `FIDO2-up.cap` | `third_party/fido2-applet/ + patches 0001/0002` | `A0000006472F0001` | 0.4, advertises up:true; no physical touch check | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.17 (`APPLET_VERSION` 0x0111), package 2.2; PIN/token/attestation | MIT | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
+| `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
+| `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.5 / SIGN; demo, no PIN; cofactor fix for NXP JCOP 2.4.1 | GPL-2.0-or-later combined | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
+| `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; transactional SET/CHANGE/UNBLOCK; hardware tear unverified | MIT | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
+| `nuri-eth-import-signer.cap` | `card/eth-import/` | `4E55524945544802` | 1.4; optional one-shot existing-key import; PIN-less; ACR39U physical-card proof | GPL-2.0-or-later combined | `620d3f3c2a72fad18516c4a45da1c327fdd7640581d62f015c77cd5c520c6d44` |
+| `nuri-vault.cap` | `card/vault/` | `4E555249564C5401` | package 1.1; PIN slots and attestation | MIT | `70ab1835d602fd3aaef346f4da8ef5c1a737d3a189ad0e9e9743aff65665bc33` |
+| `pkcs11-nuri.so` | `scripts/pkcs11-nuri.c` | `not an applet` | macOS native module; rebuild for your platform | MIT source | `b27a41734535d15d032ef553974643a4f97cabc1d67216fca1b1069d19b21299` |
 
-## Exact build inputs
+The machine-specific prebuilt SSH provider is omitted. Build it on your own host
+using [SSH setup](../docs/ssh-smartcard.md); locally generated absolute paths must
+not be redistributed. The PKCS#11 module is a separate native artifact, not a CAP;
+its source/platform correspondence is checked separately.
 
-- FIDO2 Nuri fork base: `4f318197cc08f316ce784a89bdf29dc73cca7fcf`
-  (parent: upstream FIDO2Applet v2.0.5 `0194107d9648577379058b59843504924b546514`)
-- Java Card SDK checkout: `e2df471e04d86f33de69a947f44766fbef1d9d69`
-- FIDO2 converter: Java Card 3.0.5 (`jc305u3_kit`)
-- Nuri applet converter: Java Card 3.0.4 (`jc304_kit`)
-- Java: Azul Zulu OpenJDK `1.8.0_452`
-- Custom-applet build tool: `tools/ant-javacard-proven.jar`, SHA-256
-  `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`
+## MuSig2 additive identities
 
-The FIDO2 source snapshot and Gradle wrapper are vendored. The Oracle Java Card
-SDK checkout is fetched at its exact public commit because its licensing is
-separate from this repository. No confidential FEITIAN or IDEX material is used
-or distributed.
+| Identity | Package AID | Applet AID | Artifact / scope |
+|---|---|---|---|
+| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; applet 1.17, hash in `SHA256SUMS`; the PIN2 receipt covers the v1.15 CAP from v1.1.0 |
+| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; applet 1.17, released in v1.2.0, sha256 `d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9`; live mainnet cosign receipt |
 
-## Which FIDO2 artifact to install
+Released in v1.2.0. CI job `card-release` rebuilt all CAPs from main
+`f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components and printed
+`CARD_V1_RELEASE_VERIFIED` ([run 40795980738](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40795980738)).
+On 2026-10-28 the AID3 instance on card `87E5470B` co-signed a live mainnet
+Arkade send ([receipt](../docs/proofs/e2e-proof.json)). The receipt does not
+record the installed CAP hash, so it does not prove the card runs this exact
+file. AID2 evidence does not transfer to a new CAP. [Scalar boundary](../docs/scalar256.md#v120-aid3-release-boundary).
 
-`FIDO2-up.cap` is the Card V1 production candidate. It enables `hmac-secret`
-for created credentials and advertises physical card presence as `up:true`.
-`FIDO2.cap` is retained only to reproduce the earlier `up:false` card state.
+## Build inputs and reproduction
 
-## Build and verify
+- FIDO2 fork `4f318197cc08f316ce784a89bdf29dc73cca7fcf`, upstream v2.0.5
+  `0194107d9648577379058b59843504924b546514`; packaging deviations in
+  [upstream provenance](../third_party/fido2-applet/UPSTREAM.md).
+- Java Card SDK checkout `e2df471e04d86f33de69a947f44766fbef1d9d69`;
+  FIDO2 converter 3.0.5, custom applets 3.0.4. SDK is external, not MIT-relicensed.
+- Azul Zulu OpenJDK `1.8.0_452` for CAP compilation; JDK17 launches Gradle/simulators.
+- External Gradle 8.2 through 8.x; no vendored wrapper. Other versions require
+  separate reproducibility checks; Gradle 9 is rejected by the current build gate.
+- [Pinned ant-javacard](../tools/README.md), SHA-256
+  `def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`.
 
-```bash
-npm ci
+### Artifact import record: MuSig2 CAP triplet
+
+The three MuSig2 CAPs were imported from a pinned cloud build, not built on a
+maintainer host, after the tracked copies went stale against `card/musig2/`
+source. This refresh includes the transient lazy-KAT buffer fix in
+`RsaMultiply`. The release verifier caught the stale CAP components.
+
+- Run [`40671053336`](https://github.com/nuri-com/nuri-passkey-prf-smartcard/actions/runs/40671053336),
+  artifact `nuri-card-release-53f295466d550c3a114c094b5998b2fdbb096c35` (id
+  `12808212313`), built by CI job `card-release`.
+- `BUILD-PROVENANCE.txt` in that artifact: `source_commit=53f295466d550c3a114c094b5998b2fdbb096c35`,
+  `source_dirty=0`, `fido2_nuri_ref=4f318197cc08f316ce784a89bdf29dc73cca7fcf`,
+  `javacard_sdk_ref=e2df471e04d86f33de69a947f44766fbef1d9d69`,
+  `ant_javacard_sha256=def557393fd20dbe478a4581c3273222805b9e494836aa8465dfbe0fb9d64cf2`,
+  `java=openjdk version "1.8.0_452"`, `gradle=8.2` — all identical to the
+  pinned inputs above.
+- That commit is the GitHub test merge of the submitted head onto a base commit
+  that is an ancestor of it, so its tree is byte-identical to the submitted
+  tree: the artifacts correspond to this source revision.
+- Unchanged CAPs (`FIDO2`, `FIDO2-up`, `nuri-oath-totp`, `nuri-eth-signer`,
+  `nuri-eth2-signer`, `nuri-vault`) are byte-identical to the imported copies,
+  which confirms the build host reproduces the tracked bundle.
+- `nuri-eth-signer.cap` 1.5 replaced that imported copy later: built locally from
+  `ceb447a` (same tree as `d4dbdd9`), `source_dirty=0`, Zulu `1.8.0_452`,
+  Gradle 8.14.3; hash `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470`.
+  [Real-card receipt](../docs/proofs/real-card-57274221-eth1-cofactor.json).
+- Package and applet AIDs of the imported files match the inventory
+  (`4E5552494D554701`, `4E5552494D55473201`, `4E5552494D55473301`); package
+  version stays 2.2, `APPLET_VERSION` is 1.17.
+
+The verifier was not relaxed: `scripts/verify-card-v1-release.sh`,
+`dist/SHA256SUMS` structure and `scripts/compare-cap-components.py` are
+unchanged, and the import satisfies the existing component and checksum gates.
+
+```sh
 npm run card:release:verify
 ```
 
-Successful verification ends with `CARD_V1_RELEASE_VERIFIED`.
-
-## Install all four applets on a blank development card
-
-```bash
-CARD_PROVISION_CONFIRM=YES \
-GP_READER_INDEX=2 \
-GP_KEY="seller-supplied-transport-key" \
-scripts/provision-card-v1.sh
-```
-
-Never publish the transport key, PIN, credential profile, TOTP secret, or any
-card-generated private key. Provisioning a second card creates a new identity;
-it does not clone the original card.
-
-See `docs/card-v1-release.md` and `docs/card-v1-acceptance.md` for the complete
-rebuild, provisioning, testing, and handoff procedures.
+Require `CARD_V1_RELEASE_VERIFIED`, preserve build provenance and run
+[physical acceptance](../docs/acceptance.md) separately. The legacy bundle
+installer still installs ETH1, not ETH2/vault: it is a blank-card demo installer,
+not consumer provisioning. Follow [blank-spare personalization](../docs/attestation.md#blank-card-personalization)
+for the new applets; do not overwrite an existing wallet or sole SSH key.
+[Notices](../THIRD_PARTY_NOTICES.md) govern licence distribution, including old GPL binaries.

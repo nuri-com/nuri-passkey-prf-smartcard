@@ -29,15 +29,7 @@ CORE_SPEC.loader.exec_module(core)
 
 
 class ProofCard(core.Card):
-    def _tx(self, apdu):
-        response, sw1, sw2 = self.conn.transmit(apdu)
-        if sw1 == 0x6C:
-            retry = list(apdu)
-            retry[-1] = sw2
-            response, sw1, sw2 = self.conn.transmit(retry)
-        if (sw1 << 8 | sw2) != 0x9000:
-            raise RuntimeError(f"APDU SW={sw1:02X}{sw2:02X}")
-        return bytes(response)
+    """core.Card already goes through nuri_pcsc (T=0 ladder, 6CXX resend, 61XX GET RESPONSE)."""
 
 
 def bytes_from_hex32(value: str, name: str) -> bytes:
@@ -120,6 +112,7 @@ def session_keys(card_pk33: bytes, asp_pk33: bytes, mode: str, script_root32: by
     fold = (g * g_acc) % core.N
     return {
         "coeffs": coeffs,
+        "session_q": session_q,
         "internal_xonly": internal_xonly,
         "signing_xonly": signing_xonly,
         "tweak_int": tweak_int,
@@ -155,7 +148,7 @@ def run_case(card, args, mode: str, card_pk33: bytes, asp_secret: int, asp_pk33:
 
     card_coeff32 = core.i2b((keys["coeffs"][card_pk33.hex()] * keys["fold"]) % core.N)
     asp_coeff32 = core.i2b((keys["coeffs"][asp_pk33.hex()] * keys["fold"]) % core.N)
-    card_partial32 = card.finalize(card_coeff32, b32, aggregate_nonce_parity, challenge32)
+    card_partial32 = card.finalize(card_coeff32, b32, aggregate_nonce_parity, challenge32, r_agg=aggregate_r, p_agg=keys["session_q"])
     asp_partial32 = asp_partial_sign(asp_k1, asp_k2, b32, aggregate_nonce_parity, challenge32, asp_coeff32, asp_secret)
 
     card_partial_ok = partial_verify(

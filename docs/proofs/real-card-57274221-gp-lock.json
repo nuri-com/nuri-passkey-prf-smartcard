@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-30",
+  "card": {
+    "serial": "57274221",
+    "cplc": "4790D3214700000000005021572742212092000000000000000019355437323734320000000000000000",
+    "atr_contact": "3BF81300008131FE454A434F5076323431B7",
+    "chip": "NXP JCOP v2.4.1"
+  },
+  "reader": "HID Global OMNIKEY 5422 Smartcard Reader",
+  "gp": {
+    "version": "24.10.15",
+    "banner": "f2af9ef",
+    "sha256": "a68eca9ab9be84a0560b2d312ca6a18cd2dbcd223bb7b30525e0e0f85a372696"
+  },
+  "method": "bash scripts/diy-key.sh [unlock] --reader <exact contact slot> --passphrase-fd 3, serial confirmed on stdin",
+  "runs": [
+    {
+      "run": 1,
+      "lock": {
+        "output": "\nAbout to change the card's admin (GP) key. It is used to install or remove apps.\nUnchanged: your passkeys, wallet keys, card PINs and the installed applets.\nThe card's serial number is shown and must be typed back before anything is sent.\nChoose escrow passphrase (16+ characters); it is never printed and never stored.\nKeep the escrow file AND the passphrase, in two separate places.\nContinue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3\nType the card CPLC serial 57274221 to lock: Encrypted escrow durably published: ~/.nuri-card/escrow/4790D3214700000000005021572742212092000000000000000019355437323734320000000000000000.json\nCARD_LOCK_VERIFIED\n\nEscrow backup: \nCopy that file to a USB stick or a second place NOW.\nKeep the passphrase somewhere else (password manager, paper safe).\nWithout both, a lost key cannot be recovered.\n",
+        "token": "CARD_LOCK_VERIFIED"
+      },
+      "unlock": {
+        "output": "\nAbout to restore the card's factory-default admin (GP) key from the escrow backup.\nUnchanged: your passkeys, wallet keys, card PINs and the installed applets.\nThe card's serial number is shown and must be typed back before anything is sent.\nChoose escrow passphrase (16+ characters); it is never printed and never stored.\nKeep the escrow file AND the passphrase, in two separate places.\nContinue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3\nType the card CPLC serial 57274221 to unlock: CARD_DEFAULT_KEYS_RESTORED_VERIFIED\n\nDefault admin key restored. The escrow file ~/.nuri-card/escrow/4790D3214700000000005021572742212092000000000000000019355437323734320000000000000000.json is kept for reuse.\n",
+        "token": "CARD_DEFAULT_KEYS_RESTORED_VERIFIED"
+      },
+      "note": "wizard printed 'Escrow backup: ' empty (sed ^ anchor vs prompt-prefixed line); fixed in diy-key.sh"
+    },
+    {
+      "run": 2,
+      "lock": {
+        "output": "\nAbout to change the card's admin (GP) key. It is used to install or remove apps.\nUnchanged: your passkeys, wallet keys, card PINs and the installed applets.\nThe card's serial number is shown and must be typed back before anything is sent.\nChoose escrow passphrase (16+ characters); it is never printed and never stored.\nKeep the escrow file AND the passphrase, in two separate places.\nContinue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3\nType the card CPLC serial 57274221 to lock: Encrypted escrow durably published: ~/.nuri-card/escrow/demo-run2-57274221.json\nCARD_LOCK_VERIFIED\n\nEscrow backup: ~/.nuri-card/escrow/demo-run2-57274221.json\nCopy that file to a USB stick or a second place NOW.\nKeep the passphrase somewhere else (password manager, paper safe).\nWithout both, a lost key cannot be recovered.\n",
+        "token": "CARD_LOCK_VERIFIED",
+        "escrow_path_displayed": true
+      },
+      "unlock": {
+        "output": "\nAbout to restore the card's factory-default admin (GP) key from the escrow backup.\nUnchanged: your passkeys, wallet keys, card PINs and the installed applets.\nThe card's serial number is shown and must be typed back before anything is sent.\nChoose escrow passphrase (16+ characters); it is never printed and never stored.\nKeep the escrow file AND the passphrase, in two separate places.\nContinue? [y/N] Target CPLC serial: 57274221; key version: 0x01; key type: DES3\nType the card CPLC serial 57274221 to unlock: CARD_DEFAULT_KEYS_RESTORED_VERIFIED\n\nDefault admin key restored. The escrow file ~/.nuri-card/escrow/demo-run2-57274221.json is kept for reuse.\n",
+        "token": "CARD_DEFAULT_KEYS_RESTORED_VERIFIED"
+      }
+    }
+  ],
+  "existing_escrow_refusal": "second lock with the run-1 escrow path refused before any rotation: REFUSED: Input/filesystem operation failed / No rotation command sent; existing card keys unchanged.",
+  "final_state": {
+    "default_key_listing": "WARNING: A restricted method in java.lang.System has been called\nWARNING: java.lang.System::load has been called by com.sun.jna.Native in an unnamed module (file:~/.nuri-card/tools/gp-24.10.15.jar)\nWARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module\nWARNING: Restricted methods will be blocked in a future release unless native access is enabled\n\nISD: A000000151000000 (OP_READY)\n     Parent:   A000000151000000\n     From:     A0000001515350\n     Privs:    SecurityDomain, CardLock, CardTerminate, CardReset, CVMManagement, TrustedPath, AuthorizedManagement, TokenVerification, GlobalDelete, GlobalLock, GlobalRegistry, FinalApplication, ReceiptGeneration\n\nAPP: A0000006472F0001 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     A000000647\n\nAPP: 4E5552494D554701 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E5552494D5547\n\nAPP: 4E555249544F5450 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E555249544F50\n\nAPP: 4E5552494554483201 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E55524945544832\n\nAPP: 4E5552494D55473201 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E5552494D554732\n\nAPP: 4E5552494D55473301 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E5552494D554733\n\nAPP: 4E555249564C5401 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E555249564C54\n\nAPP: 4E55524945544801 (SELECTABLE)\n     Parent:   A000000151000000\n     From:     4E555249455448\n\nPKG: A0000001515350 (LOADED)\n     Parent:   A000000151000000\n     Version:  255.255\n     Applet:   A000000151535041\n\nPKG: A00000016443446F634C697465 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.0\n     Applet:   A00000016443446F634C69746501\n\nPKG: A0000000620204 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.0\n\nPKG: A0000000620202 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.3\n\nPKG: A000000647 (LOADED)\n     Parent:   A000000151000000\n     Version:  0.4\n     Applet:   A0000006472F0001\n\nPKG: 4E5552494D5547 (LOADED)\n     Parent:   A000000151000000\n     Version:  2.2\n     Applet:   4E5552494D554701\n\nPKG: 4E555249544F50 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.1\n     Applet:   4E555249544F5450\n\nPKG: 4E55524945544832 (LOADED)\n     Parent:   A000000151000000\n     Version:  2.1\n     Applet:   4E5552494554483201\n\nPKG: 4E5552494D554732 (LOADED)\n     Parent:   A000000151000000\n     Version:  2.2\n     Applet:   4E5552494D55473201\n\nPKG: 4E5552494D554733 (LOADED)\n     Parent:   A000000151000000\n     Version:  2.2\n     Applet:   4E5552494D55473301\n\nPKG: 4E555249564C54 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.1\n     Applet:   4E555249564C5401\n\nPKG: 4E555249455448 (LOADED)\n     Parent:   A000000151000000\n     Version:  1.0\n     Applet:   4E55524945544801\n\n",
+    "result": "default GP key authenticates, ISD OP_READY, 8 applets selectable"
+  },
+  "secrets": "no passphrase and no new key appears in any output; escrow files are scrypt+AES-GCM encrypted"
+}

@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+fido2[pcsc]==2.2.1
+cryptography==46.0.3
+pyscard==2.3.1

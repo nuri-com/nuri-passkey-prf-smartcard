@@ -1,5 +1,12 @@
 # Pinned Java Card build tool
 
+```mermaid
+flowchart LR
+  S[Vendored corresponding source] --> J[Pinned build-tool JAR]
+  J --> B[Host-side CAP build]
+  B --> C[Applet artifacts]
+```
+
 `ant-javacard-proven.jar` is the exact local `ant-javacard` binary used for the
 real-card MuSig2, TOTP, and ETH CAP builds that were preserved in `dist/`.
 

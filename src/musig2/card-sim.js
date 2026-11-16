@@ -1,6 +1,6 @@
 import * as btc from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 
 export function hex(bytes) {
   return bytesToHex(bytes);

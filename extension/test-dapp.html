@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Nuri Card — test dApp</title>
+  <style>
+    body { font: 17px/1.5 -apple-system, Helvetica, Arial, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #2C232E; background: #fffdf2; }
+    h1 { font-size: 30px; }
+    button { font: inherit; min-height: 48px; padding: 8px 14px; margin: 4px 4px 4px 0; border-radius: 6px; border: 1px solid #111; background: #BEAAFF; cursor: pointer; }
+    button:disabled { opacity: .4; cursor: default; }
+    pre { background: #f4f4f4; border-radius: 6px; padding: 10px; white-space: pre-wrap; word-break: break-all; font-size: 17px; }
+    .ok { color: #070; font-weight: 700; } .bad { color: #b00; font-weight: 700; }
+    code { word-break: break-all; }
+  </style>
+  <script src="third_party/ethers.umd.min.js"></script>
+</head>
+<body>
+  <h1>Nuri Card test dApp</h1>
+  <p>Discovers the <b>Nuri Card</b> provider via EIP-6963 (rdns <code>com.nuri.card</code>). Signing buttons do not broadcast. <b>Send 0 ETH to self broadcasts on Base and spends gas.</b></p>
+  <p>Provider: <span id="prov">waiting for eip6963:announceProvider…</span></p>
+  <p>
+    <button id="connect">Connect</button>
+    <button id="chain" disabled>Switch Base ⇄ Ethereum</button>
+    <button id="sign" disabled>Sign message</button>
+    <button id="typed" disabled>Sign typed data</button>
+    <button id="tx" disabled>Sign tx (no send)</button>
+    <button id="send" disabled>Send 0 ETH to self</button>
+  </p>
+  <p>Account: <code id="acct">—</code> · chainId: <code id="cid">—</code></p>
+  <p id="sent"></p>
+  <pre id="log"></pre>
+  <script>
+    const E = window.ethers;
+    let provider = null, account = null;
+    const $ = (id) => document.getElementById(id);
+    const log = (...a) => { $("log").append(document.createTextNode(a.map((x) => typeof x === "string" ? x : JSON.stringify(x, null, 2)).join(" ") + "\n")); };
+    const logMatch = (recovered) => {
+      const ok = recovered.toLowerCase() === account.toLowerCase();
+      log(`recovered ${recovered} — ${ok ? "matches" : "MISMATCH"}`);
+      $("log").innerHTML += `<span class="${ok ? "ok" : "bad"}">${ok ? "✅ matches" : "❌ mismatch"}</span>\n`;
+    };
+
+    window.addEventListener("eip6963:announceProvider", (ev) => {
+      const { info, provider: p } = ev.detail;
+      log("announce:", { name: info.name, rdns: info.rdns, uuid: info.uuid });
+      if (info.rdns === "com.nuri.card") {
+        provider = p;
+        $("prov").textContent = `${info.name} (${info.rdns})`;
+        p.on("accountsChanged", (accs) => { account = accs[0] || null; $("acct").textContent = account || "—"; log("accountsChanged", accs); });
+        p.on("chainChanged", (c) => { $("cid").textContent = c; log("chainChanged", c); });
+      }
+    });
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+    $("connect").onclick = async () => {
+      try {
+        const accs = await provider.request({ method: "eth_requestAccounts" });
+        account = accs[0];
+        $("acct").textContent = account;
+        $("cid").textContent = await provider.request({ method: "eth_chainId" });
+        for (const b of ["chain", "sign", "typed", "tx", "send"]) $(b).disabled = false;
+        log("eth_requestAccounts ->", accs);
+      } catch (e) { log("error:", e.message || e); }
+    };
+
+    $("chain").onclick = async () => {
+      try {
+        const cur = await provider.request({ method: "eth_chainId" });
+        const next = cur === "0x2105" ? "0x1" : "0x2105";
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: next }] });
+        $("cid").textContent = await provider.request({ method: "eth_chainId" });
+        log("switched to", $("cid").textContent);
+      } catch (e) { log("error:", e.message || e); }
+    };
+
+    $("sign").onclick = async () => {
+      try {
+        const msg = "Hello from Nuri Card " + new Date().toISOString();
+        const sig = await provider.request({ method: "personal_sign", params: [E.hexlify(E.toUtf8Bytes(msg)), account] });
+        log("personal_sign ->", sig);
+        logMatch(E.verifyMessage(msg, sig));
+      } catch (e) { log("error:", e.message || e); }
+    };
+
+    $("typed").onclick = async () => {
+      try {
+        const chainId = Number(await provider.request({ method: "eth_chainId" }));
+        const typed = {
+          types: {
+            EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" }],
+            Person: [{ name: "name", type: "string" }, { name: "wallet", type: "address" }],
+            Mail: [{ name: "from", type: "Person" }, { name: "to", type: "Person" }, { name: "contents", type: "string" }],
+          },
+          primaryType: "Mail",
+          domain: { name: "Ether Mail", version: "1", chainId, verifyingContract: "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC" },
+          message: { from: { name: "Nuri", wallet: account }, to: { name: "Bob", wallet: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB" }, contents: "Hello, Bob!" },
+        };
+        const sig = await provider.request({ method: "eth_signTypedData_v4", params: [account, JSON.stringify(typed)] });
+        log("eth_signTypedData_v4 ->", sig);
+        const types = { Person: typed.types.Person, Mail: typed.types.Mail };
+        logMatch(E.verifyTypedData(typed.domain, types, typed.message, sig));
+      } catch (e) { log("error:", e.message || e); }
+    };
+
+    $("send").onclick = async () => {
+      $("send").disabled = true;
+      try {
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+        const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: account, to: account, value: "0x0" }] });
+        log("broadcast transaction:", hash);
+        const link = document.createElement("a");
+        link.href = "https://basescan.org/tx/" + hash;
+        link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = hash;
+        $("sent").replaceChildren("Broadcast (not yet confirmed): ", link);
+      } catch (e) { log("error:", e.message || e); }
+      finally { $("send").disabled = false; }
+    };
+
+    $("tx").onclick = async () => {
+      try {
+        // Explicit nonce/gas/fees so the extension needs no RPC round-trip and nothing can be broadcast by accident.
+        const raw = await provider.request({
+          method: "eth_signTransaction",
+          params: [{ from: account, to: "0x000000000000000000000000000000000000dEaD", value: "0x0", data: "0x",
+                     nonce: "0x0", gas: "0x5208", maxFeePerGas: "0xf4240", maxPriorityFeePerGas: "0x3e8" }],
+        });
+        log("eth_signTransaction ->", raw);
+        const tx = E.Transaction.from(raw);
+        log("parsed:", { type: tx.type, chainId: tx.chainId.toString(), nonce: tx.nonce, to: tx.to, hash: tx.hash });
+        logMatch(tx.from);
+      } catch (e) { log("error:", e.message || e); }
+    };
+  </script>
+</body>
+</html>

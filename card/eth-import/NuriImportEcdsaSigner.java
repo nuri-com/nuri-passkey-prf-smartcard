@@ -6,9 +6,9 @@ import javacard.security.*;
 /**
  * NuriImportEcdsaSigner — secp256k1 ECDSA signing for Ethereum/EVM.
  *
- * Uses Satochip's Biginteger class for RSA-accelerated modular arithmetic
- * (same as the MuSig2 applet). The private key is generated on-card and
- * never leaves the secure element.
+ * Uses Satochip's Biginteger class for RSA-accelerated modular arithmetic.
+ * The private key is generated on-card or imported exactly once and never
+ * leaves the secure element through an applet command.
  *
  * ECDSA: r = (k·G).x mod n
  *        s = k⁻¹(z + r·d) mod n

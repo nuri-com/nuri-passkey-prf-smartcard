@@ -1,0 +1,530 @@
+PATH NORMALIZATION: <REPO>/<WORKSPACE> replace developer-specific paths; result bytes and hashes unchanged.
+Evidence formatting: trailing spaces removed; all command output lines retained.
+W18 simulator proof; no real card/reader accessed. Script SHA-256 values identify the tested source independently of the evidence commit.
+$ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-10-18T14:33:43Z
+exit=0 expected=0
+$ /usr/bin/sw_vers
+ProductName:		macOS
+ProductVersion:		15.5
+BuildVersion:		24F74
+exit=0 expected=0
+$ git -C <REPO> rev-parse HEAD
+bd5306034083905a443aed5b1e287fcb018b6d1f
+exit=0 expected=0
+00cae580123eb4a6d2febcc2967c46150514af7e81ed117e58090582552dfd5f  scripts/build-pkcs11-provider.sh
+46b33215d567109fe7e3f0390dfed4e49fa29a446cab8aea4eb4570548a5263e  scripts/hsm-openssl-selftest.sh
+38dd62f35cb21f9df346039054157efd3a038cf60cf3a125cb03fdb01e806fdc  scripts/requirements-pkcs11-provider-build.txt
+e1714873e9b981b36ebc3a48005914a5e3512fc5bf04750496846e833f54136e  scripts/pkcs11-nuri.c
+9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165  dist/pkcs11-nuri.so
+$ bash -n scripts/build-pkcs11-provider.sh scripts/hsm-openssl-selftest.sh
+
+exit=0 expected=0
+$ bash scripts/build-pkcs11.sh
+9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165  <REPO>/dist/pkcs11-nuri.so
+exit=0 expected=0
+Module rebuild matches dist/SHA256SUMS: 9d76b0080123e860e4058c6ca9b59e0ad4465ae291fb8d65c4b52b2aba95d165
+RUN 1: automatic download/hash-check/build, disposable prefix; NURI_PKCS11_MODE unset
+$ bash scripts/hsm-openssl-selftest.sh
+pkcs11-provider source SHA-256: b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538
+Collecting meson==1.12.1 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 2))
+  Downloading meson-1.12.1-py3-none-any.whl (1.1 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 4.5 MB/s  0:00:00
+Collecting ninja==1.13.2 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 3))
+  Downloading ninja-1.13.2-py3-none-macosx_10_9_universal2.whl (306 kB)
+Installing collected packages: ninja, meson
+
+Successfully installed meson-1.12.1 ninja-1.13.2
+The Meson build system
+Version: 1.12.1
+Source dir: <REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0
+Build dir: <REPO>/.build/pkcs11-provider-build.S1PVLv/build
+Build type: native build
+Project name: pkcs11-provider
+Project version: 1.3.0
+C compiler for the host machine: /opt/homebrew/bin/ccache cc (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+C linker for the host machine: cc ld64 1167.5
+Host machine cpu family: aarch64
+Host machine cpu: aarch64
+Compiler for C supports arguments -Wwrite-strings: YES
+Compiler for C supports arguments -Wpointer-arith: YES
+Compiler for C supports arguments -Wno-missing-field-initializers: YES
+Compiler for C supports arguments -Wformat: YES
+Compiler for C supports arguments -Wshadow: YES
+Compiler for C supports arguments -Wno-unused-parameter: YES
+Compiler for C supports arguments -Werror=implicit-function-declaration: YES
+Compiler for C supports arguments -Werror=missing-prototypes: YES
+Compiler for C supports arguments -Werror=format-security: YES
+Compiler for C supports arguments -Werror=parentheses: YES
+Compiler for C supports arguments -Werror=implicit: YES
+Compiler for C supports arguments -Werror=strict-prototypes: YES
+Compiler for C supports arguments -fno-strict-aliasing: YES
+Compiler for C supports arguments -fno-delete-null-pointer-checks: YES
+Compiler for C supports arguments -fdiagnostics-show-option: YES
+Found pkg-config: YES (/opt/homebrew/bin/pkg-config) 2.5.1
+Run-time dependency libcrypto found: YES 3.6.5
+Run-time dependency libssl found: YES 3.6.5
+Run-time dependency p11-kit-1 found: YES 0.26.5
+Has header "dlfcn.h" : YES
+Checking for function "OSSL_PROVIDER_load_ex" with dependency libcrypto: YES
+Configuring config.h using configuration
+Compiler for C supports link arguments -Wl,--version-script,<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/src/provider.map: NO
+Found CMake: /opt/homebrew/bin/cmake (4.0.3)
+Run-time dependency nss-softokn found: NO  (tried pkg-config, framework and cmake)
+Run-time dependency nss found: YES 3.125
+Program valgrind found: NO
+Program setup.sh found: YES (<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/setup.sh)
+Program test-wrapper found: YES (<REPO>/.build/pkcs11-provider-build.S1PVLv/pkcs11-provider-1.3.0/tests/test-wrapper)
+Build targets in project: 22
+
+pkcs11-provider 1.3.0
+
+  User defined options
+    buildtype: release
+    libdir   : lib
+    prefix   : <REPO>/.build/hsm-openssl.xjinmR/provider
+
+Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at <REPO>/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja
+ninja: Entering directory `<REPO>/.build/pkcs11-provider-build.S1PVLv/build'
+[1/42] Compiling C object src/pkcs11.dylib.p/asymmetric_cipher.c.o
+[2/42] Compiling C object src/pkcs11.dylib.p/cipher.c.o
+[3/42] Compiling C object src/pkcs11.dylib.p/debug.c.o
+[4/42] Compiling C object src/pkcs11.dylib.p/decoder.c.o
+[5/42] Compiling C object src/pkcs11.dylib.p/digests.c.o
+[6/42] Compiling C object src/pkcs11.dylib.p/encoder.c.o
+[7/42] Compiling C object src/pkcs11.dylib.p/exchange.c.o
+[8/42] Compiling C object src/pkcs11.dylib.p/kem.c.o
+[9/42] Compiling C object src/pkcs11.dylib.p/kdf.c.o
+[10/42] Compiling C object src/pkcs11.dylib.p/kmgmt_common.c.o
+[11/42] Compiling C object src/pkcs11.dylib.p/kmgmt_hkdf.c.o
+[12/42] Compiling C object src/pkcs11.dylib.p/kmgmt_ec.c.o
+[13/42] Compiling C object src/pkcs11.dylib.p/kmgmt_mldsa.c.o
+[14/42] Compiling C object src/pkcs11.dylib.p/kmgmt_mlkem.c.o
+[15/42] Compiling C object src/pkcs11.dylib.p/kmgmt_rsa.c.o
+[16/42] Compiling C object src/pkcs11.dylib.p/kmgmt_slhdsa.c.o
+[17/42] Compiling C object src/pkcs11.dylib.p/pk11_uri.c.o
+[18/42] Compiling C object src/pkcs11.dylib.p/registration.c.o
+[19/42] Compiling C object src/pkcs11.dylib.p/interface.c.o
+[20/42] Compiling C object src/pkcs11.dylib.p/obj_create.c.o
+[21/42] Compiling C object src/pkcs11.dylib.p/obj_ec_point.c.o
+[22/42] Compiling C object src/pkcs11.dylib.p/obj_export.c.o
+[23/42] Compiling C object src/pkcs11.dylib.p/obj_keymgmt.c.o
+[24/42] Compiling C object src/pkcs11.dylib.p/obj_fetch.c.o
+[25/42] Compiling C object src/pkcs11.dylib.p/obj_object.c.o
+[26/42] Compiling C object src/pkcs11.dylib.p/obj_pool.c.o
+[27/42] Compiling C object src/pkcs11.dylib.p/obj_store.c.o
+[28/42] Compiling C object src/pkcs11.dylib.p/random.c.o
+[29/42] Compiling C object src/pkcs11.dylib.p/provider.c.o
+[30/42] Compiling C object src/pkcs11.dylib.p/session.c.o
+[31/42] Compiling C object src/pkcs11.dylib.p/sig_signature.c.o
+[32/42] Compiling C object src/pkcs11.dylib.p/sig_ecdsa.c.o
+[33/42] Compiling C object src/pkcs11.dylib.p/sig_rsasig.c.o
+[34/42] Compiling C object src/pkcs11.dylib.p/sig_eddsa.c.o
+[35/42] Compiling C object src/pkcs11.dylib.p/sig_mldsa.c.o
+[36/42] Compiling C object src/pkcs11.dylib.p/sig_slhdsa.c.o
+[37/42] Compiling C object src/pkcs11.dylib.p/kmgmt_skey.c.o
+[38/42] Compiling C object src/pkcs11.dylib.p/slot.c.o
+[39/42] Compiling C object src/pkcs11.dylib.p/store.c.o
+[40/42] Compiling C object src/pkcs11.dylib.p/tls.c.o
+[41/42] Compiling C object src/pkcs11.dylib.p/util.c.o
+[42/42] Linking target src/pkcs11.dylib
+INFO: autodetecting backend as ninja
+INFO: calculating backend command to run: <REPO>/.build/pkcs11-provider-build.S1PVLv/tools/bin/ninja -C <REPO>/.build/pkcs11-provider-build.S1PVLv/build -j 2
+Nuri OpenSSL selftest mode=sim
+OpenSSL 3.6.5 29 Sep 2026 (Library: OpenSSL 3.6.5 29 Sep 2026)
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.5
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.3.0
+    status: active
+public_key=03bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e2
+Signature Verified Successfully
+Verified OK
+PYTHON_ECDSA_VERIFIED signature.der (DER; exactly one SHA-256)
+PYTHON_ECDSA_VERIFIED message-signature.der (DER; exactly one SHA-256)
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_verify:provider signature failure:crypto/evp/signature.c:1176:ECDSA verify:
+Signature Verification Failure
+PASS: modified digest rejected by OpenSSL
+Public Key operation error
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_sign:provider signature failure:crypto/evp/signature.c:1023:ECDSA sign:PKCS11 ECDSA Implementation
+PASS: 31-byte digest rejected without a signature
+Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
+pkeyutl: Error loading key
+PASS: wrong object label rejected
+================================================================
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
+================================================================
+[PASS] C_GetTokenInfo (-L)
+       Slot 0 (0x1): Nuri Smartcard (PC/SC)
+[PASS] C_GetMechanismList (-M) = ECDSA only
+         ECDSA, keySize={256,256}, hw, sign, EC F_P, EC uncompressed, EC compressed
+[PASS] Private + public key objects listed (-O)
+[PASS] CKA_EC_PARAMS = secp256k1 OID 1.3.132.0.10
+       06052b8104000a
+[PASS] CKA_EC_POINT = DER OCTET STRING(04||X||Y), 67 bytes
+       044104bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] --read-object pubkey parses as SubjectPublicKeyInfo on SECP256k1
+       pubkey_uncompressed=04bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] EC_POINT equals read-object pubkey
+[PASS] C_Sign(CKM_ECDSA) #0 verifies with python-ecdsa
+       digest=ebddeed15d54b387967ebf6b89746ddce8c96daa54f2d3db5e73199fa3da4999 sig=e415c1f74b8ed91c7245214a2b597b49440f3aa51e53444179a1738113772d185831765d59c9bde2446e0f7ad2c8205cc9b3866535240988032d0c13030b3a8c
+[PASS] C_Sign(CKM_ECDSA) #1 verifies with python-ecdsa
+       digest=28cbd160bb596d0b4aa1a3826f4ff27c22dade629e17a430407b5beae918fce5 sig=ac7db65f05d13a6c6c783e07643606ff4a70f4c9f423dc2c54ab326d552c683170e11dfcf105a181dc6b8cac45df6f85319d19549798259282c3d2f958d5a4cc
+[PASS] C_Sign(CKM_ECDSA) #2 verifies with python-ecdsa
+       digest=fd0c9cd6de867a9f4f72ce12a431b794c4f245cff1e1b0d3b402f01f523e0ebf sig=d5528c553f9765f86877f325ac502b92c68d30ac15b3b68d604641729c407fb21269baa8bd4021a3cfe15bbd19354462f7def6d79a9f0e1b7d3ced0eaca1e128
+[PASS] C_Sign(CKM_ECDSA) #3 verifies with python-ecdsa
+       digest=a7d76a72e3cab7aafac519a426fdcdc6b6cf8d0612b964c06ed3668b4c4c3946 sig=e45bff9810c1a1862b43506b8018c88a93cdbced6e6baebf4f8d07c5618ce287f2ff967d3605b5ce798f30b256fbd2555a28217783d93cb028850b9dff9be38e
+[PASS] C_Sign(CKM_ECDSA) #4 verifies with python-ecdsa
+       digest=c7b24b714bc6a2f28d1b54d9c6844bb5aa87c3c6f58be1c88257b95343fe53e3 sig=07cb4438a3dbca48d1644cd2107ce79aa01ace3fb2e2006ee895873a8d65fd1159d0bfcf9a6c11094abec9d85ec92d50103ac5f18490387e637d48b3271f8b6b
+[PASS] Signatures are distinct (fresh nonces)
+[PASS] low-s (EIP-2) [informational in sim]
+       all_low_s=False
+[PASS] 31-byte input rejected (no partial sign)
+       Aborting.
+================================================================
+ALL TESTS PASSED
+Mode: --sim (software key, deterministic). Nothing here was run on a card.
+HSM_OPENSSL_SELFTEST_OK mode=sim (OpenSSL + python-ecdsa + pkcs11-tool)
+exit=0 expected=0
+RUN 2: reused provider; inherited PKCS11_PROVIDER_MODULE must be ignored
+$ bash scripts/hsm-openssl-selftest.sh
+Nuri OpenSSL selftest mode=sim
+OpenSSL 3.6.5 29 Sep 2026 (Library: OpenSSL 3.6.5 29 Sep 2026)
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.5
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.3.0
+    status: active
+public_key=03bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e2
+Signature Verified Successfully
+Verified OK
+PYTHON_ECDSA_VERIFIED signature.der (DER; exactly one SHA-256)
+PYTHON_ECDSA_VERIFIED message-signature.der (DER; exactly one SHA-256)
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_verify:provider signature failure:crypto/evp/signature.c:1176:ECDSA verify:
+Signature Verification Failure
+PASS: modified digest rejected by OpenSSL
+Public Key operation error
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_sign:provider signature failure:crypto/evp/signature.c:1023:ECDSA sign:PKCS11 ECDSA Implementation
+PASS: 31-byte digest rejected without a signature
+Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
+pkeyutl: Error loading key
+PASS: wrong object label rejected
+================================================================
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
+================================================================
+[PASS] C_GetTokenInfo (-L)
+       Slot 0 (0x1): Nuri Smartcard (PC/SC)
+[PASS] C_GetMechanismList (-M) = ECDSA only
+         ECDSA, keySize={256,256}, hw, sign, EC F_P, EC uncompressed, EC compressed
+[PASS] Private + public key objects listed (-O)
+[PASS] CKA_EC_PARAMS = secp256k1 OID 1.3.132.0.10
+       06052b8104000a
+[PASS] CKA_EC_POINT = DER OCTET STRING(04||X||Y), 67 bytes
+       044104bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] --read-object pubkey parses as SubjectPublicKeyInfo on SECP256k1
+       pubkey_uncompressed=04bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] EC_POINT equals read-object pubkey
+[PASS] C_Sign(CKM_ECDSA) #0 verifies with python-ecdsa
+       digest=ebddeed15d54b387967ebf6b89746ddce8c96daa54f2d3db5e73199fa3da4999 sig=b9770add1945b5454e61f7f38e4ba0fedc718a7b79fb692451122f3be32d16706c4e1d599270814b0c51cbe3c867ff3eb0ce3587970da80faa4eaf76ddbc053a
+[PASS] C_Sign(CKM_ECDSA) #1 verifies with python-ecdsa
+       digest=28cbd160bb596d0b4aa1a3826f4ff27c22dade629e17a430407b5beae918fce5 sig=6f0ea52b48ab392e8caa6d478dfbe6bb64bbe71596825051d7222b94be08d9ed1574b35a33c363003f798a04b320e92e7c834deca921eb689b497879b7241991
+[PASS] C_Sign(CKM_ECDSA) #2 verifies with python-ecdsa
+       digest=fd0c9cd6de867a9f4f72ce12a431b794c4f245cff1e1b0d3b402f01f523e0ebf sig=8ce3b8b8035a01f47181f5bfaccb93f29569de3e901b8d73b0776a342fbcf7d94add682ca04881267e8edf52530252199c8ee1f0464d42be04e626758f5b2576
+[PASS] C_Sign(CKM_ECDSA) #3 verifies with python-ecdsa
+       digest=a7d76a72e3cab7aafac519a426fdcdc6b6cf8d0612b964c06ed3668b4c4c3946 sig=6165982b416b8170ba806fdc291263268d3c2130c70922d8523de936d8d25b228f8a8624902ad0674594c3cfb9b96a0ac04c9cc9ce9ffc5804c7713112fbe8c2
+[PASS] C_Sign(CKM_ECDSA) #4 verifies with python-ecdsa
+       digest=c7b24b714bc6a2f28d1b54d9c6844bb5aa87c3c6f58be1c88257b95343fe53e3 sig=07167a519056a4f064e1b5093de0f56d367856e1b38674698286c6a6b7ec761ce9f16649f742b180b0e5484b6b3630e712559d642912a8420ae99d05e87a11d3
+[PASS] Signatures are distinct (fresh nonces)
+[PASS] low-s (EIP-2) [informational in sim]
+       all_low_s=False
+[PASS] 31-byte input rejected (no partial sign)
+       Aborting.
+================================================================
+ALL TESTS PASSED
+Mode: --sim (software key, deterministic). Nothing here was run on a card.
+HSM_OPENSSL_SELFTEST_OK mode=sim (OpenSSL + python-ecdsa + pkcs11-tool)
+exit=0 expected=0
+RUN 3: reused provider; inherited PKCS11_PROVIDER_MODULE must be ignored
+$ bash scripts/hsm-openssl-selftest.sh
+Nuri OpenSSL selftest mode=sim
+OpenSSL 3.6.5 29 Sep 2026 (Library: OpenSSL 3.6.5 29 Sep 2026)
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.5
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.3.0
+    status: active
+public_key=03bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e2
+Signature Verified Successfully
+Verified OK
+PYTHON_ECDSA_VERIFIED signature.der (DER; exactly one SHA-256)
+PYTHON_ECDSA_VERIFIED message-signature.der (DER; exactly one SHA-256)
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_verify:provider signature failure:crypto/evp/signature.c:1176:ECDSA verify:
+Signature Verification Failure
+PASS: modified digest rejected by OpenSSL
+Public Key operation error
+005FF3F601000000:error:030000EA:digital envelope routines:EVP_PKEY_sign:provider signature failure:crypto/evp/signature.c:1023:ECDSA sign:PKCS11 ECDSA Implementation
+PASS: 31-byte digest rejected without a signature
+Could not find private key from pkcs11:object=Missing%20Nuri%20Key;type=private
+pkeyutl: Error loading key
+PASS: wrong object label rejected
+================================================================
+Nuri Smartcard PKCS#11 end-to-end  mode=sim  module=<REPO>/dist/pkcs11-nuri.so
+================================================================
+[PASS] C_GetTokenInfo (-L)
+       Slot 0 (0x1): Nuri Smartcard (PC/SC)
+[PASS] C_GetMechanismList (-M) = ECDSA only
+         ECDSA, keySize={256,256}, hw, sign, EC F_P, EC uncompressed, EC compressed
+[PASS] Private + public key objects listed (-O)
+[PASS] CKA_EC_PARAMS = secp256k1 OID 1.3.132.0.10
+       06052b8104000a
+[PASS] CKA_EC_POINT = DER OCTET STRING(04||X||Y), 67 bytes
+       044104bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] --read-object pubkey parses as SubjectPublicKeyInfo on SECP256k1
+       pubkey_uncompressed=04bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e26f907cbe90e7b35d9a811c9e34472defcc0655a1562ac7e873fb948978cd9d3d
+[PASS] EC_POINT equals read-object pubkey
+[PASS] C_Sign(CKM_ECDSA) #0 verifies with python-ecdsa
+       digest=ebddeed15d54b387967ebf6b89746ddce8c96daa54f2d3db5e73199fa3da4999 sig=3c77ba4e5848f50807d0e6eb94ab2532ab11f93d890ca80232275a73bf4121afbf07c057b244c8e96c81987c14422cb151464b563c4fe7e0f9c5d17fcc9d4088
+[PASS] C_Sign(CKM_ECDSA) #1 verifies with python-ecdsa
+       digest=28cbd160bb596d0b4aa1a3826f4ff27c22dade629e17a430407b5beae918fce5 sig=3bd3f0cca6232bc93d65d1c368b4862fdd14f36f005f2cab4c00114a84ea5636b1068481e0fa3629168de62d7dcacf09cf1efe4beec4ee7a1caec36b2a5394ac
+[PASS] C_Sign(CKM_ECDSA) #2 verifies with python-ecdsa
+       digest=fd0c9cd6de867a9f4f72ce12a431b794c4f245cff1e1b0d3b402f01f523e0ebf sig=40954a3767beb90133f23a737ad32737d36291f083950fd91f1b323cc254f398f0339038a7de9e2ebae1745694f1d2d5b2988765672b4ce0b2e8fa34ef7186cd
+[PASS] C_Sign(CKM_ECDSA) #3 verifies with python-ecdsa
+       digest=a7d76a72e3cab7aafac519a426fdcdc6b6cf8d0612b964c06ed3668b4c4c3946 sig=d94cb520bf690209959d78b5e56a1a97400da28248c61840463bbbdf87575188b7702b9e34ae3df1d13b6be26beb16cb4db8e9021b56221b6b0d5c0e2592db0f
+[PASS] C_Sign(CKM_ECDSA) #4 verifies with python-ecdsa
+       digest=c7b24b714bc6a2f28d1b54d9c6844bb5aa87c3c6f58be1c88257b95343fe53e3 sig=efa2088fe157e211dc04a966e7d7bb6564f3a5dfffbc8ccaace162d95e6db7fba014402cedfff9fb19d45f3707b4182bf55c403359416ed7c5ed301c33a2ada9
+[PASS] Signatures are distinct (fresh nonces)
+[PASS] low-s (EIP-2) [informational in sim]
+       all_low_s=False
+[PASS] 31-byte input rejected (no partial sign)
+       Aborting.
+================================================================
+ALL TESTS PASSED
+Mode: --sim (software key, deterministic). Nothing here was run on a card.
+HSM_OPENSSL_SELFTEST_OK mode=sim (OpenSSL + python-ecdsa + pkcs11-tool)
+exit=0 expected=0
+GUARD: inherited card without --card
+$ bash scripts/hsm-openssl-selftest.sh
+Refusing inherited card mode: explicitly pass --card for hardware.
+exit=64 expected=64
+GUARD: --card without environment
+$ bash scripts/hsm-openssl-selftest.sh --card
+--card requires NURI_PKCS11_MODE=card; refusing silent simulation.
+exit=64 expected=64
+GUARD: LibreSSL rejected
+$ bash scripts/hsm-openssl-selftest.sh
+Select OpenSSL 3 with NURI_OPENSSL (not LibreSSL).
+exit=69 expected=69
+GUARD: missing provider rejected
+$ bash scripts/hsm-openssl-selftest.sh
+Provider missing: <REPO>/.build/missing-provider
+exit=66 expected=66
+GUARD: expected-key mismatch rejected before signing
+$ bash scripts/hsm-openssl-selftest.sh
+Nuri OpenSSL selftest mode=sim
+OpenSSL 3.6.5 29 Sep 2026 (Library: OpenSSL 3.6.5 29 Sep 2026)
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.5
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.3.0
+    status: active
+FAIL: unexpected key: 03bcd83232b6276e8856605cfd877f7795536a5099555684422fe82f2b6adb95e2; expected 020000000000000000000000000000000000000000000000000000000000000000
+exit=1 expected=1
+MANUAL DOC RECIPE: execute the exact simulator block from docs/hsm.md
+$ bash -euo pipefail -c unset NURI_PKCS11_MODE PKCS11_PROVIDER_MODULE
+NURI_PKCS11_PROVIDER="$(bash scripts/build-pkcs11-provider.sh "$PWD/.build/pkcs11-provider")" || exit 1
+export NURI_PKCS11_PROVIDER
+export OPENSSL_CONF="$PWD/.build/hsm-openssl.cnf"
+cat > "$OPENSSL_CONF" <<EOF
+openssl_conf = openssl_init
+[openssl_init]
+providers = providers
+[providers]
+default = default_sect
+pkcs11 = pkcs11_sect
+[default_sect]
+activate = 1
+[pkcs11_sect]
+module = "$NURI_PKCS11_PROVIDER"
+pkcs11-module-path = "$PWD/dist/pkcs11-nuri.so"
+pkcs11-module-cache-keys = false
+pkcs11-module-cache-sessions = 0
+pkcs11-module-login-behavior = never
+pkcs11-module-quirks = no-operation-state
+activate = 1
+EOF
+
+PRIVATE_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=private'
+PUBLIC_URI='pkcs11:object=Nuri%20ETH%20Key;id=%01;type=public'
+"$NURI_OPENSSL" list -providers
+"$NURI_OPENSSL" pkey -pubin -in "$PUBLIC_URI" -out .build/nuri-public.pem
+printf 'Nuri OpenSSL PKCS#11 signing selftest\n' > .build/message.txt
+"$NURI_OPENSSL" dgst -sha256 -binary .build/message.txt > .build/hash32.bin
+
+# ALREADY a 32-byte digest: no -rawin (which would hash the digest again).
+"$NURI_OPENSSL" pkeyutl -sign -inkey "$PRIVATE_URI" \
+  -in .build/hash32.bin -out .build/signature.der
+"$NURI_OPENSSL" pkeyutl -verify -pubin -inkey .build/nuri-public.pem \
+  -in .build/hash32.bin -sigfile .build/signature.der
+
+# Alternatively supply a message: OpenSSL/provider hashes it before CKM_ECDSA.
+"$NURI_OPENSSL" dgst -sha256 -sign "$PRIVATE_URI" \
+  -out .build/message-signature.der .build/message.txt
+"$NURI_OPENSSL" dgst -sha256 -verify .build/nuri-public.pem \
+  -signature .build/message-signature.der .build/message.txt
+
+"$NURI_PKCS11_PYTHON" - <<'PY'
+from pathlib import Path
+from ecdsa import SECP256k1, VerifyingKey
+from ecdsa.util import sigdecode_der
+key = VerifyingKey.from_pem(Path('.build/nuri-public.pem').read_bytes())
+assert key.curve == SECP256k1
+for name in ('signature.der', 'message-signature.der'):
+    assert key.verify_digest(Path('.build', name).read_bytes(),
+                             Path('.build/hash32.bin').read_bytes(),
+                             sigdecode=sigdecode_der)
+    print('PYTHON_ECDSA_VERIFIED', name)
+PY
+
+# When finished (do not retain downloaded build tools/prefix on a low-disk host):
+rm -rf .build/pkcs11-provider
+rm -f .build/hsm-openssl.cnf .build/nuri-public.pem .build/message.txt \
+  .build/hash32.bin .build/signature.der .build/message-signature.der
+unset OPENSSL_CONF NURI_PKCS11_PROVIDER
+pkcs11-provider source SHA-256: b8bbc30cfb7865603fff1dd0fb516cce90437d8ddb267e331cd89d6121960538
+Collecting meson==1.12.1 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 2))
+  Downloading meson-1.12.1-py3-none-any.whl (1.1 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 4.0 MB/s  0:00:00
+Collecting ninja==1.13.2 (from -r <REPO>/scripts/requirements-pkcs11-provider-build.txt (line 3))
+  Downloading ninja-1.13.2-py3-none-macosx_10_9_universal2.whl (306 kB)
+Installing collected packages: ninja, meson
+
+Successfully installed meson-1.12.1 ninja-1.13.2
+The Meson build system
+Version: 1.12.1
+Source dir: <REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0
+Build dir: <REPO>/.build/pkcs11-provider-build.QH8p0v/build
+Build type: native build
+Project name: pkcs11-provider
+Project version: 1.3.0
+C compiler for the host machine: /opt/homebrew/bin/ccache cc (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+C linker for the host machine: cc ld64 1167.5
+Host machine cpu family: aarch64
+Host machine cpu: aarch64
+Compiler for C supports arguments -Wwrite-strings: YES
+Compiler for C supports arguments -Wpointer-arith: YES
+Compiler for C supports arguments -Wno-missing-field-initializers: YES
+Compiler for C supports arguments -Wformat: YES
+Compiler for C supports arguments -Wshadow: YES
+Compiler for C supports arguments -Wno-unused-parameter: YES
+Compiler for C supports arguments -Werror=implicit-function-declaration: YES
+Compiler for C supports arguments -Werror=missing-prototypes: YES
+Compiler for C supports arguments -Werror=format-security: YES
+Compiler for C supports arguments -Werror=parentheses: YES
+Compiler for C supports arguments -Werror=implicit: YES
+Compiler for C supports arguments -Werror=strict-prototypes: YES
+Compiler for C supports arguments -fno-strict-aliasing: YES
+Compiler for C supports arguments -fno-delete-null-pointer-checks: YES
+Compiler for C supports arguments -fdiagnostics-show-option: YES
+Found pkg-config: YES (/opt/homebrew/bin/pkg-config) 2.5.1
+Run-time dependency libcrypto found: YES 3.6.5
+Run-time dependency libssl found: YES 3.6.5
+Run-time dependency p11-kit-1 found: YES 0.26.5
+Has header "dlfcn.h" : YES
+Checking for function "OSSL_PROVIDER_load_ex" with dependency libcrypto: YES
+Configuring config.h using configuration
+Compiler for C supports link arguments -Wl,--version-script,<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/src/provider.map: NO
+Found CMake: /opt/homebrew/bin/cmake (4.0.3)
+Run-time dependency nss-softokn found: NO  (tried pkg-config, framework and cmake)
+Run-time dependency nss found: YES 3.125
+Program valgrind found: NO
+Program setup.sh found: YES (<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/setup.sh)
+Program test-wrapper found: YES (<REPO>/.build/pkcs11-provider-build.QH8p0v/pkcs11-provider-1.3.0/tests/test-wrapper)
+Build targets in project: 22
+
+pkcs11-provider 1.3.0
+
+  User defined options
+    buildtype: release
+    libdir   : lib
+    prefix   : <REPO>/.build/pkcs11-provider
+
+Found ninja-1.13.2.git.kitware.jobserver-pipe-1 at <REPO>/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja
+ninja: Entering directory `<REPO>/.build/pkcs11-provider-build.QH8p0v/build'
+[1/42] Compiling C object src/pkcs11.dylib.p/asymmetric_cipher.c.o
+[2/42] Compiling C object src/pkcs11.dylib.p/cipher.c.o
+[3/42] Compiling C object src/pkcs11.dylib.p/debug.c.o
+[4/42] Compiling C object src/pkcs11.dylib.p/decoder.c.o
+[5/42] Compiling C object src/pkcs11.dylib.p/digests.c.o
+[6/42] Compiling C object src/pkcs11.dylib.p/encoder.c.o
+[7/42] Compiling C object src/pkcs11.dylib.p/exchange.c.o
+[8/42] Compiling C object src/pkcs11.dylib.p/kem.c.o
+[9/42] Compiling C object src/pkcs11.dylib.p/kdf.c.o
+[10/42] Compiling C object src/pkcs11.dylib.p/kmgmt_common.c.o
+[11/42] Compiling C object src/pkcs11.dylib.p/kmgmt_hkdf.c.o
+[12/42] Compiling C object src/pkcs11.dylib.p/kmgmt_ec.c.o
+[13/42] Compiling C object src/pkcs11.dylib.p/kmgmt_mldsa.c.o
+[14/42] Compiling C object src/pkcs11.dylib.p/kmgmt_mlkem.c.o
+[15/42] Compiling C object src/pkcs11.dylib.p/kmgmt_slhdsa.c.o
+[16/42] Compiling C object src/pkcs11.dylib.p/kmgmt_rsa.c.o
+[17/42] Compiling C object src/pkcs11.dylib.p/pk11_uri.c.o
+[18/42] Compiling C object src/pkcs11.dylib.p/registration.c.o
+[19/42] Compiling C object src/pkcs11.dylib.p/interface.c.o
+[20/42] Compiling C object src/pkcs11.dylib.p/obj_create.c.o
+[21/42] Compiling C object src/pkcs11.dylib.p/obj_ec_point.c.o
+[22/42] Compiling C object src/pkcs11.dylib.p/obj_export.c.o
+[23/42] Compiling C object src/pkcs11.dylib.p/obj_keymgmt.c.o
+[24/42] Compiling C object src/pkcs11.dylib.p/obj_fetch.c.o
+[25/42] Compiling C object src/pkcs11.dylib.p/obj_object.c.o
+[26/42] Compiling C object src/pkcs11.dylib.p/obj_pool.c.o
+[27/42] Compiling C object src/pkcs11.dylib.p/obj_store.c.o
+[28/42] Compiling C object src/pkcs11.dylib.p/random.c.o
+[29/42] Compiling C object src/pkcs11.dylib.p/provider.c.o
+[30/42] Compiling C object src/pkcs11.dylib.p/session.c.o
+[31/42] Compiling C object src/pkcs11.dylib.p/sig_signature.c.o
+[32/42] Compiling C object src/pkcs11.dylib.p/sig_ecdsa.c.o
+[33/42] Compiling C object src/pkcs11.dylib.p/sig_rsasig.c.o
+[34/42] Compiling C object src/pkcs11.dylib.p/sig_eddsa.c.o
+[35/42] Compiling C object src/pkcs11.dylib.p/sig_mldsa.c.o
+[36/42] Compiling C object src/pkcs11.dylib.p/sig_slhdsa.c.o
+[37/42] Compiling C object src/pkcs11.dylib.p/kmgmt_skey.c.o
+[38/42] Compiling C object src/pkcs11.dylib.p/slot.c.o
+[39/42] Compiling C object src/pkcs11.dylib.p/store.c.o
+[40/42] Compiling C object src/pkcs11.dylib.p/tls.c.o
+[41/42] Compiling C object src/pkcs11.dylib.p/util.c.o
+[42/42] Linking target src/pkcs11.dylib
+INFO: autodetecting backend as ninja
+INFO: calculating backend command to run: <REPO>/.build/pkcs11-provider-build.QH8p0v/tools/bin/ninja -C <REPO>/.build/pkcs11-provider-build.QH8p0v/build -j 2
+Providers:
+  default
+    name: OpenSSL Default Provider
+    version: 3.6.5
+    status: active
+  pkcs11
+    name: PKCS#11 Provider
+    version: 1.3.0
+    status: active
+Signature Verified Successfully
+Verified OK
+PYTHON_ECDSA_VERIFIED signature.der
+PYTHON_ECDSA_VERIFIED message-signature.der
+exit=0 expected=0
+$ git -C <REPO> diff --exit-code -- scripts/pkcs11-nuri.c dist/pkcs11-nuri.so dist/SHA256SUMS
+
+exit=0 expected=0
+SELFTEST_TEMP_PREFIXES_REMOVED; three current-script simulator runs passed; exact manual docs recipe passed.

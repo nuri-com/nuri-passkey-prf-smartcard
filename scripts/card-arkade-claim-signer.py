@@ -75,7 +75,7 @@ def musig2_round(card, msg32: bytes, card_pk33: bytes, get_server):
 
     card_coeff32 = core.i2b((keys["coeffs"][card_pk33.hex()] * keys["fold"]) % core.N)
     server_coeff32 = core.i2b((keys["coeffs"][server_pk33.hex()] * keys["fold"]) % core.N)
-    card_partial = card.finalize(card_coeff32, b32, parity, challenge32)
+    card_partial = card.finalize(card_coeff32, b32, parity, challenge32, r_agg=aggregate_r, p_agg=keys["session_q"])
 
     card_ok = proof.partial_verify(
         card_partial, card_pubnonce66, b32, parity, challenge32, card_coeff32, card_pk33

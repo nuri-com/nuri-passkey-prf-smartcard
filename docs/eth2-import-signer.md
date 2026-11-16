@@ -43,7 +43,7 @@ NURI_READER=ACR39U NURI_PCSC_PROTOCOL=T0 \
 
 Import uses hidden input and prints only status/public key. Importing an existing key does not erase other copies. A chat- or log-exposed key remains exposed; card storage cannot undo that. Prefer a fresh key whenever possible. Signing is not PIN-gated by this applet: possession plus host access authorizes signatures.
 
-The host must recover every signature to the expected EOA. The current applet can leave recovery parity unchanged after low-s normalization; the verified host integration flips `v` when recovery requires it and rejects any mismatch.
+The host must recover every signature to the expected EOA and reject any mismatch. The applet flips recovery parity when it applies low-s normalization. A host may also try both recovery IDs as a defensive compatibility measure, but must accept only the expected address.
 
 ## Real-card proof — 2026-11-15
 

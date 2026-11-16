@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { bech32m } from '@scure/base';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { SigHash, Transaction } from '@scure/btc-signer';
 
 const PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';

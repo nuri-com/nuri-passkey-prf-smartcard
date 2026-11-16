@@ -1,0 +1,6 @@
+{
+  "name": "nuri-card-extension",
+  "private": true,
+  "type": "commonjs",
+  "scripts": { "test": "node --test test/*.test.js" }
+}

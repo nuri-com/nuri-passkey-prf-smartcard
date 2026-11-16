@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { createServer } from 'node:http';
+
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { HDKey } from '@scure/bip32';
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
@@ -13,13 +14,26 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bech32, bech32m } from '@scure/base';
 import { createOnCardGeneratedCard, runCardCosignFlow } from '../src/musig2/cosign-flow.js';
 import { provisionAddress, fetchUtxos, buildAndSignSpend, loadProfile } from './nuri-card-wallet.mjs';
+import { checkBind, guardRequest, loadOrCreateToken, createHelperServer, readJson, PairingSessions, pairingPage } from './helper-auth.mjs';
 
-const card = createOnCardGeneratedCard();
+import { requireCardResult, requireCardSubprocess, tagSignerServer, warnSimulation, installSignerErrorHandler } from '../src/signer-policy.js';
+
+const requestedSim = process.argv.some((arg) => arg === '--sim' || arg === '--backend=simulated');
+installSignerErrorHandler(requestedSim ? 'sim' : 'card');
+if (requestedSim) warnSimulation();
+// No software key is created until simulation is explicitly selected.
+let card = null;
 const REAL_CARD_PYTHON = process.env.REAL_CARD_COSIGN_PYTHON || 'scripts/run-card-python.sh';
 const REAL_CARD_SCRIPT = process.env.REAL_CARD_COSIGN_SCRIPT || 'scripts/real-card-cosign-proof.py';
 const REAL_CARD_TWEAKED_SCRIPT = process.env.REAL_CARD_TWEAKED_SCRIPT || 'scripts/card-cosign-tweaked.py';
 const REAL_CARD_ARKADE_SCRIPT = process.env.REAL_CARD_ARKADE_SCRIPT || 'scripts/real-card-arkade-signer-proof.py';
 const REAL_CARD_PROFILE = process.env.REAL_CARD_COSIGN_PROFILE || '.nuri-card-musig2/browser-real-card.json';
+// Agent-facing Arkade send: the proven scripts/send/cli.mjs path, one POST.
+// Receipts are unique per request so a permanent service never hits the CLI's
+// "receipt exists; DO NOT RESEND" guard on the second send.
+const SEND_CLI = process.env.NURI_CARD_SEND_CLI || 'scripts/send/cli.mjs';
+const SEND_OUT_DIR = process.env.NURI_CARD_SEND_OUT_DIR || join(homedir(), '.nuri-card', 'send');
+const SEND_TIMEOUT_MS = Number(process.env.NURI_CARD_SEND_TIMEOUT_MS || 300000);
 const ARKADE_SIGNER_URL = process.env.NURI_ARKADE_SIGNER_URL || process.env.EXPO_PUBLIC_ARKADE_SIGNER_URL || '';
 const ARKADE_NODE_URL = process.env.NURI_ARKADE_NODE_URL || process.env.EXPO_PUBLIC_NODE_URL || '';
 const CARD_IDENTITY_CACHE_MS = Number(process.env.NURI_CARD_IDENTITY_CACHE_MS || 300000);
@@ -28,7 +42,7 @@ let cachedCardAccountIdentity = null;
 
 const utf8 = (s) => new TextEncoder().encode(s);
 
-// Exact port of nuri-expo lib/walletDerivation.ts + lib/bitcoin/bip86.ts:
+// Exact port of companion wallet lib/walletDerivation.ts + lib/bitcoin/bip86.ts:
 // browser passkey PRF -> HKDF entropy -> BIP86 m/86'/0'/0'/0/0 client key.
 // Same salt/info/path as the PWA, so a passkey derives the PWA-identical wallet.
 function deriveClientKeyFromPrf(prfBytes) {
@@ -51,7 +65,9 @@ function sha256Hex(value) {
   return bytesToHex(sha256(utf8(value)));
 }
 
-const LOCAL_DEMO_ASP_SECRET32 = process.env.NURI_LOCAL_DEMO_ASP_SECRET32 || sha256Hex('nuri local demo arkade asp signer v1');
+// No public, deterministic ASP signer default: real-card proofs require an
+// explicitly configured counterparty. Simulation does not run hardware proofs.
+const LOCAL_DEMO_ASP_SECRET32 = process.env.NURI_LOCAL_DEMO_ASP_SECRET32 || null;
 
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -249,19 +265,28 @@ function parseArgs(argv) {
     host: '127.0.0.1',
     port: 8787,
     selftest: false,
-    backend: process.env.COSIGN_BACKEND || 'simulated',
+    backend: 'real-card',
   };
   for (const arg of argv) {
     if (arg === '--selftest') args.selftest = true;
+    else if (arg === '--sim') args.backend = 'simulated';
     else if (arg.startsWith('--host=')) args.host = arg.slice('--host='.length);
     else if (arg.startsWith('--port=')) args.port = Number(arg.slice('--port='.length));
     else if (arg.startsWith('--backend=')) args.backend = arg.slice('--backend='.length);
     else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node scripts/local-card-cosign-server.mjs [--host=127.0.0.1] [--port=8787] [--backend=simulated|real-card] [--selftest]');
+      console.log('Loopback only; no remote bind override. Pair the browser using the terminal code.');
       process.exit(0);
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
+  }
+  if (argv.filter((arg) => arg === '--sim' || arg.startsWith('--backend=')).length > 1) {
+    throw new Error('choose exactly one backend flag; simulation and physical card modes cannot be combined');
+  }
+  if (process.env.COSIGN_BACKEND && process.env.COSIGN_BACKEND !== 'real-card' &&
+      !argv.some((arg) => arg === '--sim' || arg === '--backend=simulated')) {
+    throw new Error('simulation requires an explicit --sim or --backend=simulated flag');
   }
   if (!Number.isInteger(args.port) || args.port <= 0 || args.port > 65535) {
     throw new Error('port must be 1..65535');
@@ -273,7 +298,7 @@ function parseArgs(argv) {
 }
 
 function json(res, status, payload) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = JSON.stringify({ ...payload, mode: args.backend === 'simulated' ? 'sim' : 'card' }, null, 2);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -281,16 +306,10 @@ function json(res, status, payload) {
   res.end(body);
 }
 
-async function readJson(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
-  if (!raw) return {};
-  return JSON.parse(raw);
-}
 
 async function serveStatic(res, path, contentType) {
-  const body = await readFile(path);
+  let body = await readFile(path);
+  if (contentType.startsWith('text/html')) body = Buffer.from(pairingPage(body.toString('utf8')));
   res.writeHead(200, {
     'content-type': contentType,
     'cache-control': 'no-store',
@@ -308,6 +327,7 @@ function handleInfo(res) {
     profile: args.backend === 'real-card' ? REAL_CARD_PROFILE : undefined,
     endpoints: {
       sign: 'POST /api/cosign/sign',
+      arkadeSend: 'POST /api/send {to, amount, execute}',
       cardAccount: 'GET /api/card/account',
       cardReceiveRegister: 'POST /api/card/register-receive-owner',
       cardLightningSync: 'POST /api/card/lightning-sync',
@@ -317,23 +337,50 @@ function handleInfo(res) {
       checkoutConfirm: 'POST /api/checkout/confirm',
     },
     real_card_proof:
-      'The installed NuriMuSig2 v1.10/KGEN applet has a real INS_KEYGEN path. Run npm run cosign:real-card to prove on-card keygen, card partial verification, and final aggregate BIP340 verification.',
+      'The NuriMuSig2 KGEN applet has a real INS_KEYGEN path. Run npm run cosign:real-card to prove on-card keygen, card partial verification, and final aggregate BIP340 verification. Applet >= 1.14 needs the card PIN: start this server with NURI_CARD_PIN in its environment (never pass it as an argument).',
   });
 }
 
-function execFileJson(file, fileArgs) {
+// PINs reach child scripts through the environment only, never argv (visible
+// in ps) and never logged. MuSig2 applet >= 1.14 scripts read NURI_CARD_PIN
+// (scripts/nuri_musig2_card.py); the server's own NURI_CARD_PIN is inherited.
+// pinEnv overrides per call; values are redacted from any error text.
+function childEnv(pinEnv = {}) {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(pinEnv)) {
+    if (value) env[key] = String(value);
+    else delete env[key];
+  }
+  return env;
+}
+
+function redactPins(text, pinEnv = {}) {
+  let out = String(text ?? '');
+  const pins = [process.env.NURI_CARD_PIN, process.env.FIDO2_BACKUP_PIN, ...Object.values(pinEnv)];
+  for (const pin of pins) {
+    if (pin && String(pin).length >= 4) out = out.split(String(pin)).join('[PIN]');
+  }
+  return out;
+}
+
+function execFileJson(file, fileArgs, { pinEnv } = {}) {
+  requireCardSubprocess([file, ...fileArgs]);
   return new Promise((resolvePromise, reject) => {
     execFile(file, fileArgs, {
       cwd: process.cwd(),
       timeout: 60000,
       maxBuffer: 1024 * 1024,
-    }, (error, stdout, stderr) => {
+      env: childEnv(pinEnv),
+    }, (rawError, rawStdout, rawStderr) => {
+      const error = rawError && new Error(redactPins(rawError.message, pinEnv));
+      const stdout = redactPins(rawStdout, pinEnv);
+      const stderr = redactPins(rawStderr, pinEnv);
       if (error) {
         reject(new Error(`${error.message}\n${stderr || stdout}`.trim()));
         return;
       }
       try {
-        resolvePromise(JSON.parse(stdout));
+        resolvePromise(requireCardResult(JSON.parse(rawStdout)));
       } catch (parseError) {
         reject(new Error(`could not parse JSON from real-card script: ${parseError.message}\n${stdout}\n${stderr}`.trim()));
       }
@@ -356,12 +403,11 @@ async function saveRealCardProfile(profile) {
 }
 
 function realCardArgs(body, profile) {
-  const out = [REAL_CARD_SCRIPT];
+  const out = [REAL_CARD_SCRIPT, '--use-existing-card-key'];
   if (body.msg32) out.push('--msg32', String(body.msg32));
   else out.push('--message', body.message ? String(body.message) : 'nuri real card browser cosign proof');
   if (profile?.client_secret_hex) out.push('--client-secret-hex', profile.client_secret_hex);
-  if (profile?.card_pk33) out.push('--use-existing-card-key');
-  else out.push('--include-demo-client-secret');
+  if (!profile?.card_pk33) out.push('--include-demo-client-secret');
   return out;
 }
 
@@ -434,7 +480,7 @@ async function handlePasskeySign(req, res) {
   );
   json(res, 200, {
     status: sigValid ? 'NURI_LOCALHOST_PASSKEY_WALLET_OK' : 'SIGNATURE_INVALID',
-    derivation: "browser passkey PRF -> HKDF(app:nuri.com|wallet|v1) -> BIP86 m/86'/0'/0'/0/0 (identical to nuri-expo PWA)",
+    derivation: "browser passkey PRF -> HKDF(app:nuri.com|wallet|v1) -> BIP86 m/86'/0'/0'/0/0 (identical to companion wallet PWA)",
     cosigner: 'physical card MuSig2 applet — musig2(client, card) key-path + client CSV recovery leaf',
     client_pk33: bytesToHex(clientPk33),
     card_pk33: r.card_pk33,
@@ -470,6 +516,7 @@ function clientSeedFromPrf(prfHex) {
 // card's FIDO2 PRF directly over the PC/SC reader and run the SAME HKDF+BIP86
 // derivation — identical wallet to the browser path, just a reliable transport.
 function readerClientSeed() {
+  requireCardSubprocess([PRF_SCRIPT]);
   return new Promise((resolvePromise, reject) => {
     execFile(REAL_CARD_PYTHON, [PRF_SCRIPT, 'derive', '--profile', READER_PRF_PROFILE, '--salt', READER_PRF_SALT, '--raw'],
       { cwd: process.cwd(), timeout: 60000, maxBuffer: 1 << 20 }, (err, out, errout) => {
@@ -529,6 +576,89 @@ async function handleWalletSpend(req, res) {
   json(res, 200, result);
 }
 
+// Agent-facing one-shot send over the proven Arkade path (scripts/send/cli.mjs).
+// Deliberately no limits, allowlist or per-action approval: the calling agent
+// owns policy and can read the dry run before it executes. The CLI's own
+// NURI_SEND_CONFIRM execution boundary is derived here from the request, so the
+// card path cannot sign for a different recipient/amount than the caller sent.
+function httpError(status, message) { return Object.assign(new Error(message), { status }); }
+
+// The CLI's own summary/receipt carries mode 'dry-run'|'execute', so the shared
+// requireCardResult (which reserves 'card') cannot judge it. The send path is
+// card-only: a plan always comes back with a status.
+function requireSendResult(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !result.status) {
+    throw new Error('send helper returned no status');
+  }
+  return result;
+}
+
+function sendArgs(body) {
+  const to = String(body.to ?? '').trim();
+  if (!/^@[a-z0-9][a-z0-9-]{0,62}$/.test(to) && !/^ark1[0-9a-z]+$/.test(to)) {
+    throw httpError(400, 'to must be an ark1 address or @username');
+  }
+  const amount = String(body.amount ?? '').trim();
+  if (amount !== 'all' && !/^[1-9][0-9]*$/.test(amount)) {
+    throw httpError(400, 'amount must be positive integer sats or "all" (no default: the agent owns limits)');
+  }
+  return { to, amount, execute: body.execute === true };
+}
+
+// The CLI writes its durable receipt before any hardware access. A unique pair
+// per request keeps a long-lived server clear of the DO-NOT-RESEND guard.
+function sendPaths(stamp) {
+  return {
+    receiptPath: join(SEND_OUT_DIR, `${stamp}.receipt.json`),
+    logPath: join(SEND_OUT_DIR, `${stamp}.jsonl`),
+  };
+}
+
+function runSendCli(cliArgs, { pinEnv }) {
+  requireCardSubprocess([SEND_CLI]);
+  return new Promise((resolvePromise, reject) => {
+    execFile(process.execPath, cliArgs, {
+      cwd: process.cwd(),
+      timeout: SEND_TIMEOUT_MS,
+      maxBuffer: 8 * 1024 * 1024,
+      env: childEnv(pinEnv),
+    }, (rawError, rawStdout, rawStderr) => {
+      if (rawError) {
+        // Fixed status text only: provider errors can carry request payloads.
+        // The PIN is redacted here, and only here: a bare substring swap over
+        // successful JSON also rewrites addresses that happen to contain it.
+        const said = redactPins(rawStderr || rawStdout, pinEnv).trim().split('\n').filter(Boolean).slice(-3).join(' ');
+        reject(httpError(502, `send failed: ${said || rawError.message}`));
+        return;
+      }
+      try { resolvePromise(requireSendResult(JSON.parse(rawStdout))); } catch (error) {
+        reject(httpError(502, `send returned no JSON result: ${error.message}`));
+      }
+    });
+  });
+}
+
+async function handleArkadeSend(req, res) {
+  const body = await readJson(req);
+  const { to, amount, execute } = sendArgs(body);
+  const pin = process.env.NURI_FIDO_PIN || process.env.NURI_CARD_PIN || '';
+  if (!pin) throw httpError(503, 'no card PIN in the service environment (NURI_CARD_PIN)');
+  const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  const paths = sendPaths(stamp);
+  await mkdir(SEND_OUT_DIR, { recursive: true, mode: 0o700 });
+  const result = await runSendCli([
+    SEND_CLI, execute ? '--execute' : '--dry-run', '--to', to, '--amount', amount,
+  ], {
+    pinEnv: {
+      NURI_FIDO_PIN: pin,
+      NURI_SEND_CONFIRM: `${to}-${amount}`,
+      NURI_RECEIPT_PATH: paths.receiptPath,
+      NURI_SEND_LOG: paths.logPath,
+    },
+  });
+  json(res, 200, result);
+}
+
 function assertArkadeProof(proof, msg32) {
   if (proof.status !== 'REAL_CARD_ARKADE_CLIENT_SIGNER_PROOF_OK') {
     throw new Error(`card Arkade proof failed: ${JSON.stringify(proof)}`);
@@ -539,6 +669,7 @@ function assertArkadeProof(proof, msg32) {
 }
 
 async function runArkadeProof(msg32) {
+  if (!LOCAL_DEMO_ASP_SECRET32) throw Object.assign(new Error('set NURI_LOCAL_DEMO_ASP_SECRET32 explicitly for the local Arkade counterparty proof; no software signer default is configured'), { status: 503 });
   const proof = await execFileJson(REAL_CARD_PYTHON, [
     REAL_CARD_ARKADE_SCRIPT,
     '--case', 'all',
@@ -749,10 +880,10 @@ async function fetchLiveLnurlAccount(identity, registration, profile) {
     '--origin', profile.origin,
     `--credential-id=${registration.receive_owner.cred_id_b64u}`,
     '--user-verification', 'required',
-    '--pin', CARD_PIN,
   ];
   if (CARD_RECEIVE_PROFILE_PATH) assertionArgs.push('--profile-path', CARD_RECEIVE_PROFILE_PATH);
-  const assertion = await execFileJson(REAL_CARD_PYTHON, assertionArgs);
+  // PIN via env only (card-prf-backup.py reads FIDO2_BACKUP_PIN); argv is visible in ps.
+  const assertion = await execFileJson(REAL_CARD_PYTHON, assertionArgs, { pinEnv: { FIDO2_BACKUP_PIN: CARD_PIN } });
   const status = await fetchJsonRequest(`${signerV4Url()}/arkade/lnurl/status`, 'Nuri Arkade LNURL status', {
     method: 'POST',
     headers: {
@@ -958,6 +1089,7 @@ async function handleCardLightningInvoice(req, res) {
 }
 
 function spawnClaimRunner(cfg) {
+  requireCardSubprocess([CARD_CLAIM_RUNNER]);
   return new Promise((resolve, reject) => {
     const child = execFile(
       process.execPath,
@@ -966,8 +1098,12 @@ function spawnClaimRunner(cfg) {
       (err, stdout, stderr) => {
         let parsed = null;
         try { parsed = JSON.parse(stdout); } catch { /* fall through */ }
-        if (parsed) { resolve(parsed); return; }
-        reject(new Error(stderr || err?.message || 'claim runner produced no JSON output'));
+        if (err) { reject(new Error(redactPins(stderr || err.message))); return; }
+        if (parsed) {
+          try { resolve(requireCardResult(parsed)); } catch (error) { reject(error); }
+          return;
+        }
+        reject(new Error(redactPins(stderr || 'claim runner produced no JSON output')));
       },
     );
     child.stdin.end(JSON.stringify(cfg));
@@ -1145,8 +1281,7 @@ async function handleCardProbe(req, res) {
       '--rp-id', profile.rp_id,
       '--origin', profile.origin,
       `--credential-id=${credId}`,
-      '--pin', pin,
-    ]);
+    ], { pinEnv: { FIDO2_BACKUP_PIN: pin } });
     json(res, 200, result);
   } catch (error) {
     json(res, 200, { present: false, error: (error?.message || String(error)).slice(0, 200) });
@@ -1360,6 +1495,23 @@ async function handleSign(req, res) {
 async function requestHandler(req, res) {
   try {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const denied = guardRequest(req, { port: server.address()?.port ?? args.port, token: auth?.token || '', sessions });
+    if (denied) { json(res, denied.status, { error: denied.error }); return; }
+    if (req.method === 'GET' && url.pathname === '/helper-pair.js') {
+      await serveStatic(res, resolve('web/helper-pair.js'), 'application/javascript; charset=utf-8'); return;
+    }
+    if (args.backend === 'simulated' && url.pathname.startsWith('/api/') &&
+        !['/api/session', '/api/cosign/info', '/api/cosign/sign'].includes(url.pathname)) {
+      return json(res, 409, { error: 'endpoint unavailable in simulation mode; no physical card or live wallet accessed' });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/session') return json(res, 200, { paired: true });
+    if (req.method === 'POST' && url.pathname === '/pair') {
+      const body = await readJson(req);
+      const cookie = sessions.exchange(typeof body?.code === 'string' && body.code.length <= 64 ? body.code.trim() : '');
+      if (!cookie) return json(res, 401, { error: 'invalid or consumed pairing code; check the helper terminal' });
+      res.setHeader('set-cookie', cookie);
+      return json(res, 200, { paired: true });
+    }
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/cosign-demo.html')) {
       await serveStatic(res, resolve('web/cosign-demo.html'), 'text/html; charset=utf-8');
       return;
@@ -1391,6 +1543,7 @@ async function requestHandler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/wallet/address') { await handleWalletAddress(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/wallet/utxos') { await handleWalletUtxos(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/wallet/spend') { await handleWalletSpend(req, res); return; }
+    if (req.method === 'POST' && url.pathname === '/api/send') { await handleArkadeSend(req, res); return; }
     if (req.method === 'GET' && url.pathname === '/api/card/account') { await handleCardAccount(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/card/register-receive-owner') { await handleCardReceiveRegistration(req, res); return; }
     if (req.method === 'POST' && url.pathname === '/api/card/lightning-invoice') { await handleCardLightningInvoice(req, res); return; }
@@ -1416,27 +1569,34 @@ async function requestHandler(req, res) {
     }
     json(res, 404, { error: 'not found' });
   } catch (error) {
-    json(res, 500, {
-      error: error?.message || String(error),
-    });
+    if (!res.writableEnded) json(res, error.status || 500, { error: error.status ? error.message : 'request failed' });
   }
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (args.backend === 'simulated') card = createOnCardGeneratedCard({ mode: 'sim' });
+
+let auth = null; // { token, source } — set before listen (not for --selftest)
 
 if (args.selftest) {
   const result = args.backend === 'real-card'
     ? await handleRealCardSign({})
     : runCardCosignFlow({ card });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify({ ...result, mode: args.backend === 'simulated' ? 'sim' : 'card' }, null, 2));
   process.exit(0);
 }
 
-const server = createServer(requestHandler);
+auth = loadOrCreateToken({ service: 'cosign' });
+checkBind(args.host, { tokenSource: auth.source });
+const sessions = new PairingSessions();
+const server = tagSignerServer(createHelperServer(requestHandler), args.backend === 'simulated' ? 'sim' : 'card');
 server.listen(args.port, args.host, () => {
-  console.log(`Nuri card cosign demo server at http://${args.host}:${args.port}/cosign-demo.html`);
-  console.log(`Merchant terminal: http://${args.host}:${args.port}/terminal`);
-  console.log(`Card profile: http://${args.host}:${args.port}/profile`);
+  const bound = server.address()?.port ?? args.port;
+  console.log(`Nuri card cosign demo server at http://${args.host}:${bound}/cosign-demo.html`);
+  console.log(`Merchant terminal: http://${args.host}:${bound}/terminal`);
+  console.log(`Card profile: http://${args.host}:${bound}/profile`);
+  console.log(`API auth: browser pairing or Authorization: Bearer <token> (${auth.source === 'env' ? 'NURI_COSIGN_TOKEN' : auth.source}); loopback only, no CORS.`);
+
   if (args.backend === 'real-card') {
     console.log(`Real-card backend enabled; profile: ${REAL_CARD_PROFILE}`);
   } else {

@@ -24,7 +24,20 @@ detailed requirements.
 
 You might be interested in [reading about the security model](docs/security_model.md).
 
+```mermaid
+flowchart LR
+  S[MIT applet source] --> G[Separately installed Gradle 8.2 through 8.x]
+  G --> C[CAP or simulator test build]
+```
+
 ## Environment Setup and Building the application
+
+Nuri packaging omits the upstream Gradle wrapper and `mds.json`; see
+`UPSTREAM.md`. Install Gradle 8.2 separately and check `gradle --version`.
+The repository-root build/test scripts enforce the supported 8.2 through 8.x range and accept an
+absolute executable path in `GRADLE_BIN`. Gradle and the Java Card SDK retain
+their own licences; they are not included under the applet MIT grant.
+
 1. **Download JavacardKit**: Obtain a copy of [JavacardKit version 3.0.4](https://www.oracle.com/java/technologies/javacard-sdk-downloads.html) (or jckit_303 if you prefer).
 2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
    ```bash
@@ -33,7 +46,7 @@ You might be interested in [reading about the security model](docs/security_mode
 
 3. **Run Gradle Build**: Execute the following command to build the JavaCard application, which will produce a `.cap` file for installation.
     ```bash
-   ./gradlew buildJavaCard
+   gradle buildJavaCard
     ```
 
 
@@ -59,7 +72,7 @@ Simply install the `.cap` file onto the smartcard and proceed with testing.
 2. **Run the Tests**: Execute the following commands to set up and run the tests.
    ```bash
    export JC_HOME=<your_jckit>
-   ./gradlew jar testJar
+   gradle jar testJar
    python -m venv venv
    ./venv/bin/pip install -U -r requirements.txt
    ./venv/bin/python -m unittest discover -s python_tests

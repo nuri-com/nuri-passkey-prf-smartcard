@@ -6,6 +6,9 @@ BASELINE="${FIDO2_DEST:-$ROOT/.build/fido2-applet}"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 VENV="${FIDO2_TEST_VENV:-/tmp/nuri-fido2-prf-venv}"
 
+source "$ROOT/scripts/require-system-gradle.sh"
+require_system_gradle
+
 if [[ ! -d "$BASELINE" ]]; then
   "$ROOT/scripts/prepare-fido2-baseline.sh"
 fi
@@ -60,7 +63,7 @@ if [[ ! -x "$VENV/bin/python" ]] || [[ ! -f "$VENV/.nuri-requirements" ]] || [[ 
 fi
 
 cd "$BASELINE"
-./gradlew jar testJar test --no-daemon
+"$GRADLE_BIN" jar testJar test --no-daemon
 "$VENV/bin/python" -m unittest python_tests.ctap.test_hmac_secret.HMACSecretTestCase
 cd "$ROOT"
 FIDO2_BASELINE="$BASELINE" "$VENV/bin/python" test/fido2_prf_e2e.py

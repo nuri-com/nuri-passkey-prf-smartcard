@@ -28,6 +28,12 @@ from fido2.webauthn import (
     UserVerificationRequirement,
 )
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nuri_pcsc  # noqa: E402
+
+# T=0-only readers (Realtek 0bda:0165): make CtapPcscDevice.list_devices() find the card.
+nuri_pcsc.patch_fido2()
+
 try:
     from smartcard.Exceptions import CardConnectionException
     from smartcard.pcsc.PCSCExceptions import EstablishContextException

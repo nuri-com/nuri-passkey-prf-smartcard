@@ -2,6 +2,12 @@
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { SimulatedMuSig2Card, createSigningSession, hex } from './card-sim.js';
 
+if (!process.argv.includes('--sim')) {
+  console.error('Simulator requires explicit --sim');
+  process.exit(1);
+}
+console.error('WARNING: SIMULATOR: software keys, NOT a hardware card.');
+console.log('mode=sim');
 const msg = new Uint8Array(32).fill(5);
 const cards = [
   new SimulatedMuSig2Card(),

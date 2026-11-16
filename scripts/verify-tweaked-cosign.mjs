@@ -8,7 +8,7 @@ import process from 'node:process';
 import * as btc from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2.js';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { hexToBytes, bytesToHex } from '@noble/curves/abstract/utils';
+import { hexToBytes, bytesToHex } from '@noble/curves/utils.js';
 
 const CSV_BLOCKS = 52500; // must match scripts/card-cosign-tweaked.py and nuriBitcoin.ts
 

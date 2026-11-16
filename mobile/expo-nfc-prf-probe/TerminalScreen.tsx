@@ -16,7 +16,7 @@ type Props = {
   onCharge: (amountSats: number, invoice: string, memo: string, merchantName: string) => void;
 };
 
-const DEFAULT_LIGHTNING_ADDRESS = 'smartcard@nuri.com';
+const DEFAULT_LIGHTNING_ADDRESS = 'merchant@example.com'; // placeholder: edit before use
 const MERCHANT_NAME = 'Nuri Terminal';
 const PAYMENT_MEMO = 'Nuri Terminal charge';
 

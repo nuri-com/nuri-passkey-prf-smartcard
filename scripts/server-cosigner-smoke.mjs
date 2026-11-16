@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import process from 'node:process';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import * as musig2 from '@scure/btc-signer/musig2.js';
-import { bytesToHex, hexToBytes } from '@noble/curves/abstract/utils';
+import { bytesToHex, hexToBytes } from '@noble/curves/utils.js';
 import { ApduMuSig2Card, INS, SW, command, splitResponse } from '../src/musig2/apdu-sim.js';
 import { SimulatedMuSig2Card } from '../src/musig2/card-sim.js';
 
@@ -26,7 +26,7 @@ function concatBytes(...parts) {
 
 function parseArgs(argv) {
   const out = {
-    backend: 'card-sim',
+    backend: null,
     json: false,
     msgHex: '',
   };
@@ -173,6 +173,7 @@ function runSmoke(args) {
   if (!finalOk) throw new Error('final aggregate signature verification failed');
 
   return {
+    mode: 'sim',
     status: 'SERVER_CARD_COSIGNER_SMOKE_OK',
     backend: backend.kind,
     msg32: bytesToHex(msg32),
@@ -190,6 +191,7 @@ function runSmoke(args) {
 
 try {
   const args = parseArgs(process.argv.slice(2));
+  console.error('WARNING: SIMULATOR: public software test keys, NOT a hardware card.');
   const result = runSmoke(args);
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -197,6 +199,7 @@ try {
     for (const [key, value] of Object.entries(result)) console.log(`${key}=${value}`);
   }
 } catch (error) {
+  if (process.argv.includes('--json')) console.log(JSON.stringify({ mode: process.argv.some(a => a.startsWith('--backend=')) ? 'sim' : 'invalid', error: error?.message || String(error) }));
   console.error(error?.message || String(error));
   process.exit(1);
 }
