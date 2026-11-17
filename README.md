@@ -15,7 +15,7 @@ exists for that exact applet version.
 |---|---|
 | **Proven on a physical card** | Mainnet Arkade send co-signed by card `87E5470B` (2026-10-28); FIDO2 passkey; OpenSSH login on three readers; PKCS#11 signing behind OpenSSL; ETH2 mandatory-PIN sign; vault HMAC + bearer; TOTP RFC 6238; MuSig2 AID1/AID2/AID3 cosign; thumb-or-PIN unlock on the IDEX TrustedBio card (2026-11-03). Receipts: [live proofs](#live-today), [reader table](docs/reader-compatibility.md#hardware-runs-parent-physical-card), [fingerprint](docs/fingerprint.md). |
 | **Software and simulator only** | CA-backed applet attestation, GP management-key escrow, ETH2/vault installation on a blank spare, Chrome approval flow, MCP and paired helper, the native browser bridge. These are implemented and tested against a simulator or fake host, not accepted on hardware. |
-| **Not built, or a known limit** | No display and no independent transaction review (the card signs what the host builds); APDUs and the PIN travel in plaintext (no application secure channel); no independent third-party audit; no chip certification; no lost-card recovery for the ETH key; fingerprint try limit not personalised on the vendor sample. |
+| **Not built, or a known limit** | No display and no independent transaction review (the card signs what the host builds); APDUs and the PIN travel in plaintext — [no application secure channel](docs/secure-channel.md), design only; no independent third-party audit; no chip certification; no lost-card recovery for the ETH key; fingerprint try limit not personalised on the vendor sample. |
 
 The single canonical list is [Feature status](#feature-status). If this summary and
 that table ever disagree, the table wins.
@@ -581,7 +581,7 @@ client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 | GP management-key rotation with encrypted owner escrow | simulator only |
 | OMNIKEY 5422 connection and additive ETH2 installation | proven on a physical card |
 | Fingerprint authorization (IDEX TrustedBio; MuSig2-UV, ETH2-UV) | proven on a physical card, 2026-11-03; read-only applet inventory re-checked 2026-11-17 ([fingerprint](docs/fingerprint.md)) |
-| Application secure messaging between host and applet | planned; APDUs and the PIN are plaintext today |
+| Application secure messaging between host and applet | planned; APDUs and the PIN are plaintext today. [Design only](docs/secure-channel.md) |
 | Independent lost-card recovery | planned |
 
 ### Supported readers: observed combinations, not certification
@@ -849,7 +849,7 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 
 Also unpublished, and useful if you want them public: the competitor teardowns
 (Tangem, Satochip, Keycard, Bitkey, Tapsigner) that produced the hardening
-targets, and a written design for an application secure channel. Neither is a
+targets, and a written design for an application secure channel ([now published](docs/secure-channel.md)). Neither is a
 release claim; both exist only in local working notes today.
 
 ## Licence
