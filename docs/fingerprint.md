@@ -63,3 +63,19 @@ For an unattended cosigner use the PIN in an environment variable, see
   with attestation and UV MuSig2 without it are separate applets.
 - Only the IDEX card has been tested. A FEITIAN fingerprint card uses a
   different biometric API and needs its own build.
+
+## Recorded runs
+
+| Date | Reader | What was observed |
+|---|---|---|
+| 2026-11-03 | HID Global OMNIKEY 5422, contact slot | Owner's thumb: 3 of 4 rounds MATCH in 0.8–1.4 s; each match unlocked the applet; no finger and no PIN left it locked |
+| 2026-11-17 | same reader, same card (`Javelin-OS 1.0`, ATR `3B9F96C0F031FE45754A6176656C696E2D4F5320312E30AB`) | Read-only inventory: MuSig2-UV `4E5552494D55473501` and ETH2-UV `4E5552494554483301` both select with `9000`; the non-UV ETH2 `4E55524945544832` and non-UV MuSig2 `4E5552494D534732` are absent (`6E00`); vault `4E555249564C54` selects with `9000`, `80 01` STATUS `01 01 05 10`. No PIN, no finger, no signature and no state change in this run |
+
+The 2026-11-17 row proves the UV applet set and the vault coexist on one physical
+card. It does **not** re-prove match-on-card authorization; the 2026-11-03 row is
+still the functional evidence for that, and [reader
+compatibility](reader-compatibility.md#hardware-runs-parent-physical-card) carries
+the transport context.
+
+Do not read the ATR as a chip attestation. `Javelin-OS 1.0` in the ATR is a card OS
+label reported by the card, not a manufacturer certificate or a CPLC qualification.
