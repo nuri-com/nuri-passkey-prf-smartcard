@@ -275,8 +275,11 @@ models and firmware matter. This is not a certification or an independent audit.
 - **An extensible stack, not just a wallet applet:** passkeys/PRF, SSH, EVM digest
   signing, MuSig2, TOTP, vault and agent-facing tools coexist behind separate
   interfaces. Their authorization and acceptance levels are not interchangeable.
-- **Fingerprint authorization and phone-optional payments remain goals.** No
-  biometric or settled Lightning-payment claim follows from a signature proof.
+- **Fingerprint authorization is proven on one card; phone-optional payments are
+  still a goal.** Thumb-or-PIN authorization runs on the IDEX TrustedBio card
+  ([fingerprint](docs/fingerprint.md)); a personalised vendor try limit, a second
+  card and a phone-optional terminal are open. No biometric or settled
+  Lightning-payment claim follows from a signature proof.
 
 ## The card as a hardware security module
 
@@ -419,8 +422,9 @@ must verify the intended identity mapping and exact transaction authorization.
 The host still supplies the transaction and sees PRF-derived secrets on the
 compatibility/standalone paths. [Architecture](docs/signing-architecture.md).
 
-Fingerprint authorization, a phone-optional terminal and independently tested
-lost-card recovery remain goals. A CSV recovery leaf does not restore a lost PRF
+Fingerprint authorization is proven on the IDEX TrustedBio card only
+([fingerprint](docs/fingerprint.md)). A phone-optional terminal and independently
+tested lost-card recovery remain goals. A CSV recovery leaf does not restore a lost PRF
 credential or key. There is no “card alone, without a networked host” path: the
 card has neither a transaction display nor a Bitcoin network connection.
 
@@ -503,7 +507,7 @@ not installation instructions for this release. See [Arkade boundaries](docs/ark
 | Card as independent Bitcoin cosigner | Standalone host wallet and historical Signet proof exist | Revalidate exact applet/client/recovery policy; same-card PRF is not independent recovery |
 | MuSig2 authorization | Current applet has its own PIN and nonce-session token; AID2 real-card proof accepted | Qualify AID3 fast path separately, including fault/side-channel and nonce lifecycle behavior |
 | Hardware-wallet recovery participant | Design direction, not shipped acceptance | Evaluate deterministic extra Taproot recovery leaf and independent key backup; do not call a third MuSig2 participant threshold recovery |
-| Fingerprint authorization | Planned; no integrated match-on-card acceptance | Obtain supported hardware/API and prove enforcement in each custom signer |
+| Fingerprint authorization | Proven on the IDEX TrustedBio card: thumb OR PIN unlocks MuSig2-UV and ETH2-UV ([fingerprint](docs/fingerprint.md)); vendor try limit is not personalised and the UV builds carry no attestation module | Reproduce on a second card, prove enforcement per custom signer, and ship only with a personalised try limit |
 | Card-client Arkade integration | Local untweaked/tweaked signature proofs | Live remote policy, explicit account mapping and receipt-backed transaction acceptance |
 | Phone / terminal UX | NFC source reference and host adapters exist | Reproduce physical Android and iPhone flows for the current protocol; no inherited Lightning settlement claim |
 | ETH2 PKCS#11 | Discovery/fail-closed adapter exists | Implement authenticated PIN-session signing before claiming ETH2 OpenSSL acceptance |
@@ -562,7 +566,8 @@ client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 | CA-backed applet attestation and signing-key binding | simulator only |
 | GP management-key rotation with encrypted owner escrow | simulator only |
 | OMNIKEY 5422 connection and additive ETH2 installation | proven on a physical card |
-| Fingerprint authorization and application secure messaging | planned |
+| Fingerprint authorization (IDEX TrustedBio; MuSig2-UV, ETH2-UV) | proven on a physical card, 2026-11-03; read-only applet inventory re-checked 2026-11-17 ([fingerprint](fingerprint.md)) |
+| Application secure messaging between host and applet | planned; APDUs and the PIN are plaintext today |
 | Independent lost-card recovery | planned |
 
 ### Supported readers: observed combinations, not certification
