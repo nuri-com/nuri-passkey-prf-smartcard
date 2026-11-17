@@ -846,6 +846,7 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 | Attestation CA private key and personalisation-station material | It is the trust root; anyone holding it can certify an emulator | Offline operator custody, never a repository |
 | Per-card PINs, PUKs, transport keys, PRF output, recovery material | Secrets | Owner custody only; see [SECURITY.md](SECURITY.md) |
 | Sanitised acceptance receipts for the newest CAPs | Not yet produced, not deliberately withheld | Missing; this is the main evidence gap. See [release](docs/release.md) |
+| Biometric applet sources, enrol console and per-card logs | Vendor NDA | Private repo `eminogrande/nuri-card-private-smartcard`, access on request — [private access](docs/private-access.md) |
 
 Also unpublished, and useful if you want them public: the competitor teardowns
 (Tangem, Satochip, Keycard, Bitkey, Tapsigner) that produced the hardening

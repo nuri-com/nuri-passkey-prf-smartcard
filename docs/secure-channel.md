@@ -5,7 +5,7 @@ sequenceDiagram
   participant H as Host / browser / agent
   participant C as Applet (ETH2, MuSig2, vault)
   H->>C: OPEN, host ephemeral P-256 pubkey (65)
-  C->>C: generate ephemeral pair, Z1 = ECDH(eph, host), Z2 = ECDH(identity, host)
+  C->>C: generate ephemeral pair, Z1 = ECDH(card_eph_priv, host_eph), Z2 = ECDH(identity_priv, host_eph)
   C-->>H: card ephemeral pubkey (65) + identity signature over transcript
   Note over H,C: PRK = HKDF-Extract(SHA256(cert), Z1 || Z2), k_enc/k_mac = Expand(...)
   H->>C: WRAP(dir=cmd), AES-CCM(counter, inner APDU)
@@ -14,7 +14,10 @@ sequenceDiagram
 
 ## Status
 
-**Nothing in this document is implemented.** Today every applet receives plaintext
+**Nothing in this document is implemented on a card.** A host reference and a
+simulator now exist: [`scripts/nuri_sc.py`](../scripts/nuri_sc.py) and
+[`test/test_nuri_sc.py`](../test/test_nuri_sc.py) (11 cases: handshake, tamper,
+replay, counter gap, wrong identity, malformed OPEN). The card-side class does not. Today every applet receives plaintext
 APDUs, and a PIN sent with `VERIFY` crosses the reader, the USB bus and any process
 holding the PC/SC context in the clear. Signed responses come back in the clear too.
 See [security model](security-model.md) and the consent section of the
@@ -73,7 +76,9 @@ All multi-byte integers are big-endian. `||` is concatenation.
   tag comes from CCM; with the CBC fallback it is the HMAC key.
 - CCM nonce = `dir ‖ counter32 ‖ salt64`, where `salt64` is the low 8 bytes of the
   transcript hash, fixed for the session.
-- AAD = `SHA256(CLA ‖ INS ‖ P1 ‖ P2 ‖ counter32)`.
+- AAD = `"NURI-SC-V1" ‖ dir ‖ counter32`. It cannot cover the inner APDU header,
+  because CCM needs the AAD before decryption; the header is inside the ciphertext
+  and is therefore still authenticated, just not as AAD.
 - Tag 16 bytes. Inner frame is the complete APDU including `Le`, so the card's
   existing `61xx`/`6Cxx` handling applies inside the tunnel.
 
