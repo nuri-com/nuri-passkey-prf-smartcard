@@ -57,6 +57,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.
 - [release.md](release.md) — Build/component/hash verification, source/binary correspondence and evaluation receipt.
 - [reproducing.md](reproducing.md) — Public-core tests and toolchains; optional mobile dependency is restricted.
+- [secure-channel.md](secure-channel.md) — Design only: proposed NURI-SC v1 handshake, frames, counters and fail-closed rules; nothing implemented, APDUs are plaintext today.
 - [scalar256.md](scalar256.md) — MIT independent scalar arithmetic, vectors, frozen build history and physical limits.
 - [security-advisories.md](security-advisories.md) — Disclosure register, affected revisions, fixes and evidence limits.
 - [security-model.md](security-model.md) — Canonical trust, authorization, host-secret and lost-card/recovery boundaries.
