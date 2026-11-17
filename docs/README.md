@@ -32,7 +32,6 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [eth-signing-spec.md](eth-signing-spec.md) — ETH1 demo versus ETH2 digest-signing contract and host verification.
 - [fail-closed-signers.md](fail-closed-signers.md) — Audit of every signer entry point: card absent is an error, simulators only with explicit flags, ETH1 behind `NURI_ALLOW_ETH1_DEMO=1`.
 - [fingerprint.md](fingerprint.md) — Fingerprint OR PIN on the IDEX TrustedBio card: our VERIFY_FINGER interface, real-card results, honest limits; vendor NDA code stays private.
-- [fingerprint.md](fingerprint.md) — Fingerprint OR PIN on the IDEX TrustedBio card: our VERIFY_FINGER interface, real-card results, honest limits; vendor NDA code stays private.
 - [fido2-prf-baseline.md](fido2-prf-baseline.md) — Pinned FIDO2 build inputs, patches and simulator PRF mapping.
 - [fido2-user-presence.md](fido2-user-presence.md) — UP is assumed, not a measured touch; PIN/UV and browser compatibility are separate.
 - [gp-macos-troubleshooting.md](gp-macos-troubleshooting.md) — Classify GP/transport/install errors before attempting destructive changes.
