@@ -69,10 +69,13 @@ Each row is one run with the stated reader on the public demo card (CPLC fabrica
 | Generic Realtek `0bda:0165`, ATR `3b119580` | 2026-10-17/18 | `T0` (default connect: `0x80100066`, T=1: `0x8010000F`) | SSH login, FIDO2 PIN status, ETH SELECT/version/pubkey |
 | ACS ACR39U ICC Reader | 2026-10-18 | `T0` | SSH login, FIDO2 PIN status, ETH v1 sign verified, PKCS#11 sign verified, native host `info`/`sign_hash` (as Chrome launches it), card-secrets `put`/`run`/`rm` |
 | HID Global OMNIKEY 5422, contact slot; card `57274221` (NXP JCOP 2.4.1, CPLC fabricator 4790), ATR `3BF81300008131FE454A434F5076323431B7` | 2026-10-29 | `default` | GP install of the v1.2.0 applet set; FIDO2 PIN + WebAuthn PRF; MuSig2 AID1/AID2/AID3 cosign verified; TOTP RFC 6238 vectors; ETH2 PIN gate + sign verified; vault HMAC/bearer; ETH v1 1.5 sign verified with python-ecdsa and ethers. ETH v1 1.4 returned `6F00` to KEYGEN. [Receipt](proofs/real-card-57274221-eth1-cofactor.json) |
-| HID Global OMNIKEY 5422, contact slot; IDEX TrustedBio card, `Javelin-OS 1.0`, ATR `3B9F96C0F031FE45754A6176656C696E2D4F5320312E30AB` | 2026-11-17 | `T0` | Read-only inventory, no PIN input, no signature, no state change: SELECT MuSig2-UV `4E5552494D55473501` → `9000`; SELECT ETH2-UV `4E5552494554483301` → `9000`; SELECT vault `4E555249564C54` → `9000` with `80 01` STATUS → `01 01 05 10` (PIN set, 5 tries, 16 slots); `80 31` LIST before PIN → `6982`; legacy ETH2 `4E55524945544832` and non-UV MuSig2 `4E5552494D534732` absent (`6E00`) |
+| HID Global OMNIKEY 5422, contact slot; IDEX TrustedBio card, `Javelin-OS 1.0`, ATR `3B9F96C0F031FE45754A6176656C696E2D4F5320312E30AB` | 2026-11-17 | `default` | Read-only inventory, no PIN input, no signature, no state change: SELECT MuSig2-UV `4E5552494D55473501` → `9000`; SELECT ETH2-UV `4E5552494554483301` → `9000`; SELECT vault `4E555249564C54` → `9000` with `80 01` STATUS → `01 01 05 10` (PIN set, 5 tries, 16 slots); `80 31` LIST before PIN → `6982`; legacy ETH2 `4E55524945544832` and non-UV MuSig2 `4E5552494D534732` absent (`6E00`) |
 
-On the same 2026-11-17 host, two further readers held cards that did not answer a
-transport probe and are therefore not rows: ACS ACR39U (`3B119580`) powered up but
-every transmit failed, and a second OMNIKEY 5422 enumerated as `... Reader 01`
-returned `6E00` to a default ISD SELECT through `gp -l`. Reader and card
-attribution on that host is an observation, not a qualification.
+This card appears twice in the reader list (`OMNIKEY 5422 Smartcard Reader` and
+`... Reader 01`) with the same serial, so the two entries are one physical card seen
+through two reader objects. On the same host the ACS ACR39U (`3B119580`) powers the
+card up but fails every transmit, which `scripts/card-readers.py` reports as a
+pseudo-ATR with no APDU answered; it is not a usable row on macOS. `gp -l` still
+returns `6E00` on a default ISD SELECT for this card, so GP-level operations through
+that path are not available and the applets were probed over raw APDUs instead.
+Reader and card attribution here is an observation, not a qualification.
