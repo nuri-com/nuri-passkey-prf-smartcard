@@ -103,12 +103,24 @@ def enroll(args):
 
 def sign(args):
     flags = int(args.flags, 0)
-    assertion = Ctap2(device()).get_assertion(
-        args.application,
-        hashlib.sha256(bytes.fromhex(args.data_hex)).digest(),
-        [{"type": "public-key", "id": bytes.fromhex(args.key_handle_hex)}],
-        options=ctap_options(flags),
-    )
+    devices = list(CtapPcscDevice.list_devices())
+    if not devices:
+        raise RuntimeError("NO_DEVICE: no PC/SC FIDO2 device found")
+    explicit = os.environ.get("FIDO2_PCSC_INDEX", os.environ.get("FIDO2_DEVICE_INDEX"))
+    candidates = [devices[int(explicit)]] if explicit is not None else devices
+    assertion = None
+    for idx, dev in enumerate(candidates):
+        try:
+            assertion = Ctap2(dev).get_assertion(
+                args.application,
+                hashlib.sha256(bytes.fromhex(args.data_hex)).digest(),
+                [{"type": "public-key", "id": bytes.fromhex(args.key_handle_hex)}],
+                options=ctap_options(flags),
+            )
+            break
+        except Exception:
+            if explicit is not None or idx + 1 == len(candidates):
+                raise
     r, s = der_ecdsa_rs(assertion.signature)
     kv(
         status="OK",
