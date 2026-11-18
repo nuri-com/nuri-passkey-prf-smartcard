@@ -65,6 +65,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [security-model.md](security-model.md) — Canonical trust, authorization, host-secret and lost-card/recovery boundaries.
 - [signing-architecture.md](signing-architecture.md) — Path-specific key locations and host versus card responsibilities.
 - [ssh-smartcard.md](ssh-smartcard.md) — FIDO2 sk SSH setup, no fresh-touch/PIN guarantee and independent backup enrollment.
+- [browser-ssh-smartcard-bridge.md](browser-ssh-smartcard-bridge.md) — Unified local loopback PC/SC CTAP2 bridge (`127.0.0.1:4199`) enabling Safari T=0 (`ACS ACR39U`) WebAuthn Passkeys and remote Click-to-Sign OpenSSH without private-key export.
 - [tear-safety.md](tear-safety.md) — ETH2 SET/CHANGE/UNBLOCK power-loss consistency: transaction structure, OwnerPIN semantics, simulator limits; hardware tear UNVERIFIED.
 - [totp-applet.md](totp-applet.md) — TOTP APDUs and RFC vectors; admin PIN does not gate code calculation.
 
