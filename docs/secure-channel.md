@@ -1,125 +1,89 @@
-# Application secure channel (design only, not implemented)
+# Application secure channel (NURI-SC v1)
+
+Status 2026-11-18: **implemented in Java Card 3.0.4 Classic + Python host and proven live on physical smartcard `87E5470B`** ([receipt](proofs/real-card-87E5470B-secure-channel.json)).
 
 ```mermaid
 sequenceDiagram
-  participant H as Host / browser / agent
-  participant C as Applet (ETH2, MuSig2, vault)
-  H->>C: OPEN, host ephemeral P-256 pubkey (65)
-  C->>C: generate ephemeral pair, Z1 = ECDH(card_eph_priv, host_eph), Z2 = ECDH(identity_priv, host_eph)
-  C-->>H: card ephemeral pubkey (65) + identity signature over transcript
-  Note over H,C: PRK = HKDF-Extract(SHA256(cert), Z1 || Z2), k_enc/k_mac = Expand(...)
-  H->>C: WRAP(dir=cmd), AES-CCM(counter, inner APDU)
-  C-->>H: WRAP(dir=rsp), AES-CCM(counter, inner response)
+  participant H as Host (scripts/nuri_sc.py)
+  participant C as Card (NuriSecureChannel / 4E55524953433031)
+  H->>C: OPEN (80 10 01 00), host_eph P-256 (65B)
+  C->>C: gen card_eph P-256, z_ee = ECDH(card_eph, host_eph), z_se = ECDH(id_priv, host_eph)
+  C->>C: sign T = "NURI-SC-V1" || len(AID) || AID || host_eph || card_eph (ECDSA-SHA256 DER)
+  C-->>H: card_eph(65) || session_id(8) || sig_len(1) || sig_der
+  Note over H,C: HKDF-SHA256(salt = SHA256(T), ikm = z_ee || z_se, info = "nuri-sc-v1/keys") -> k_c2d, k_d2c, m_c2d, m_d2c, session_id
+  H->>C: WRAP (80 11 01 00), iv16 || AES-128-CBC(ISO9797-M2(inner_apdu)) || HMAC-SHA256-128
+  C-->>H: iv16 || AES-128-CBC(ISO9797-M2(resp || sw1 || sw2)) || HMAC-SHA256-128 (outer SW 9000)
+  H->>C: CLOSE (80 12 00 00) -> wipe session & PIN flag
 ```
 
-## Status
+## Implementation and artifacts
 
-**Nothing in this document is implemented on a card.** A host reference and a
-simulator now exist: [`scripts/nuri_sc.py`](../scripts/nuri_sc.py) and
-[`test/test_nuri_sc.py`](../test/test_nuri_sc.py) (11 cases: handshake, tamper,
-replay, counter gap, wrong identity, malformed OPEN). The card-side class does not. Today every applet receives plaintext
-APDUs, and a PIN sent with `VERIFY` crosses the reader, the USB bus and any process
-holding the PC/SC context in the clear. Signed responses come back in the clear too.
-See [security model](security-model.md) and the consent section of the
-[README](../README.md).
+| Component | Path | Notes |
+|---|---|---|
+| Reusable Java Card 3.0.4 channel class | [`card/sc/NuriSecureChannel.java`](../card/sc/NuriSecureChannel.java) | Clean-room MIT; `CLEAR_ON_DESELECT` RAM session keys & counters |
+| Reference `SC_REQUIRED` applet (`4E55524953433031`) | [`card/sc/NuriSecureChannelApplet.java`](../card/sc/NuriSecureChannelApplet.java) | Rejects plaintext PIN/secret APDUs (`0x6985`); encrypts inner `ISOException` status words |
+| Reproducible CAP binary | [`dist/nuri-sc.cap`](../dist/nuri-sc.cap) | Package `4E555249534330`, verified by `npm run card:release:verify` |
+| Python host & PC/SC session client | [`scripts/nuri_sc.py`](../scripts/nuri_sc.py) | `HostChannel`, `SimCard`, `ScCardSession` (`pinned_pubkey` required by default) |
+| Simulator & cross-language E2E tests | [`test/sc/NuriScSimTest.java`](../test/sc/NuriScSimTest.java), [`test/test_nuri_sc.py`](../test/test_nuri_sc.py) | Run via `npm run card:sc:test:sim` |
+| Live physical-card acceptance proof | [`scripts/real-card-sc-proof.py`](../scripts/real-card-sc-proof.py), [`docs/proofs/real-card-87E5470B-secure-channel.json`](proofs/real-card-87E5470B-secure-channel.json) | Infineon card `87E5470B` on `ACS ACR39U` (`T=0`), handshake `412 ms` |
 
-This page exists so the gap is designed once, reviewed before code, and not
-improvised per applet. Treat every field, tag length and status word as a proposal.
+Existing standalone applets already deployed on cards (`ETH2`, `MuSig2`, `Vault`, `TOTP`) remain backward-compatible until rebuilt against `NuriSecureChannel`. `NuriSecureChannelApplet` (`4E55524953433031`) proves the full `SC_REQUIRED` contract on hardware today and `NuriSecureChannel` is the shared class for applet v2/v3 builds.
 
-## Threat it closes, and what it does not
+## Threat boundaries
 
-| Closed | Not closed |
+| Closed by NURI-SC v1 | Still outside NURI-SC v1 |
 |---|---|
-| Passive reading of the PIN and of signatures on NFC or a shared USB bus | A compromised host that is allowed to ask for signatures anyway |
-| Active modification of an APDU in flight (tag failure aborts) | Replay of a whole completed session (counter and ephemeral key prevent it; a relayed live session is not prevented) |
-| An impostor applet or card answering instead of yours (identity signature over the transcript) | A cloned card holding a stolen identity key and PIN |
-| PIN entry through an untrusted reader or middleware | Blind signing: the card still cannot show what it signs |
+| Passive or active snooping of PINs, secrets, commands, responses, and inner status words (`63Cx`) across NFC, USB, or shared PC/SC middleware | A compromised host process that already holds the user's PIN and is authorized to request signatures |
+| In-flight APDU tampering, truncation, reordering, replay, or direction reflection (`0x6988` + immediate session & `OwnerPIN` wipe) | Blind signing: a headless card without a display still signs the digest the host constructs |
+| Impostor applet or relay substitution when the host pins the card's CA-attested or paired `identity_pubkey` (`pinned_pubkey`) | Unauthenticated TOFU (`allow_tofu=True`) on an untrusted bus without a CA certificate or out-of-band key check |
 
-An application channel does not create per-transaction consent, a display, or
-firmware attestation. Those stay separate.
-
-## Primitives already on the card
-
-- **P-256 ECDH.** MuSig2 already requires `KeyAgreement.ALG_EC_SVDP_DH_PLAIN_XY`
-  ([hardware requirements](hardware.md)).
-- **A non-exportable P-256 identity key per applet instance,** generated at install,
-  with a CA-signed certificate and a fresh challenge
-  ([attestation](attestation.md)). This is the channel's trust anchor: the same key
-  signs the handshake transcript, so a channel cannot be pinned to an emulator
-  without a CA-signed identity.
-- **SHA-256 and HMAC-SHA-256** for HKDF.
-- **AES-CCM is not yet probed on the target.** `Cipher.ALG_AES_CCM_16_128` is the
-  intended mode; the CAPS byte already reports native ECDSA, native keygen and XY
-  ECDH, but not AES. Probe before promising it, and fall back to
-  AES-CBC + HMAC-SHA-256 if CCM is absent. Do not ship a software AES.
-
-Reference for the framing ideas: Keycard `SecureChannelV2` is **Apache-2.0**. We have
-not imported it; if we do, keep its `NOTICE` and do not claim wire compatibility.
-Satochip's channel is LGPL and is not a source for this design.
-
-## Proposed wire contract (NURI-SC v1)
+## Wire specification (NURI-SC v1)
 
 All multi-byte integers are big-endian. `||` is concatenation.
 
-| Step | APDU | Body | Response |
+| Command | Outer APDU | Request body | Response (`9000`) |
 |---|---|---|---|
-| OPEN | `CLA 80, INS 10, P1 01, P2 00` | host ephemeral public key, 65 bytes | card ephemeral public key 65, signature 64 (raw r‖s) |
-| WRAP | `CLA 80, INS 11, P1 dir, P2 00` | `counter32 ‖ ciphertext ‖ tag` | same shape |
-| CLOSE | `CLA 80, INS 12` | empty | `9000` |
+| `STATUS` | `80 01 00 00 00` | empty | `ver(0x01) \|\| ecdh_mode \|\| open(0/1) \|\| pin_set(0/1) \|\| pin_tries` (5B) |
+| `GET_PUBKEY` | `80 02 00 00 00` | empty | Uncompressed P-256 `identity_pub` (`04 \|\| X \|\| Y`, 65B) |
+| `OPEN` | `80 10 01 00 41` | `host_eph` (`04 \|\| X \|\| Y`, 65B) | `card_eph(65) \|\| session_id(8) \|\| sig_len(1) \|\| sig_der` |
+| `WRAP` | `80 11 01 00 Lc` | `iv16 \|\| ct(16..208) \|\| tag16` | `iv16 \|\| ct \|\| tag16` |
+| `CLOSE` | `80 12 00 00` | empty | empty (`9000`) |
 
-- `dir` = `00` command, `01` response.
-- Transcript = `SHA256("NURI-SC-V1" ‖ AID ‖ host_eph65 ‖ card_eph65)`.
-- The identity signature covers the transcript, so the host verifies the pinned CA
-  certificate first and then the transcript signature.
-- `PRK = HKDF-Extract(salt = SHA256(cert), ikm = Z1 ‖ Z2)`; `k_enc = HKDF-Expand(PRK,
-  "nuri-sc-v1/enc", 16)`; `k_mac` likewise. With AES-CCM, `k_mac` is unused and the
-  tag comes from CCM; with the CBC fallback it is the HMAC key.
-- CCM nonce = `dir ‖ counter32 ‖ salt64`, where `salt64` is the low 8 bytes of the
-  transcript hash, fixed for the session.
-- AAD = `"NURI-SC-V1" ‖ dir ‖ counter32`. It cannot cover the inner APDU header,
-  because CCM needs the AAD before decryption; the header is inside the ciphertext
-  and is therefore still authenticated, just not as AAD.
-- Tag 16 bytes. Inner frame is the complete APDU including `Le`, so the card's
-  existing `61xx`/`6Cxx` handling applies inside the tunnel.
+### Handshake and key schedule
 
-Status words: `6988` tag or counter failure (channel closed, PIN flag cleared),
-`6985` WRAP before OPEN, `6A88` unsupported primitive, `6A81` channel already open.
+1. **ECDH (forward secrecy + static binding):**
+   - `z_ee = ECDH_X(card_eph_priv, host_eph)` (32 bytes, left-padded with `0x00` when `ALG_EC_SVDP_DH_PLAIN` `0x03` strips leading zeros; auto-falls back to `ALG_EC_SVDP_DH_PLAIN_XY` `0x06` taking `inner[1..33)`).
+   - `z_se = ECDH_X(identity_priv, host_eph)` (32 bytes).
+   - `card_eph_priv` is cleared immediately after `z_ee` is computed.
+2. **Transcript & authentication:**
+   - `T = "NURI-SC-V1" || len(AID) || AID || host_eph(65) || card_eph(65)`.
+   - Card signs `T` with `Signature.ALG_ECDSA_SHA_256` (`identity_priv`, ASN.1 DER).
+   - Host verifies `sig_der` against its pinned `identity_pub` **before** deriving or trusting session keys (`ScCardSession.open(pinned_pubkey=...)`).
+3. **HKDF-SHA256 (RFC 5869):**
+   - `salt = SHA256(T)` (32 bytes), `ikm = z_ee || z_se` (64 bytes), `info = "nuri-sc-v1/keys"`, `L = 104` bytes:
+   - `OKM = k_c2d(16) || k_d2c(16) || m_c2d(32) || m_d2c(32) || session_id(8)`.
+   - Host verifies `hmac.compare_digest(session_id, sid_wire)`.
 
-## State and failure rules
+### Record layer (`INS_WRAP`)
 
-1. One channel per selection. `select`, `deselect`, card reset and any tag failure
-   close it.
-2. Counters are per direction, 32-bit, incremented before use, stored in EEPROM so a
-   power cut cannot rewind them. A repeated counter is rejected, not ignored.
-3. Any error inside the tunnel still closes the channel - the same fail-closed rule
-   the MuSig2 nonce session already uses ([MuSig2 policy](musig2-pin-and-hardening.md)).
-4. Once a channel exists, unwrapped `VERIFY`, `SIGN`, `FINALIZE` and vault `REVEAL`
-   return `6982` when the applet is built with `SC_REQUIRED`. The public demo install
-   keeps plaintext for compatibility and says so.
-5. No PIN, PUK or key material may be accepted in a plaintext APDU on a
-   `SC_REQUIRED` build, including the first-personalisation path; personalisation
-   happens in a physically trusted station over the same tunnel.
+- **Cipher:** `Cipher.ALG_AES_BLOCK_128_CBC_NOPAD` with fresh 16-byte `RandomData.ALG_SECURE_RANDOM` IV per frame and ISO/IEC 9797-1 Method 2 padding (`0x80` followed by `0x00` to 16-byte boundary).
+- **MAC (Encrypt-then-MAC):** Clean-room RFC 2104 HMAC-SHA256 built strictly over `MessageDigest.ALG_SHA_256` (so cards lacking `Signature.ALG_HMAC_SHA_256` work identically), truncated to 128 bits (`16` bytes):
+  `tag16 = HMAC-SHA256(m_dir, "NURI-SC-V1" || dir || session_id(8) || counter32_be(4) || iv16 || ct)[0..16]`
+  where `dir = 0x01` (C2D) or `0x02` (D2C), and `counter32_be` starts at `1` per direction and rejects `0xFFFFFFFF` overflow.
+- **Constant-time fail-closed verification:** 16-byte XOR-OR tag check executes before CBC decryption; constant-scan ISO 9797-1 M2 unpadding executes after decryption. Any MAC, length, padding, P1/P2, or counter error wipes all transient session keys/buffers, resets `OwnerPIN` validation, and returns outer `0x6988`.
+- **Status-word confidentiality:** Inner `ISOException` status words (such as `0x63C4` wrong PIN or `0x6982` unauthenticated) are encrypted inside the D2C payload `resp_data || sw1 || sw2` while the outer PC/SC status word remains `0x9000`.
 
-## Work plan
+## Reproduce
 
-| Step | Output | Gate |
-|---|---|---|
-| 1 | `scripts/nuri_sc.py` reference implementation + fixed vectors | Independent host and Python implementations agree byte for byte |
-| 2 | Java Card class shared by ETH2, MuSig2 and vault CAPs | AES-CCM or CBC+HMAC probe result recorded per card model |
-| 3 | jCardSim tests: handshake, replay, bit flip in every frame field, counter rollback across reset | Every negative case fails closed |
-| 4 | One physical card, one reader | Plaintext `VERIFY`/`SIGN` refused; tag failure clears the PIN flag; no measurable signing-path slowdown |
-| 5 | Per-CAP acceptance receipt | Commit, CAP hashes, reader, ATR, full output |
+```sh
+# Simulator + Python cross-language suite (no card required)
+npm run card:sc:test:sim
 
-Step 1 is the only step that needs no card. Steps 2-5 must not be claimed as
-"secure messaging" until step 5 exists.
+# Reproducible CAP build
+npm run card:sc:build
 
-## Honest limits
-
-- A reader-attached card still signs whatever the host builds. A channel protects
-  transport, not intent.
-- The channel does not add anti-rollback. GP lifecycle stays as described in
-  [card lock](card-lock.md).
-- Fingerprint authorization
-  ([fingerprint](fingerprint.md)) is independent of this channel and does not
-  replace it.
-- No part of this design has been reviewed by an external party.
+# Physical card acceptance proof (requires NuriSecureChannelApplet on reader)
+PYTHON_BIN=/opt/homebrew/bin/python3 scripts/run-card-python.sh \
+  scripts/real-card-sc-proof.py --reader "OMNIKEY" \
+  --out docs/proofs/real-card-sc.json
+```

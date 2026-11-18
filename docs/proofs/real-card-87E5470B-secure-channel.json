@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-18",
+  "protocol": "NURI-SC-V1",
+  "applet_aid": "4E55524953433031",
+  "package_aid": "4E555249534330",
+  "cap_sha256": "cbd5924c4d3b10245ebace7f1e9fe26d944ea53b968eb114a5ec24be23500db9",
+  "card": {
+    "serial": "87E5470B",
+    "ic_fabricator": "4090",
+    "os_id": "86AA",
+    "ecdh_mode": "0x03 (ALG_EC_SVDP_DH_PLAIN)",
+    "identity_pubkey_uncompressed": "0470748506c0e11e3ae58298c781e1b6035c815eae8aa4f5b3920ec33d3a546a5cf4741bfa64c36fbdaef839ba2fbaeb96ed5f7af4477e8754514c29c21d4a61fa"
+  },
+  "transport": {
+    "reader": "ACS ACR39U ICC Reader",
+    "pcsc_protocol": "default",
+    "atr": "3B119580"
+  },
+  "timings_ms": {
+    "open_handshake": 408.8,
+    "reopen_plus_wrapped_ping": 416.0,
+    "full_suite_total": 1857.6
+  },
+  "checks": {
+    "plaintext_commands_rejected": {
+      "SET_PIN": "0x6985",
+      "VERIFY_PIN": "0x6985",
+      "PUT_SECRET": "0x6985",
+      "HMAC": "0x6985",
+      "PING": "0x6985"
+    },
+    "handshake_ecdsa_verified": true,
+    "session_id_len_bytes": 8,
+    "encrypted_ping_lengths_verified": [
+      0,
+      1,
+      15,
+      16,
+      32,
+      180
+    ],
+    "encrypted_set_pin": "0x6985 (already initialized; replace refused)",
+    "wrong_pin_outer_wire_sw": "0x9000",
+    "wrong_pin_inner_decrypted_sw": "0x63C4",
+    "right_pin_inner_decrypted_sw": "0x9000",
+    "pin_tries_restored": 5,
+    "pin_bytes_absent_from_wire": true,
+    "rfc4231_case2_hmac_sha256": "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+    "secret_bytes_absent_from_wire": true,
+    "replay_attack_outer_sw": "0x6988",
+    "pin_wiped_after_replay_inner_sw": "0x6982",
+    "ciphertext_bitflip_outer_sw": "0x6988",
+    "clean_close_session_open_flag": 0
+  },
+  "result": "REAL_CARD_NURI_SC_V1_VERIFIED"
+}

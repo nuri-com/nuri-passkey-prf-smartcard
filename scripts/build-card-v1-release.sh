@@ -100,6 +100,9 @@ ant -f "$ROOT/card/eth-import/build.xml" \
 ant -f "$ROOT/card/vault/build.xml" \
   -Djckit.path="$JC304" \
   -Dcap.output="$OUT/raw/nuri-vault.cap" build
+ant -f "$ROOT/card/sc/build.xml" \
+  -Djckit.path="$JC304" \
+  -Dcap.output="$OUT/raw/nuri-sc.cap" build
 
 for cap in "$OUT"/raw/*.cap; do
   name="$(basename "$cap")"
@@ -110,7 +113,7 @@ done
   cd "$OUT"
   shasum -a 256 FIDO2.cap FIDO2-up.cap nuri-musig2-v20-keygen.cap \
     nuri-oath-totp.cap nuri-eth-signer.cap nuri-eth2-signer.cap nuri-eth-import-signer.cap nuri-vault.cap \
-    nuri-musig2-v20-keygen-aid2.cap nuri-musig2-v20-keygen-aid3.cap >SHA256SUMS
+    nuri-musig2-v20-keygen-aid2.cap nuri-musig2-v20-keygen-aid3.cap nuri-sc.cap >SHA256SUMS
 )
 
 {

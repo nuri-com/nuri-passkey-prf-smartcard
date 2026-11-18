@@ -67,7 +67,7 @@ class FakeReader:
 def cplc(serial="87E5470B", fabricator="4790"):
     raw = bytearray(42)
     raw[0:2] = bytes.fromhex(fabricator)
-    raw[9:13] = bytes.fromhex(serial)
+    raw[12:16] = bytes.fromhex(serial)
     return bytes(raw)
 
 

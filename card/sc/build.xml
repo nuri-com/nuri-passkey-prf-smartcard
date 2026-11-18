@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nuri-sc" default="build" basedir=".">
+  <property name="jckit.path" value="../../.build/card-v1/toolchain/oracle-javacard-sdks/jc304_kit"/>
+  <property name="ant.javacard.jar" value="../../tools/ant-javacard-proven.jar"/>
+  <property name="cap.output" value="../../dist/nuri-sc.cap"/>
+
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ant.javacard.jar}"/>
+
+  <target name="build">
+    <javacard jckit="${jckit.path}">
+      <cap aid="4E555249534330" version="1.0" output="${cap.output}" sources="." jca="3.0.4">
+        <applet class="com.nuri.sc.NuriSecureChannelApplet" aid="4E55524953433031"/>
+      </cap>
+    </javacard>
+  </target>
+</project>

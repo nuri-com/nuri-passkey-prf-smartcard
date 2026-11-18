@@ -6,16 +6,16 @@ Your Bitcoin wallet, physical passkey and pocket HSM. One battery-free card.
 
 **Free with at least €2,000 swap volume, otherwise $19.99**
 
-## Status at a glance (2026-11-17)
+## Status at a glance (2026-11-18)
 
 Three levels, never interchangeable. A row moves up only when a dated receipt
 exists for that exact applet version.
 
 | Level | What it covers |
 |---|---|
-| **Proven on a physical card** | Mainnet Arkade send co-signed by card `87E5470B` (2026-10-28); FIDO2 passkey; OpenSSH login on three readers; PKCS#11 signing behind OpenSSL; ETH2 mandatory-PIN sign; vault HMAC + bearer; TOTP RFC 6238; MuSig2 AID1/AID2/AID3 cosign; thumb-or-PIN unlock on the IDEX TrustedBio card (2026-11-03). Receipts: [live proofs](#live-today), [reader table](docs/reader-compatibility.md#hardware-runs-parent-physical-card), [fingerprint](docs/fingerprint.md). |
-| **Software and simulator only** | CA-backed applet attestation, GP management-key escrow, ETH2/vault installation on a blank spare, Chrome approval flow, MCP and paired helper, the native browser bridge. These are implemented and tested against a simulator or fake host, not accepted on hardware. |
-| **Not built, or a known limit** | No display and no independent transaction review (the card signs what the host builds); APDUs and the PIN travel in plaintext — [no application secure channel](docs/secure-channel.md), design only; no independent third-party audit; no chip certification; no lost-card recovery for the ETH key; fingerprint try limit not personalised on the vendor sample. |
+| **Proven on a physical card** | Mainnet Arkade send co-signed by card `87E5470B` (2026-10-28); **NURI-SC v1 application secure channel** (`4E55524953433031`) on card `87E5470B` over `ACS ACR39U` `T=0` ([receipt](docs/proofs/real-card-87E5470B-secure-channel.json), 2026-11-18); full DIY v1.2.0 applet stack + GP lock/unlock on €9.99 NXP JCOP v2.4.1 card `57274221` ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json)); thumb-or-PIN match-on-card unlock (`MuSig2-UV`, `ETH2-UV`) alongside `FIDO2-up`, `Vault` and `TOTP` on IDEX TrustedBio card `B2183751` ([fingerprint](docs/fingerprint.md)); FIDO2 passkey + PRF; OpenSSH login on three readers; PKCS#11 signing behind OpenSSL; ETH2 mandatory-PIN sign; MuSig2 AID1/AID2/AID3 cosign. |
+| **Software and simulator only** | CA-backed applet attestation, Chrome approval flow, MCP and paired helper, the native browser bridge, and wiring `NuriSecureChannel` into the legacy standalone `ETH2`/`MuSig2`/`Vault` CAPs. |
+| **Not built, or a known limit** | No display and no independent transaction review (the card signs what the host builds); legacy standalone v1/v2 applets still accept plaintext APDUs until migrated to [`NuriSecureChannel`](docs/secure-channel.md); no independent third-party audit; no chip certification; no lost-card recovery for the ETH key; fingerprint try limit not personalised on the vendor sample. |
 
 The single canonical list is [Feature status](#feature-status). If this summary and
 that table ever disagree, the table wins.
@@ -580,8 +580,8 @@ client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 | CA-backed applet attestation and signing-key binding | simulator only |
 | GP management-key rotation with encrypted owner escrow | simulator only |
 | OMNIKEY 5422 connection and additive ETH2 installation | proven on a physical card |
-| Fingerprint authorization (IDEX TrustedBio; MuSig2-UV, ETH2-UV) | proven on a physical card, 2026-11-03; read-only applet inventory re-checked 2026-11-17 ([fingerprint](docs/fingerprint.md)) |
-| Application secure messaging between host and applet | planned; APDUs and the PIN are plaintext today. [Design only](docs/secure-channel.md) |
+| [Fingerprint authorization](docs/fingerprint.md) (IDEX TrustedBio `B2183751`; `MuSig2-UV`, `ETH2-UV` alongside `FIDO2-up`, `Vault`, `TOTP`) | proven on a physical card |
+| [Application secure messaging (`NURI-SC v1`, `4E55524953433031`)](docs/secure-channel.md) ([receipt](docs/proofs/real-card-87E5470B-secure-channel.json); standalone ETH2/MuSig2/Vault migration pending) | proven on a physical card |
 | Independent lost-card recovery | planned |
 
 ### Supported readers: observed combinations, not certification
@@ -828,7 +828,7 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 
 | Path | Contents |
 |---|---|
-| `card/` | MuSig2, ETH1, ETH2, TOTP and vault applet sources |
+| `card/` | MuSig2, ETH1, ETH2, TOTP, vault and NURI-SC v1 (`card/sc/`) applet sources |
 | `third_party/` and `patches/` | Vendored FIDO2/build sources and recorded changes |
 | `src/` | Host MuSig2/session implementation and simulators |
 | `host/` and `extension/` | Native browser bridge and Chrome prototype |
@@ -842,16 +842,14 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 
 | Item | Why it is absent | Where it lives |
 |---|---|---|
-| IDEX and FEITIAN biometric applets, their CAPs, the enrol/verify console | Vendor API under NDA; publishing it would redistribute the vendor SDK | Private repo `eminogrande/nuri-card-private-backup` (`idex/nuri-uv`); the interface and results are in [fingerprint](docs/fingerprint.md) |
+| IDEX and FEITIAN biometric applets (`MuSig2-UV`, `ETH2-UV`), their CAPs, the enrol/verify console, and per-card logs | Vendor biometric Shareable Interface API under NDA; publishing it would redistribute the vendor SDK | Private org repo [`nuri-com/nuri-card-private-smartcard`](https://github.com/nuri-com/nuri-card-private-smartcard) (`idex/`), access on request — [fingerprint](docs/fingerprint.md), [private access](docs/private-access.md) |
 | Attestation CA private key and personalisation-station material | It is the trust root; anyone holding it can certify an emulator | Offline operator custody, never a repository |
 | Per-card PINs, PUKs, transport keys, PRF output, recovery material | Secrets | Owner custody only; see [SECURITY.md](SECURITY.md) |
-| Sanitised acceptance receipts for the newest CAPs | Not yet produced, not deliberately withheld | Missing; this is the main evidence gap. See [release](docs/release.md) |
-| Biometric applet sources, enrol console and per-card logs | Vendor NDA | Private repo `eminogrande/nuri-card-private-smartcard`, access on request — [private access](docs/private-access.md) |
 
-Also unpublished, and useful if you want them public: the competitor teardowns
-(Tangem, Satochip, Keycard, Bitkey, Tapsigner) that produced the hardening
-targets, and a written design for an application secure channel ([now published](docs/secure-channel.md)). Neither is a
-release claim; both exist only in local working notes today.
+See [competitors](docs/competitors.md) for sourced comparisons (Tangem, Keycard,
+Satochip, TAPSIGNER, Bitkey, Donjon LFI/brute-force advisories) and
+[secure-channel](docs/secure-channel.md) for the NURI-SC v1 protocol and live
+hardware receipt.
 
 ## Licence
 

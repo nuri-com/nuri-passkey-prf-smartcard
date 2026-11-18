@@ -19,6 +19,9 @@ required_files=(
   card/eth-import/Biginteger.java
   card/vault/NuriVault.java
   card/vault/build.xml
+  card/sc/NuriSecureChannel.java
+  card/sc/NuriSecureChannelApplet.java
+  card/sc/build.xml
   mobile/expo-nfc-prf-probe/App.tsx
   mobile/expo-nfc-prf-probe/TerminalScreen.tsx
   mobile/expo-nfc-prf-probe/ProfileScreen.tsx
@@ -34,6 +37,7 @@ required_files=(
   dist/nuri-eth2-signer.cap
   dist/nuri-eth-import-signer.cap
   dist/nuri-vault.cap
+  dist/nuri-sc.cap
   dist/SHA256SUMS
   LICENSES/GPL-2.0-or-later.txt
   THIRD_PARTY_NOTICES.md

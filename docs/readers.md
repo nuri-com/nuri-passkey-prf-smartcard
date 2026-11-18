@@ -38,8 +38,9 @@ With several cards it lists each card serial and asks for a number.
 
 | Reader | Slot | Result |
 |---|---|---|
-| HID OMNIKEY 5422 | contact | works. Used for every proof in this repo (NXP 87E5470B, Infineon 01086187, IDEX B2183751). |
-| HID OMNIKEY 5422, name suffix `01` | contactless | PC/SC shows it only when a card lies on it. Same card, no PIN pad. |
+| HID OMNIKEY 5422 | contact | works. Used for physical proofs across Infineon `87E5470B`, NXP JCOP v2.4.1 `57274221` ([xmrstreet.store J3R180](https://xmrstreet.store/product/smartcard-j3r180/)), and IDEX TrustedBio `B2183751`. |
+| HID OMNIKEY 5422, name suffix `01` | contact / contactless | Works (`default` protocol). On contactless, hold card flat on the RF pad during multi-APDU GP loads. |
+| ACS ACR39U ICC Reader | contact | works via automatic `T=0` step-down (`nuri_pcsc.connect_ladder`). Used for live NURI-SC v1 secure-channel proof on card `87E5470B`. |
 | CASTLES EZCCID | contactless | **does not work on this Mac.** Reports pseudo ATR `3B119580` and every APDU fails with `SCARD_E_NOT_TRANSACTED` (0x80100016), including the reader's own GET_UID escape. Reader driver issue, not a card issue. |
 
 Two readers with cards at once is fine. The scripts read all of them; `gp`

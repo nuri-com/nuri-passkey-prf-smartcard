@@ -39,7 +39,6 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [hardware.md](hardware.md) — Exact CPLC observations, required algorithms and unqualified batch/model limits.
 - [helper-servers-security.md](helper-servers-security.md) — Loopback-only HTTP/MCP pairing, scoped bearer files and resource/framing limits.
 - [readers.md](readers.md) — Any CCID reader: read-only inventory tool, auto-selection, NURI_READER, measured reader matrix incl. the broken CASTLES EZCCID on macOS.
-- [readers.md](readers.md) — Any CCID reader: read-only inventory tool, auto-selection, NURI_READER, measured reader matrix incl. the broken CASTLES EZCCID on macOS.
 - [home-cosigner.md](home-cosigner.md) — Permanent local signing service: LaunchAgent/systemd user unit, PIN from the OS keystore, `POST /api/send` one-liner, no spending limits.
 - [how-it-works.md](how-it-works.md) — Host transaction construction, PRF-derived secrets and card partial signing overview.
 - [hsm.md](hsm.md) — secp256k1 PKCS#11/OpenSSL use: real card by default, labelled simulator only on request, ETH2 preferred, ETH1 only with the demo opt-in.
@@ -53,12 +52,13 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [proofs/real-card-87E5470B-musig2-aid2-cosign.json](proofs/real-card-87E5470B-musig2-aid2-cosign.json) — 2026-10-22 real-card MuSig2 PIN2 AID2 cosign receipt (not broadcast, not funded).
 - [proofs/real-card-57274221-eth1-cofactor.json](proofs/real-card-57274221-eth1-cofactor.json) — 2026-10-29 JCOP 2.4.1 card: ETH1 1.4 `6F00`, ETH1 1.5 two verified signatures, other applets unchanged (not funded).
 - [proofs/real-card-57274221-gp-lock.json](proofs/real-card-57274221-gp-lock.json) — 2026-10-30 real-card DIY GP key change: two lock/undo cycles verified, default key restored, existing-escrow refusal.
-- [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and three observed physical reader combinations.
-- [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items (2026-10-22 real-card runs).
+- [proofs/real-card-87E5470B-secure-channel.json](proofs/real-card-87E5470B-secure-channel.json) — 2026-11-18 live physical-card NURI-SC v1 secure-channel receipt (`4E55524953433031` on `87E5470B` via `ACS ACR39U` `T=0`).
+- [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and observed physical reader/card runs.
+- [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items.
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.
 - [release.md](release.md) — Build/component/hash verification, source/binary correspondence and evaluation receipt.
 - [reproducing.md](reproducing.md) — Public-core tests and toolchains; optional mobile dependency is restricted.
-- [secure-channel.md](secure-channel.md) — Design only: proposed NURI-SC v1 handshake, frames, counters and fail-closed rules; nothing implemented, APDUs are plaintext today.
+- [secure-channel.md](secure-channel.md) — NURI-SC v1 ECDH+ECDSA-SHA256+HKDF+AES-128-CBC+HMAC-SHA256-128 specification, Java Card class (`card/sc/`), Python host (`scripts/nuri_sc.py`) and physical-card proof.
 - [private-access.md](private-access.md) — What is NDA-bound or a trust root, what is only on request, and how to ask for access.
 - [scalar256.md](scalar256.md) — MIT independent scalar arithmetic, vectors, frozen build history and physical limits.
 - [security-advisories.md](security-advisories.md) — Disclosure register, affected revisions, fixes and evidence limits.

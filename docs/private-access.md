@@ -2,30 +2,31 @@
 
 ```mermaid
 flowchart LR
-  P[Public repo] -->|interface, results, docs| U[Reader]
-  P -.->|pointer, no mirror| V[Private smartcard repo]
-  V -->|on request| T[Vendor NDA material]
+  P[nuri-com/nuri-passkey-prf-smartcard] -->|public interfaces, CAPs, receipts| U[Public verifier]
+  P -.->|org-private pointer| V[nuri-com/nuri-card-private-smartcard]
+  V -->|on request under NDA| T[Vendor NDA SDKs & UV sources]
 ```
 
-This repository publishes our own interfaces and results. Some material cannot be
-published, and one class of it is only available on request.
+This repository (`nuri-com/nuri-passkey-prf-smartcard`) publishes all Nuri-authored
+protocols, applets, host scripts, and sanitized hardware receipts. Vendor-NDA
+material lives in the `nuri-com` organization's private smartcard repository.
 
 | Item | Where | Why |
 |---|---|---|
-| IDEX TrustedBio UV applets (CAPs + source), enrol/verify console, per-card logs | Private repo [`eminogrande/nuri-card-private-smartcard`](https://github.com/eminogrande/nuri-card-private-smartcard) | The card vendor's biometric API is under NDA; redistributing it would republish the SDK. Our interface and measured results are public in [fingerprint](fingerprint.md). |
-| FEITIAN BioCARD demo-applet driver | Not committed anywhere; local tool only | Same NDA, different vendor API. |
-| Attestation CA private key, personalisation-station material | Offline operator custody | It is the trust root. Anyone holding it can certify an emulator. See [attestation](attestation.md). |
-| Per-card PINs, PUKs, GP transport keys, PRF output, recovery material | Owner custody | Secrets. [SECURITY.md](../SECURITY.md). |
+| IDEX TrustedBio UV applets (`MuSig2-UV`, `ETH2-UV` CAPs + source), enrol/verify console, per-card logs | Private org repo [`nuri-com/nuri-card-private-smartcard`](https://github.com/nuri-com/nuri-card-private-smartcard) (and archive [`nuri-com/0502-nuri-idex`](https://github.com/nuri-com/0502-nuri-idex)) | The card vendor's biometric Shareable Interface API (`A00000090501000101`) is under NDA; redistributing it would republish the vendor SDK. Our vendor-independent APDU interface and live card results are public in [fingerprint](fingerprint.md). |
+| FEITIAN BioCARD demo-applet driver | Private/local under vendor NDA | Same NDA boundary, separate biometric API. |
+| Attestation CA private key, personalisation-station material | Offline operator custody | Trust root: anyone holding it could certify an emulator. See [attestation](attestation.md). |
+| Per-card PINs, PUKs, GP keys, PRF output, recovery material | Owner custody (1Password / offline) | Secrets. See [SECURITY.md](../SECURITY.md). |
 
 ## Requesting access
 
-Ask `@eminogrande` for read access to `nuri-card-private-smartcard`. Say which
-card, which reader and what you need; the answer states whether the material is
-NDA-bound or merely internal. Access is per person, not per organisation. Do not
-mirror, fork or paste the contents into a public issue, a PR or an LLM prompt.
+Request read access to `nuri-com/nuri-card-private-smartcard` through the `nuri-com`
+maintainers (`SECURITY.md`), stating which card, reader, and integration you are
+verifying. Access is granted per reviewer/engineer and subject to vendor NDA rules:
+do not mirror, fork publicly, or paste vendor SDK headers into public issues or PRs.
 
 ## What stays out of both repositories
 
-- Customer data, reader serials of other people, hostnames.
-- Anything from a vendor SDK that is not already published by that vendor.
-- Unverified claims. A missing document is better than a confident wrong one.
+- Customer data, third-party serials, unredacted hostnames.
+- Per-card PINs, PUKs, rotated GlobalPlatform SCP02/SCP03 keys, or recovery seeds.
+- Unverified hardware claims.
