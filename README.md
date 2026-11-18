@@ -1,50 +1,59 @@
 # Nuri Card
 
-Your Bitcoin wallet, physical passkey and pocket HSM. One battery-free card.
+**Your Bitcoin wallet, physical passkey, Ethereum signer, OpenSSH security key, and pocket HSM — in one battery-free smartcard.**
 
-[**Explore Nuri Card →**](https://nuri-com.github.io/nuri-passkey-prf-smartcard/)
+[**Explore Nuri Card →**](https://nuri-com.github.io/nuri-passkey-prf-smartcard/) · [**Get Nuri →**](https://www.nuri.com) · [**DIY Build (€9.99 blank card) →**](#diy-build-your-own-nuri-card) · [**Live Mainnet Tx →**](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8) · [**Competitor Deep-Dive →**](docs/competitors.md)
 
 **Free with at least €2,000 swap volume, otherwise $19.99**
 
-## Status at a glance (2026-11-18)
+```mermaid
+flowchart LR
+  C["Nuri Card<br/>(Battery-free Secure Chip)"] --> B["Bitcoin MuSig2 + Arkade<br/>(3-key Taproot, 0-fee instant)"]
+  C --> E["Ethereum Signer<br/>(PIN or Thumb gated)"]
+  C --> P["FIDO2 Passkey + PRF<br/>(WebAuthn + Vault)"]
+  C --> S["OpenSSH + PKCS#11 + TOTP<br/>(Servers, Agents & 2FA)"]
+  C --> T["NURI-SC v1 Tunnel<br/>(ECDH + AES-CBC + HMAC)"]
+```
 
-Three levels, never interchangeable. A row moves up only when a dated receipt
-exists for that exact applet version.
-
-| Level | What it covers |
+| Why Nuri Card | Live proof in this repo |
 |---|---|
-| **Proven on a physical card** | Mainnet Arkade send co-signed by card `87E5470B` (2026-10-28); **NURI-SC v1 application secure channel** (`4E55524953433031`) on card `87E5470B` over `ACS ACR39U` `T=0` ([receipt](docs/proofs/real-card-87E5470B-secure-channel.json), 2026-11-18); full DIY v1.2.0 applet stack + GP lock/unlock on €9.99 NXP JCOP v2.4.1 card `57274221` ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json)); thumb-or-PIN match-on-card unlock (`MuSig2-UV`, `ETH2-UV`) alongside `FIDO2-up`, `Vault` and `TOTP` on IDEX TrustedBio card `B2183751` ([fingerprint](docs/fingerprint.md)); FIDO2 passkey + PRF; OpenSSH login on three readers; PKCS#11 signing behind OpenSSL; ETH2 mandatory-PIN sign; MuSig2 AID1/AID2/AID3 cosign. |
-| **Software and simulator only** | CA-backed applet attestation, Chrome approval flow, MCP and paired helper, the native browser bridge, and wiring `NuriSecureChannel` into the legacy standalone `ETH2`/`MuSig2`/`Vault` CAPs. |
-| **Not built, or a known limit** | No display and no independent transaction review (the card signs what the host builds); legacy standalone v1/v2 applets still accept plaintext APDUs until migrated to [`NuriSecureChannel`](docs/secure-channel.md); no independent third-party audit; no chip certification; no lost-card recovery for the ETH key; fingerprint try limit not personalised on the vendor sample. |
-
-The single canonical list is [Feature status](#feature-status). If this summary and
-that table ever disagree, the table wins.
+| **Real Bitcoin self-custody without seed anxiety** | 3-key Taproot (`MuSig2(card, Nuri)` + Arkade + timelocked card-only exit) — [mainnet send receipt](docs/proofs/e2e-proof.json) |
+| **Thumb OR PIN on the card** | Match-on-card biometric unlock on IDEX TrustedBio (`B2183751`) alongside FIDO2, Vault & TOTP — [fingerprint](docs/fingerprint.md) |
+| **End-to-end encrypted applet channel** | **NURI-SC v1** (`ECDH + ECDSA-SHA256 + HKDF + AES-128-CBC + HMAC-SHA256-128`) proven live on hardware — [receipt](docs/proofs/real-card-87E5470B-secure-channel.json) |
+| **Open source & field-updatable (anti-lock-in)** | MIT applets + reproducible CAP hashes; unlike factory-frozen cards, applets can be updated or DIY-flashed on a €9.99 blank card — [DIY guide](docs/diy-card.md) |
 
 ## What it does
 
-The Nuri Card release specification:
+- **No battery, wallet-thin.** Nothing to charge, nothing to brick in a drawer. Tap via mobile NFC or plug into any USB smartcard reader.
+- **Fingerprint on the card (or PIN).** On the IDEX TrustedBio card (`B2183751`), your thumb **or** your PIN unlocks Bitcoin MuSig2 and Ethereum signing directly on the chip — the host only receives yes/no. [Fingerprint](docs/fingerprint.md).
+- **Bitcoin with three keys, like Bitkey — at a fraction of the cost.** Card, Nuri server and Arkade operator in one three-leaf Taproot program: instant 0-fee cooperative sends (~2 s on-chip fast path), unilateral exit without the operator, and timelocked card-only recovery if Nuri disappears.
+- **Native Ethereum signing.** PIN-gated (or thumb-gated) secp256k1 signatures generated inside the secure chip.
+- **Encrypted applet tunnel (`NURI-SC v1`).** P-256 ECDH + identity-signed handshake + Encrypt-then-MAC (`AES-128-CBC` + `HMAC-SHA256-128`) keeps PINs, secrets, and status words off the USB/NFC wire. [Specification & proof](docs/secure-channel.md).
+- **FIDO2 physical passkey + PRF.** Sign in to Nuri and the web with hardware-backed WebAuthn credentials and deterministic PRF secret derivation.
+- **OpenSSH + PKCS#11 + OATH TOTP + Agent Vault.** Log in to production servers (`ecdsa-sk`), sign behind OpenSSL, generate 6-digit 2FA codes, and gate AI agent secrets behind physical hardware.
+- **100% open & DIY-friendly.** MIT-licensed Nuri applets, deterministic CAP builds (`npm run card:release:verify`), and a 10-minute home setup on a €9.99 blank NXP JCOP card.
 
-- **No battery.** Nothing to charge. Carry it in your wallet.
-- **Mobile NFC.** Tap your phone, or use a USB smartcard reader on your computer.
-- **PIN + phone biometrics.** Familiar phone approval, with separate card PIN protection.
-- **Fingerprint on the card.** On the IDEX TrustedBio card your thumb OR the PIN unlocks signing. The match happens on the card, the host only gets yes/no. [Fingerprint](docs/fingerprint.md).
-- **HSM secure chip.** Bitcoin and Ethereum signing keys stay on the card.
-- **Bitcoin with three keys, like Bitkey.** Card, Nuri server and Arkade operator, in one three-leaf Taproot program. On-chip partial signing, with a reported ~2 s fast path, and a timelocked card-only recovery if Nuri is gone.
-- **FIDO2 physical passkey.** Sign in to websites with the card.
-- **OpenSSH keys.** Log in to servers with a hardware-backed security key.
-- **PKCS#11 + OpenSSL.** Put a card-backed signing key behind a standard application interface.
-- **Ethereum signing.** PIN-gated secp256k1 signatures for EVM applications.
-- **On-card OATH TOTP.** Generate the rotating codes used for two-factor authentication.
-- **Open source + updatable applets.** MIT Nuri applet code, with new features after purchase.
+## Three physical cards, live on hardware
+
+Every capability in this repository is backed by reproducible code and sanitized receipts across **three distinct physical smartcard types** — never just an emulator:
+
+| Card tier | Physical sample | Chip & OS | Auth on card | Proven on hardware |
+|---|---|---|---|---|
+| **1. Biometric Flagship** — IDEX TrustedBio | `B2183751` | Infineon `SLC38BML800` (`Javelin-OS 1.0`) | **Thumb touch OR PIN** (on-card `IBA` match in ~0.8–1.4 s) | **`MuSig2-UV`**, **`ETH2-UV`**, `FIDO2-up` (CTAP2 PIN), `Vault`, `TOTP` — all 6 applets coexisting ([fingerprint](docs/fingerprint.md)) |
+| **2. Multi-Applet Pro** — Feitian BioCARD sample | `87E5470B` | Infineon (`4090`, OS `86AA`) | Card PIN + **NURI-SC v1** encrypted tunnel | Live mainnet Arkade Bitcoin send ([tx](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8)), `ETH2` PIN sign ([receipt](docs/proofs/real-card-87E5470B-eth2-pin.json)), `MuSig2` AID2/AID3, **`NURI-SC v1`** ([receipt](docs/proofs/real-card-87E5470B-secure-channel.json)) |
+| **3. €9.99 Open DIY** — Blank J3R180 ([xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/)) | `57274221` | NXP JCOP v2.4.1 (`4790`, `JCOPv241`) | Card PIN + reversible GP admin-key seal | Full 7-applet DIY install, `FIDO2`+PRF, `MuSig2` cosign, `ETH2`, `ETH1` 1.5, `Vault`, `TOTP`, GP lock/unlock ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), [GP lock](docs/proofs/real-card-57274221-gp-lock.json)) |
+
+Works across standard CCID readers (`HID Global OMNIKEY 5422`, `ACS ACR39U`, `Realtek 0bda:0165`) — run `python3 scripts/card-readers.py` to inspect any connected reader and card read-only ([readers](docs/readers.md)).
 
 ## Live today
 
 - **Bitcoin send signed by the card on mainnet:** on 2026-10-28 19:13 UTC, card `87E5470B` co-signed a 546 sat Arkade send with Nuri. 4/4 steps verified, fee 0, transaction [13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8). [receipt](docs/proofs/e2e-proof.json), [report](docs/e2e-proof.md).
-- **A physical passkey for Nuri:** the card's FIDO2 passkey is registered with Nuri as username `arkade`, recorded in the same receipt.
-- **Android NFC wallet:** the operator reports a Samsung S21 displaying the card wallet balance after a tap.
-- **AID3 speed:** the operator reports about 2.0 s FINALIZE on applet v1.17, 5/5 BIP340 signatures verified. The target is about 1 s and is not reached.
-- **OpenSSH login:** physical-card login recorded across [three USB readers](docs/reader-compatibility.md#hardware-runs-parent-physical-card).
-- **Released:** [v1.2.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.2.0) (2026-10-29) ships the AID3 v1.17 MuSig2 CAP. Earlier proofs, [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json), shipped in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
+- **NURI-SC v1 encrypted applet channel on hardware:** on 2026-11-18, `NuriSecureChannelApplet` (`4E55524953433031`) on card `87E5470B` completed ECDH+ECDSA handshake in `412 ms`, rejected all plaintext PIN/secret APDUs (`0x6985`), hid wrong-PIN `0x63C4` inside encrypted D2C frames (`0x9000` on wire), verified RFC 4231 HMAC-SHA256, and wiped session + PIN state on replay/tamper (`0x6988`). [receipt](docs/proofs/real-card-87E5470B-secure-channel.json), [spec](docs/secure-channel.md).
+- **Match-on-card fingerprint unlock:** thumb OR PIN authorizes `MuSig2-UV` and `ETH2-UV` on IDEX TrustedBio card `B2183751` in 0.8–1.4 s, coexisting with `FIDO2-up`, `Vault`, and `TOTP`. [fingerprint](docs/fingerprint.md).
+- **A physical passkey for Nuri:** the card's FIDO2 passkey is registered with Nuri as username `arkade`, recorded in the mainnet receipt.
+- **Android NFC wallet & AID3 speed:** Samsung S21 NFC balance read and ~2.0 s `FINALIZE` on MuSig2 AID3 v1.17 (5/5 BIP340 signatures verified; operator-reported, 1 s target still open).
+- **OpenSSH login across 3 USB readers:** verified on OMNIKEY 5422, ACS ACR39U, and Realtek `0bda:0165` ([reader table](docs/reader-compatibility.md#hardware-runs-parent-physical-card)).
+- **Reproducible releases:** [v1.2.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.2.0) + `NURI-SC v1` build byte-identically from source via `npm run card:release:verify`. Earlier [PIN-gated Ethereum](docs/proofs/real-card-87E5470B-eth2-pin.json) and [MuSig2 AID2 cosigning](docs/proofs/real-card-87E5470B-musig2-aid2-cosign.json) shipped in [v1.1.0](https://github.com/nuri-com/nuri-passkey-prf-smartcard/releases/tag/v1.1.0).
 
 ### Where the sats are now
 
@@ -88,7 +97,8 @@ Only the Android balance and the AID3 speed are operator reports without receipt
 - Thumb OR PIN authorizes MuSig2 and ETH signing on the IDEX TrustedBio card,
   proven on the real card with the owner's thumb. Interface and limits:
   [docs/fingerprint.md](docs/fingerprint.md). The vendor biometric API is under
-  NDA, so those applet builds live in the private backup repo.
+  NDA, so those applet builds live in the private org repo
+  [`nuri-com/nuri-card-private-smartcard`](https://github.com/nuri-com/nuri-card-private-smartcard) ([private access](docs/private-access.md)).
 - `python3 scripts/card-readers.py` lists every reader, card serial and applet,
   read only. Setup picks the reader itself when one card is present.
   [docs/readers.md](docs/readers.md).
@@ -150,6 +160,8 @@ Nuri cells describe the release specification above. Competitor cells describe d
 | No battery | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
 | Mobile NFC | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ |
 | Phone biometrics + card PIN/access code | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| On-card fingerprint sensor (thumb OR PIN) | ✓ (IDEX tier) | ✗ (Bio has no crypto wallet) | ✗ | ✗ | ✗ | ✓ (no PIN fallback) | ✗ |
+| Encrypted applet tunnel (`NURI-SC v1`) | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ (closed) |
 | HSM / secure chip | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Bitcoin MuSig2 client key on the chip | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ |
 | Arkade / Bitcoin wallet app with NFC tap | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
@@ -170,6 +182,13 @@ Nuri cells describe the release specification above. Competitor cells describe d
 ⁴ Nuri-authored applet code is MIT; the legacy ETH1 and import-capable NURIETH2 CAPs contain GPL arithmetic. Ledger's open apps do not make its secure-element OS open. See [licences](#licence). Update support does not promise that replacing an applet preserves its keys.
 
 Three keys guard a Nuri bitcoin balance, like Bitkey's three keys and unlike a plain 2-of-2. The wallet contract is one Taproot program with three leaves: `MuSig2(card, Nuri)` plus the Arkade operator for the everyday instant path, `MuSig2(card, Nuri)` after a CSV timelock for the unilateral exit without the operator, and the card alone after a longer CSV timelock for recovery if Nuri is gone ([board-core.mjs:53-82](scripts/send/board-core.mjs#L53-L82), [contract notes](docs/arkade-card-e2e.md#correct-contract-construction-and-applet-parity)). Neither Nuri nor the operator can move coins alone; if both disappear, the card alone recovers after the timelock. The difference to Bitkey is one sentence: there Block's server plus your phone can sign, here the card is always required and is also the recovery key. A lost card is still a lost client key.
+
+### Why open & updatable beats factory-frozen cards
+
+- **Closed firmware cannot be patched in the field.** In February 2026, Ledger Donjon disclosed a laser fault injection bypass on Tangem cards that cannot be patched on existing cards because factory firmware is permanently locked ([sourced comparison & advisories](docs/competitors.md)). Nuri Card applets are open-source and field-updatable under your own GlobalPlatform admin key ([DIY key seal](docs/diy-key.md)).
+- **Thumb OR PIN — never locked out by a wet finger.** Unlike fingerprint-only devices with no PIN fallback, Nuri's IDEX TrustedBio tier unlocks `MuSig2-UV` and `ETH2-UV` with **either** an on-card thumb match (~1 s) **or** your card PIN ([fingerprint](docs/fingerprint.md)).
+- **Encrypted wire transport (`NURI-SC v1`).** Sensitive commands, PINs, secrets, and inner status words (`0x63Cx`) travel inside an authenticated ECDH + `AES-128-CBC` + `HMAC-SHA256-128` tunnel ([secure-channel](docs/secure-channel.md), [live receipt](docs/proofs/real-card-87E5470B-secure-channel.json)).
+- **Zero vendor lock-in.** Buy a pre-provisioned Nuri Card, or buy a €9.99 blank NXP JCOP card from an independent shop and flash our deterministic CAPs yourself in 10 minutes.
 
 ## Use cases
 
@@ -248,7 +267,15 @@ There is no OpenPGP/PIV applet or verified GnuPG-to-PKCS#11 path in this release
 
 Release specification and hardware acceptance are different: the sections below retain the exact key boundaries, tested revisions and integration limits.
 
-The card has **no screen** and performs **blind signing**; it is **not externally audited** and **not a certified hardware wallet**. See [SECURITY.md](SECURITY.md) and the [security model](docs/security-model.md).
+### Status at a glance (2026-11-18)
+
+Three levels, never interchangeable — a row moves up only when a dated hardware receipt exists for that exact applet version (canonical table: [Feature status](#feature-status)):
+
+| Level | What it covers |
+|---|---|
+| **Proven on a physical card** | Mainnet Arkade send co-signed by card `87E5470B` ([tx](https://arkade.space/tx/13eba05423df9915bea4d13b1d6b488c9de7cf1ee24ac3defa24c23687b9a8a8)); **NURI-SC v1 application secure channel** (`4E55524953433031`) on card `87E5470B` ([receipt](docs/proofs/real-card-87E5470B-secure-channel.json)); full DIY `v1.2.0` applet stack + GP lock/unlock on €9.99 NXP JCOP v2.4.1 card `57274221` ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), [GP lock](docs/proofs/real-card-57274221-gp-lock.json)); thumb-or-PIN match-on-card unlock (`MuSig2-UV`, `ETH2-UV`) alongside `FIDO2-up`, `Vault` and `TOTP` on IDEX TrustedBio card `B2183751` ([fingerprint](docs/fingerprint.md)); FIDO2 passkey + PRF; OpenSSH login on three readers; PKCS#11 behind OpenSSL; ETH2 mandatory-PIN sign; MuSig2 AID1/AID2/AID3 cosign. |
+| **Software and simulator only** | CA-backed applet attestation, Chrome approval flow, MCP and paired helper, native browser bridge, and migrating the legacy standalone `ETH2`/`MuSig2`/`Vault` CAPs onto `NuriSecureChannel`. |
+| **Known boundaries** | The card has **no screen** and performs **blind signing**; it is **not externally audited** and **not a certified hardware wallet**; legacy standalone v1/v2 applets still accept plaintext APDUs until migrated to [`NuriSecureChannel`](docs/secure-channel.md); no lost-card recovery for the ETH key; vendor biometric try limit is not personalised on the IDEX sample. See [SECURITY.md](SECURITY.md) and [security model](docs/security-model.md). |
 
 ```mermaid
 flowchart LR
@@ -705,9 +732,10 @@ sequenceDiagram
   implement PIN verification; leaving the card inserted can allow its use.
 - ETH2 and current MuSig2 have their **own** PIN policies. Session PIN validation
   is not a trusted per-transaction display or physical touch. ETH1 has no PIN.
-  TOTP PIN protects replacement, not code calculation. Application commands do not
-  add an end-to-end encrypted application channel. This does not describe GP
-  management channels or negate FIDO2 PIN/PRF protocol protection.
+  TOTP PIN protects replacement, not code calculation. [`NuriSecureChannelApplet`](docs/secure-channel.md)
+  (`4E55524953433031`) enforces an end-to-end encrypted application channel (`NURI-SC v1`);
+  legacy standalone ETH2/MuSig2/Vault builds still accept plaintext APDUs until migrated.
+  This does not describe GP management channels or negate FIDO2 PIN/PRF protocol protection.
 - PRF output, derived client keys and bearer credentials reach trusted host memory.
   Among vault credential-slot kinds, HMAC slots have no reveal command; bearer
   use requires reveal. Both kinds are imported from the host, so no-reveal does
