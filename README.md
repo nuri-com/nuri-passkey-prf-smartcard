@@ -503,10 +503,15 @@ not reached. The earlier [v1.16 timing
 receipt](docs/proofs/real-card-87E5470B-musig2-aid3-fast.json) records 5.2 s
 FINALIZE and stays as history.
 
-**Second card model:** on 2026-10-29, NXP JCOP 2.4.1 card `57274221` ran the
-`v1.2.0` applet set over the OMNIKEY 5422 contact slot. ETH v1 needed applet
-1.5, which sets the secp256k1 cofactor; 1.4 answered `6F00` on that card.
-Unfunded. [Receipt](docs/proofs/real-card-57274221-eth1-cofactor.json).
+**Three distinct physical card types proven:**
+
+| Card type | Serial | Silicon / OS | Fingerprint | Proven stack & receipts |
+|---|---|---|---|---|
+| **1. Feitian BioCARD sample** | `87E5470B` | Infineon (`4090`, OS `86AA`) | Sensor on card (Feitian NDA SDK; public applets use PIN) | Mainnet Arkade MuSig2 send, `FIDO2`+PRF, `ETH2`, `Vault`, `TOTP`, **`NURI-SC v1`** ([SC receipt](docs/proofs/real-card-87E5470B-secure-channel.json)) |
+| **2. IDEX TrustedBio fingerprint card** | `B2183751` | Infineon `SLC38BML800` (`Javelin-OS 1.0`) | **Match-on-card thumb OR PIN** (`IBA` `A00000090501000101`) | **`MuSig2-UV`**, **`ETH2-UV`**, `FIDO2-up` (CTAP2 PIN), `Vault`, `TOTP` ([fingerprint](docs/fingerprint.md)) |
+| **3. €9.99 blank DIY card** ([xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/)) | `57274221` | NXP JCOP v2.4.1 (`4790`, `JCOPv241`) | None (PIN-gated) | Full `v1.2.0` DIY applet set (`ETH1` 1.5 cofactor fix) + GP admin-key lock/unlock ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), [GP lock](docs/proofs/real-card-57274221-gp-lock.json)) |
+
+Full CPLC/ATR details: [hardware qualification](docs/hardware.md#three-physical-card-types-tested).
 
 Historical confirmed Signet transactions and their exact limits are retained in
 [the Signet proof](docs/proofs/real-card-signet-proof.md). They do not establish
@@ -592,9 +597,10 @@ client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 | Realtek `0bda:0165`, ATR `3b119580` | T=0 fallback |
 | ACS ACR39U ICC Reader | T=0 fallback |
 
-The tested card reports CPLC fabricator `4090`, OS ID `86aa`, OS date `5134`
-(2025-05-14). Exact commercial model and product certification are UNVERIFIED;
-do not call it NXP JCOP4. [Hardware requirements](docs/hardware.md).
+The three tested physical cards span Feitian/Infineon (`87E5470B`, CPLC `4090`, OS `86AA`),
+IDEX TrustedBio (`B2183751`, Infineon `SLC38BML800`, `Javelin-OS 1.0`), and the €9.99
+NXP JCOP v2.4.1 DIY card (`57274221`, CPLC `4790`, `JCOPv241`). Exact batch and
+product certification remain UNVERIFIED; see [hardware qualification](docs/hardware.md).
 
 For the operator's OMNIKEY 5422, `~/bin/gp` auto-selected the card without `-r`;
 the Homebrew executable failed with `Specify reader`. Use

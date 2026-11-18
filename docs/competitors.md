@@ -17,7 +17,7 @@ customers or intentions.
 
 | | Nuri Card | Tangem | Keycard 4.0.1 | Satochip v0.16 | TAPSIGNER | Bitkey |
 |---|---|---|---|---|---|---|
-| Chip | Infineon (`87E5470B`), NXP JCOP v2.4.1 (`57274221`, €9.99 DIY), IDEX TrustedBio (`B2183751`, Javelin-OS); uncertified | Samsung secure element, EAL6+ ([Tangem](https://tangem.com/en/security/audits/)) | JCOP4 P71, EAL6+ | JCOP4 J3R180, EAL6+ | vendor SE, closed | Silicon Labs EFR32MG24 MCU, not a CC EAL6+ element |
+| Chip | 3 tested card types: Feitian/Infineon (`87E5470B`), IDEX TrustedBio (`B2183751`, Javelin-OS), €9.99 NXP JCOP v2.4.1 (`57274221`); [hardware](hardware.md) | Samsung secure element, EAL6+ ([Tangem](https://tangem.com/en/security/audits/)) | JCOP4 P71, EAL6+ | JCOP4 J3R180, EAL6+ | vendor SE, closed | Silicon Labs EFR32MG24 MCU, not a CC EAL6+ element |
 | Firmware / applet open | Yes, MIT host + published applets | No, closed and not updatable | Apache-2.0 | AGPL/LGPL/GPL | protocol only | App and firmware published; no bounty |
 | SDK for third parties | MIT host, no agreement needed | Proprietary, commercial agreement required ([LICENSE](https://github.com/tangem/tangem-sdk-ios)) | Apache-2.0 | LGPL libs | MIT + Commons Clause | — |
 | PIN on signing | Yes, mandatory by default (ETH2, MuSig2) | Access code, 1 s delay after 6 tries | PIN/PUK, 3–10 tries | PIN/PUK, 1–16 tries | CVC + delay | No PIN in production |
