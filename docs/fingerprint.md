@@ -18,10 +18,23 @@ flowchart LR
 ## Why the code is not in this repo
 
 The on-card fingerprint sensor is driven through the card vendor's biometric
-applet. That API is under NDA, so the UV applets, the enroll script and the CAP
-files live in the private repo `eminogrande/nuri-card-private-backup`
-(`idex/nuri-uv`). This page documents only our own interface and the results.
-Nothing here requires the vendor documentation.
+applet (`IBA` `A00000090501000101`). That API is under NDA, so the UV applets,
+the enroll script and the CAP files live in the private org repo
+[`nuri-com/nuri-card-private-smartcard`](https://github.com/nuri-com/nuri-card-private-smartcard)
+(`idex/`; see [private access](private-access.md)). This page documents only our
+own interface and the live-card results. Nothing here requires the vendor
+documentation.
+
+### Coexistence with FIDO2 on card `B2183751`
+
+Physical card `B2183751` (`Javelin-OS 1.0`, Infineon `SLC38BML800`, CPLC
+fabricator `4090`) runs **six** active applets side by side:
+`IBA` (`A00000090501000101`), `FIDO2-up` (`A0000006472F0001`),
+`MuSig2-UV` (`4E5552494D55473501`), `ETH2-UV` (`4E5552494554483301`),
+`Vault` (`4E555249564C54`), and `TOTP` (`A000000527210101`).
+`MuSig2-UV` and `ETH2-UV` invoke the on-card biometric Shareable Interface directly
+(thumb touch **or** PIN fallback). `FIDO2-up` coexists on the same card using
+CTAP2 `clientPin` verification alongside the enrolled biometric sensor.
 
 ## Our applet interface (vendor independent)
 
@@ -70,6 +83,7 @@ For an unattended cosigner use the PIN in an environment variable, see
 |---|---|---|
 | 2026-11-03 | HID Global OMNIKEY 5422, contact slot | Owner's thumb: 3 of 4 rounds MATCH in 0.8–1.4 s; each match unlocked the applet; no finger and no PIN left it locked |
 | 2026-11-17 | same reader, same card (`Javelin-OS 1.0`, ATR `3B9F96C0F031FE45754A6176656C696E2D4F5320312E30AB`) | Read-only inventory: MuSig2-UV `4E5552494D55473501` and ETH2-UV `4E5552494554483301` both select with `9000`; the non-UV ETH2 `4E55524945544832` and non-UV MuSig2 `4E5552494D534732` are absent (`6E00`); vault `4E555249564C54` selects with `9000`, `80 01` STATUS `01 01 05 10`. No PIN, no finger, no signature and no state change in this run |
+| 2026-11-18 | HID Global OMNIKEY 5422 (`Reader 01`) & ACS ACR39U (`T=0`) | `scripts/card-readers.py` verified CPLC serial `B2183751` (offset `12..16`) and full 6-applet inventory (`FIDO2`, `MuSig2-UV`, `ETH2-UV`, `Vault`, `TOTP`, `IBA`) |
 
 The 2026-11-17 row proves the UV applet set and the vault coexist on one physical
 card. It does **not** re-prove match-on-card authorization; the 2026-11-03 row is

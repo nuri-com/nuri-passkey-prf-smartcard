@@ -29,38 +29,64 @@ APPLETS = (
     ("FIDO2", "A0000006472F0001"),
     ("MuSig2", "4E5552494D554701"),
     ("MuSig2-UV", "4E5552494D55473501"),
-    ("ETH1", "A00000000101"),
+    ("ETH1", "4E55524945544801"),
     ("ETH2", "4E5552494554483201"),
     ("ETH2-UV", "4E5552494554483301"),
     ("Vault", "4E555249564C5401"),
     ("TOTP", "4E555249544F5450"),
+    ("NURI-SC", "4E55524953433031"),
+    ("IBA", "A00000090501000101"),
     ("Satochip", "5361746F4368697001"),
 )
-# CPLC serial lives at offset 9..13 of the 42 CPLC bytes (NXP/Infineon layout).
+# GlobalPlatform CPLC ICSerialNumber lives at bytes 12..16 of the 42-byte CPLC payload.
 GET_CPLC = bytes.fromhex("80CA9F7F00")
 CHIPS = (("4790", "NXP JCOP"), ("4090", "Infineon"))
-# Javelin-OS ATR seen on the IDEX TrustedBio card (no CPLC via the GP ISD).
+# Javelin-OS ATR seen on the IDEX TrustedBio card.
 JAVELIN_ATR = "3B9F96C0F031FE45754A6176656C696E2D4F5320312E30AB"
-GET_INFO = bytes.fromhex("800100000104")
-# A contactless reader may report a pseudo ATR and refuse every APDU. Known
-# case on macOS 15: CASTLES EZCCID reports 3B119580 and fails all transmits.
 PSEUDO_ATRS = {"3B119580"}
 
 
 def scan_reader(reader) -> dict:
     name = str(reader)
     out = {"reader": name, "card": False, "atr": None, "serial": None,
-           "chip": None, "applets": [], "error": None, "note": None}
+           "chip": None, "protocol": None, "applets": [], "error": None, "note": None}
+
+    def _probe(c) -> bool:
+        # Verify an actual APDU roundtrip so readers like ACS ACR39U on macOS
+        # (where default T=1 fails transmit) automatically step down to T=0.
+        nuri_pcsc.transmit_raw(c, GET_CPLC)
+        return True
+
+    conn = None
     try:
         conn = reader.createConnection()
-        nuri_pcsc.connect_ladder(conn, lambda c: True)
-    except Exception as error:  # NoCardException and transport errors
+        out["protocol"] = nuri_pcsc.connect_ladder(conn, _probe)
+    except nuri_pcsc.CardError as error:
+        if error.code == "NO_CARD":
+            out["error"] = error.code
+            return out
+        # A card is physically present (e.g. CASTLES EZCCID with pseudo-ATR 3B119580)
+        # even though every protocol failed APDU transmission.
+        try:
+            conn.connect()
+            out["atr"] = bytes(conn.getATR() or b"").hex().upper()
+            out["card"] = bool(out["atr"])
+        except Exception:
+            pass
+        out["error"] = error.code
+        if out["atr"] in PSEUDO_ATRS:
+            out["note"] = ("pseudo ATR, no APDU answered: on macOS this reader "
+                           "cannot talk to the card. Use OMNIKEY or T=0 reader.")
+        return out
+    except Exception as error:
         out["error"] = type(error).__name__
         return out
+
     try:
         atr = bytes(conn.getATR() or b"").hex().upper()
         out.update(card=True, atr=atr)
-        if atr == JAVELIN_ATR:
+        is_javelin = atr == JAVELIN_ATR
+        if is_javelin:
             out["chip"] = "IDEX TrustedBio (Javelin-OS)"
         data, sw = b"", 0
         try:
@@ -69,9 +95,10 @@ def scan_reader(reader) -> dict:
             out["error"] = type(error).__name__
         if sw == 0x9000 and len(data) >= 42:
             cplc = bytes(data)[-42:]
-            out["serial"] = cplc[9:13].hex().upper()
+            out["serial"] = cplc[12:16].hex().upper()
             fab = cplc[0:2].hex().upper()
-            out["chip"] = next((label for prefix, label in CHIPS if fab == prefix), fab)
+            if not is_javelin:
+                out["chip"] = next((label for prefix, label in CHIPS if fab == prefix), fab)
         for label, aid in APPLETS:
             try:
                 _, sw = nuri_pcsc.transmit_raw(conn, nuri_pcsc.select_apdu(aid))
