@@ -51,9 +51,7 @@ The existing installed host and working browser profile are not modified.
 
 ## Side panel, branding and OKX
 
-The toolbar action opens Chrome's native side panel (`manifest.json:12`,
-`background.js:9`). Chrome owns left/right placement; choose **Right** in
-Chrome **Settings → Appearance → Side panel** if it was moved to the left.
+The toolbar action opens the standard extension popup, which works in Chrome and Brave. Chrome's native side panel remains available through the browser UI (`manifest.json`, `background.js`). Chrome owns left/right placement; choose **Right** in Chrome **Settings → Appearance → Side panel** if it was moved to the left.
 The wallet and approval views share 17px body text and a 30px title in `ui.css`.
 Technical card information and attestation status live in collapsed details;
 real-card mode has no permanent warning banner. Explicit simulator mode remains

@@ -9,7 +9,7 @@ const DEFAULT_CHAIN = "0x2105"; // Base
 const MEMPOOL_API = "https://mempool.space/api";
 const ENS_RPC = "https://cloudflare-eth.com";
 
-// Native Chrome side panel; browser preference controls left/right placement.
+// Keep the side panel available, but the toolbar uses default_popup for Brave compatibility.
 chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 
 // ---------------------------------------------------------------------------
