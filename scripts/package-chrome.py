@@ -50,7 +50,7 @@ def package(output):
         "NURI CARD — CHROME PROTOTYPE 0.3.0\n"
         f"Source revision: {revision}\n"
         "Repository: https://github.com/nuri-com/nuri-passkey-prf-smartcard\n\n"
-        "1. Chrome: chrome://extensions → Developer mode → Load unpacked.\n"
+        "1. Chrome: chrome://extensions (Brave: brave://extensions) → Developer mode → Load unpacked.\n"
         "2. Select THIS Nuri Card folder. manifest.json is directly inside it.\n"
         "3. Pin Nuri Card using Chrome's Extensions menu.\n"
         "4. The local native host must also be installed. Existing installations remain unchanged.\n"

@@ -29,7 +29,7 @@ packaging `3639a7c`, side-panel UI and native-IPC fix `ab6a413`.
 python3 scripts/package-chrome.py "$HOME/Downloads/Nuri Card"
 ```
 
-Select **Downloads/Nuri Card** in Chrome's **Load unpacked** picker.
+Select **Downloads/Nuri Card** in Chrome's **Load unpacked** picker. Brave uses the same package at `brave://extensions`; the macOS host installer registers both browsers.
 `manifest.json` is at that folder's root. Selecting the source repository instead
 causes **Manifest file is missing or unreadable**. The adjacent ZIP is the same
 package; extract it before loading. Export refuses to overwrite existing paths.

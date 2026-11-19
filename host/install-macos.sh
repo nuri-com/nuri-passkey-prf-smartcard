@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the Nuri Card native messaging host for Google Chrome on macOS.
+# Install the Nuri Card native messaging host for Chrome and Brave on macOS.
 #
 #   host/install-macos.sh [--sim] [--eth1-demo] [--python /path/to/python3.13] [--extension-id <id>]
 #
@@ -11,7 +11,7 @@
 #   taken from the repo's card venv if present, otherwise installed here too).
 # - Copies host + PCSC/attestation helpers and SHA256SUMS into ~/.nuri-card-host.
 # - Writes ~/.nuri-card-host/run.sh to exec that self-contained host snapshot.
-# - Writes ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nuri.card.json.
+# - Writes com.nuri.card.json for both Chrome and Brave.
 # Uninstall: host/install-macos.sh --uninstall
 # Test hook: NURI_HOST_INSTALL_LAUNCHER_ONLY=1 writes only the launcher (no venv,
 # no pip, no manifest, no smoke test) so host/test_host.py can check it offline.
@@ -20,8 +20,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 HOST_PY="$HERE/nuri_card_host.py"
-MANIFEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-MANIFEST="$MANIFEST_DIR/com.nuri.card.json"
+MANIFEST_DIRS=(
+  "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+)
 VENV="$HOME/.nuri-card-host-venv"
 LAUNCH_DIR="$HOME/.nuri-card-host"
 LAUNCHER="$LAUNCH_DIR/run.sh"
@@ -37,7 +39,11 @@ while [[ $# -gt 0 ]]; do
     --eth1-demo) ETH1_DEMO=1 ;;
     --python) PYTHON="$2"; shift ;;
     --extension-id) EXT_ID="$2"; shift ;;
-    --uninstall) rm -f "$MANIFEST" "$LAUNCHER"; echo "removed $MANIFEST"; exit 0 ;;
+    --uninstall)
+      for MANIFEST_DIR in "${MANIFEST_DIRS[@]}"; do rm -f "$MANIFEST_DIR/com.nuri.card.json"; done
+      rm -f "$LAUNCHER"
+      echo "removed Chrome + Brave native host registrations and $LAUNCHER"
+      exit 0 ;;
     -h|--help) sed -n 2,16p "$0"; exit 0 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
@@ -115,9 +121,10 @@ exec "$VENV/bin/python" "$HOST_PY"$SIM_ARG "\$@"
 EOF
 chmod +x "$LAUNCHER"
 if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" == 1 ]]; then echo "launcher: $LAUNCHER"; exit 0; fi
-mkdir -p "$MANIFEST_DIR"
-
-cat > "$MANIFEST" <<EOF
+for MANIFEST_DIR in "${MANIFEST_DIRS[@]}"; do
+  mkdir -p "$MANIFEST_DIR"
+  MANIFEST="$MANIFEST_DIR/com.nuri.card.json"
+  cat > "$MANIFEST" <<EOF
 {
   "name": "com.nuri.card",
   "description": "Nuri Card Ethereum signer (native messaging host)",
@@ -126,15 +133,15 @@ cat > "$MANIFEST" <<EOF
   "allowed_origins": ["chrome-extension://$EXT_ID/"]
 }
 EOF
-
-echo "installed: $MANIFEST"
+  echo "installed: $MANIFEST"
+done
 if [[ "$SIM" == 1 ]]; then
   echo "launcher:  $LAUNCHER (SIMULATOR: public known key, never fund its address)"
 else
   echo "launcher:  $LAUNCHER (card mode)"
 fi
 [[ "$ETH1_DEMO" == 1 ]] && echo "WARNING:   --eth1-demo: the PIN-less legacy ETH1 applet may sign (public demo card only)"
-echo "extension: chrome://extensions -> Load unpacked -> $REPO/extension (expected ID $EXT_ID)"
+echo "extension: chrome://extensions or brave://extensions -> Load unpacked -> $REPO/extension (expected ID $EXT_ID)"
 
 # Smoke test the host through the launcher with the same framing Chrome uses.
 "$VENV/bin/python" - "$LAUNCHER" "$EXT_ID" <<'PY'

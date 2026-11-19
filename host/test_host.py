@@ -1412,9 +1412,11 @@ class InstallerLauncherTests(unittest.TestCase):
             installed = Path(home) / ".nuri-card-host"
             with (installed / "run.sh").open() as stream:
                 self.assertIn(str(installed / "host" / "nuri_card_host.py"), stream.read())
-            with (Path(home) / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nuri.card.json").open() as stream:
-                manifest = json.load(stream)
-            self.assertEqual(manifest["path"], str(installed / "run.sh"))
+            for browser in ("Google/Chrome", "BraveSoftware/Brave-Browser"):
+                manifest_path = Path(home) / "Library/Application Support" / browser / "NativeMessagingHosts/com.nuri.card.json"
+                with manifest_path.open() as stream:
+                    manifest = json.load(stream)
+                self.assertEqual(manifest["path"], str(installed / "run.sh"))
             expected = {"host/nuri_card_host.py", "host/webauthn_bridge.py", "host/bitcoin_commands.py",
                         "scripts/nuri_pcsc.py", "scripts/nuri_attest.py", "scripts/nuri_musig2_card.py",
                         "scripts/card-cosign-tweaked.py", "scripts/real-card-arkade-signer-proof.py",
