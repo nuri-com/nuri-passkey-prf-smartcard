@@ -115,7 +115,7 @@ function createHarness(options = {}) {
     tabs: { query: (_q, cb) => cb([]), sendMessage: () => {} },
     action: { setBadgeText: async (o) => badges.push(o.text), setBadgeBackgroundColor: async (o) => badges.push(o.color) },
   };
-  const sandbox = { chrome, console, URL, TextEncoder, TextDecoder, crypto: require('node:crypto').webcrypto, setTimeout: (fn, ms) => { const id = {}; timers.set(id, fn); return id; }, clearTimeout: (id) => timers.delete(id), fetch: async (url, req) => {
+  const sandbox = { chrome, console, URL, TextEncoder, TextDecoder, AbortSignal, crypto: require('node:crypto').webcrypto, setTimeout: (fn, ms) => { const id = {}; timers.set(id, fn); return id; }, clearTimeout: (id) => timers.delete(id), fetch: async (url, req) => {
     if (options.httpFetch) return options.httpFetch(url, req);
     const body = JSON.parse(req.body || '{}'); rpcCalls.push({ url, ...body });
     if (!options.fetch) throw new Error('network disabled in test');

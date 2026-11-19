@@ -53,7 +53,18 @@ function render({ info, state, error, balance, ethBalance, bitcoin, bitcoinError
   }
   out.innerHTML = rows.join("");
 }
-function load() { chrome.runtime.sendMessage({ type: "popup:account" }, (r) => render(r || { error: { message: "Wallet unavailable" } })); }
+function load() {
+  let answered = false;
+  const timeout = setTimeout(() => {
+    if (!answered) render({ error: { message: "Wallet did not respond. Check the card, then click Refresh." } });
+  }, 15000);
+  chrome.runtime.sendMessage({ type: "popup:account" }, (r) => {
+    answered = true;
+    clearTimeout(timeout);
+    const error = chrome.runtime.lastError;
+    render(error ? { error: { message: error.message } } : r || { error: { message: "Wallet unavailable" } });
+  });
+}
 
 // --- send form ---------------------------------------------------------------
 const kind = document.getElementById("sendKind");

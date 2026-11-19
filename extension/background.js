@@ -341,6 +341,7 @@ async function rpc(chainId, method, params) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw rpcError(-32603, `RPC HTTP ${res.status}`);
   const body = await res.json();

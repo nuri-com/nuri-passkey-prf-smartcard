@@ -10,7 +10,7 @@ const libSandbox = { NuriHashing: { ethers: E } };
 vm.createContext(libSandbox);
 libSandbox.self = libSandbox;
 vm.runInContext(fs.readFileSync(path.join(EXT, 'lib/bitcoin.js'), 'utf8'), libSandbox);
-const pageGlobals = { self: { NuriBitcoin: libSandbox.NuriBitcoin } };
+const pageGlobals = { self: { NuriBitcoin: libSandbox.NuriBitcoin }, setTimeout: () => 0, clearTimeout() {} };
 function dom() {
   const elements = new Map();
   function element(id) { if (!elements.has(id)) elements.set(id, { hidden: false, disabled: false, value: '', textContent: '', innerHTML: '', focus() {} }); return elements.get(id); }
@@ -47,6 +47,16 @@ test('PIN only appears after host PIN_REQUIRED when info did not ask for it', as
 test('pagehide clears PIN and blocked response disables signing', async (t) => {
   const ui = await approvalPopup(t, { pin: '2468' }); ui.element('pin').value = '2468'; ui.events.pagehide(); assert.equal(ui.element('pin').value, '');
   ui.h.info.pin_tries_left = 1; ui.element('pin').value = '0000'; await ui.element('approve').onclick(); assert.equal(ui.element('approve').disabled, true); assert.equal((await ui.result).error.code, 4001);
+});
+test('toolbar never waits forever when the background does not answer', () => {
+  const page = dom(); let timeout;
+  const chrome = { runtime: { sendMessage() {} } };
+  vm.runInNewContext(fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8'), {
+    chrome, document: page.document, ...pageGlobals, setTimeout(fn) { timeout = fn; return 1; },
+  });
+  timeout();
+  assert.match(page.element('out').innerHTML, /Wallet did not respond/);
+  assert.match(page.element('out').innerHTML, /click Refresh/);
 });
 test('toolbar renders SIM badge, ETH balance and full basescan hash link', async () => {
   const page = dom(), hash = '0x' + 'ab'.repeat(32);
