@@ -14,7 +14,7 @@ function railRows(bitcoin) {
   return rows;
 }
 
-function render({ info, state, error, balance, ethBalance, bitcoin, bitcoinError, lastTx }) {
+function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bitcoinError, lastTx }) {
   const rows = [];
   if (error) rows.push(`<p class="err">${esc(error.message || "Wallet unavailable")}</p>`);
   if (info) {
@@ -31,8 +31,9 @@ function render({ info, state, error, balance, ethBalance, bitcoin, bitcoinError
     } else if (bitcoinError) {
       rows.push(`<p class="k">Bitcoin</p><p class="err">${esc(bitcoinError)}</p>`);
     }
-    const eth = ethBalance !== undefined ? ethBalance : balance;
-    rows.push(`<p><span class="k">Ethereum</span><br>${eth === undefined ? "" : esc(eth) + " ETH"}</p>`);
+    const eth = ethBalance ?? balance;
+    rows.push(`<p><span class="k">Ethereum</span><br>${eth == null ? "Balance unavailable" : esc(eth) + " ETH"}</p>`);
+    if (ethError) rows.push(`<p class="err">${esc(ethError)}</p>`);
     rows.push(`<p><span class="k">Card address</span><br><code>${esc(info.address)}</code></p>`);
     if (state) {
       const names = { "0x2105": "Base", "0x1": "Ethereum", "0x14a34": "Base Sepolia" };

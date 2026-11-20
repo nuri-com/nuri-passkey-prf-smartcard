@@ -119,7 +119,7 @@
   // Onchain rail of the card wallet (mempool.space). A failure is 0, never a guess:
   // the caller shows the rail as unread instead of a wrong total.
   async function onchainSats(address, apiBase) {
-    const res = await fetch(`${apiBase}/address/${address}`, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+    const res = await fetch(`${apiBase}/address/${address}`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`mempool HTTP ${res.status}`);
     const body = await res.json();
     const chain = body?.chain_stats || {};

@@ -341,7 +341,7 @@ async function rpc(chainId, method, params) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw rpcError(-32603, `RPC HTTP ${res.status}`);
   const body = await res.json();
@@ -592,12 +592,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "popup:account") {
     Promise.all([getState(), cardInfo(true)]).then(async ([state]) => {
       const { lastTx } = await chrome.storage.local.get("lastTx");
-      let ethBalance = null, ethError = null;
-      try { ethBalance = H.formatEther(BigInt(await rpc(state.chainId, "eth_getBalance", [(await cardInfo()).address, "latest"]))); }
-      catch (error) { ethError = error.message; }
-      let bitcoin = null, bitcoinError = null;
-      try { bitcoin = await bitcoinAccount(); } catch (error) { bitcoinError = error.message; }
-      sendResponse({ state, info: await cardInfo(), ethBalance, ethError, bitcoin, bitcoinError, lastTx });
+      const [eth, bitcoin] = await Promise.allSettled([
+        rpc(state.chainId, "eth_getBalance", [(await cardInfo()).address, "latest"]),
+        bitcoinAccount(),
+      ]);
+      const ethBalance = eth.status === "fulfilled" ? H.formatEther(BigInt(eth.value)) : null;
+      const ethError = eth.status === "rejected" ? eth.reason.message : null;
+      sendResponse({
+        state, info: await cardInfo(), ethBalance, ethError, lastTx,
+        bitcoin: bitcoin.status === "fulfilled" ? bitcoin.value : null,
+        bitcoinError: bitcoin.status === "rejected" ? bitcoin.reason.message : null,
+      });
     }).catch((error) => sendResponse({ error }));
     return true;
   }
