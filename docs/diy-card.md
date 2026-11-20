@@ -91,8 +91,10 @@ Three MuSig2 applet instances exist because each hardware acceptance needs its o
 key space and its own timing record. All three are additive. Installing one does
 not replace another.
 
-Not in this release: OpenPGP/PIV, fingerprint gating, nginx TLS with the card, and
-any settlement claim from a signature alone. No private key is ever exportable:
+Not in this release: OpenPGP, fingerprint gating, nginx TLS with the card, and
+any settlement claim from a signature alone (NIST SP 800-73-4 PIV for macOS
+CryptoTokenKit / `sc_auth` login is shipped in `dist/nuri-piv.cap` and
+`scripts/card-piv-setup.py`). No private key is ever exportable:
 there is no export INS, and `getS` is only used inside a signing operation.
 
 ## 2.1 Or buy something else
