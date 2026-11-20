@@ -9,8 +9,8 @@ const DEFAULT_CHAIN = "0x2105"; // Base
 const MEMPOOL_API = "https://mempool.space/api";
 const ENS_RPC = "https://cloudflare-eth.com";
 
-// Keep the side panel available, but the toolbar uses default_popup for Brave compatibility.
-chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
+// Native Chrome/Brave side panel; browser preference controls left/right placement.
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 
 // ---------------------------------------------------------------------------
 // State (persisted in chrome.storage.session / local because SW can be killed)
