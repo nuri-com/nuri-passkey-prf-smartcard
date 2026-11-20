@@ -339,10 +339,18 @@ struct ContentView: View {
                             }
                         }
                         .labelsHidden()
+                        .onChange(of: vm.selectedCardId) { _ in
+                            vm.oldPin = ""
+                            vm.newPin = ""
+                            vm.confirmPin = ""
+                            if let c = vm.selectedCard {
+                                vm.statusIsError = false
+                                vm.statusText = "Selected card \(c.cardSerial) (\(c.reader))."
+                            }
+                        }
 
                         if let c = vm.selectedCard {
                             let isPaired = vm.pairedHashes.contains(c.authHash.uppercased())
-                            let ctkSeen = vm.ctkVisibleHashes.contains(c.authHash.uppercased())
                             HStack(spacing: 10) {
                                 Label("PIN tries: \(c.pinTriesLeft)/5", systemImage: "key.fill")
                                     .font(.caption)
@@ -354,11 +362,6 @@ struct ContentView: View {
                                 )
                                 .font(.caption.bold())
                                 .foregroundColor(isPaired ? .green : .orange)
-                            }
-                            if !ctkSeen && c.reader.contains("ACR39U") {
-                                Text("Note: macOS login requires inserting this card into OMNIKEY (ACR39U uses T=0 pseudo-ATR). You can still change its PIN right here.")
-                                    .font(.caption2)
-                                    .foregroundColor(.orange)
                             }
                         }
                     }
@@ -393,7 +396,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let c = vm.selectedCard {
                         let isPaired = vm.pairedHashes.contains(c.authHash.uppercased())
-                        Text("Auth Hash: \(c.authHash.isEmpty ? "Not provisioned" : c.authHash)")
+                        Text("Card \(c.cardSerial) · Auth Hash: \(c.authHash.isEmpty ? "Not provisioned" : c.authHash)")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
