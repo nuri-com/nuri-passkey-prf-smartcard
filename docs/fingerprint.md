@@ -1,4 +1,4 @@
-# Fingerprint instead of a PIN (IDEX TrustedBio)
+# Fingerprint on the card (IDEX TrustedBio + Feitian BioCARD)
 
 Status 2026-11-03: **working on a real IDEX TrustedBio card** (B2183751,
 Javelin-OS 1.0, Infineon SLC38BML800). The finger OR the PIN authorizes
@@ -76,6 +76,32 @@ For an unattended cosigner use the PIN in an environment variable, see
   with attestation and UV MuSig2 without it are separate applets.
 - Only the IDEX card has been tested. A FEITIAN fingerprint card uses a
   different biometric API and needs its own build.
+
+## Feitian BioCARD sensor management (2026-11-20)
+
+Card `87E5470B` also carries Feitian's preinstalled `FPSVCApplet`
+(`46505356434170706C6574`). The public host helper
+`scripts/card_fingerprint.py` talks to that applet over PC/SC; no biometric
+image or template leaves the card. It deliberately has **no delete command**.
+
+```sh
+scripts/run-card-python.sh scripts/card_fingerprint.py --reader 'ACS ACR39U ICC Reader' --list
+scripts/run-card-python.sh scripts/card_fingerprint.py --reader 'ACS ACR39U ICC Reader' --match
+scripts/run-card-python.sh scripts/card_fingerprint.py --reader 'ACS ACR39U ICC Reader' --enroll
+```
+
+`Nuri Card Setup.app` exposes the same three actions for Feitian cards and
+reports each of the 12 enrollment touches. Enrollment is additive and preserves
+existing fingers, applets and credentials. The vendor CAP/SDK remains private;
+the public repository contains only the small APDU host client.
+
+**Live boundary:** SELECT and LIST passed over ACS ACR39U `T=0`; the card reports
+three existing templates ([receipt](proofs/real-card-87E5470B-feitian-fingerprint.json)).
+A no-touch MATCH returned the expected timeout. A successful live MATCH and a
+new 12-touch enrollment are not claimed yet. These controls test/manage the
+sensor only: they do **not** authorize PIV, FIDO2, macOS login or wallet signing.
+Secure PIN-OR-fingerprint authorization must be enforced by an on-card signer,
+not by a host application that could skip the MATCH command.
 
 ## Recorded runs
 

@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-20",
+  "card_serial": "87E5470B",
+  "reader": "ACS ACR39U ICC Reader",
+  "protocol": "T0",
+  "applet_aid": "46505356434170706C6574",
+  "cap_sha256": "64bb0f020f38eedff39f2c6285a4aaec3d5497a729a5973d4ea07fef85e7a901",
+  "operation": "FP LIST (00 F1 51 00 00)",
+  "response_data": "0351009000",
+  "template_count": 3,
+  "result": "REAL_CARD_FEITIAN_FP_LIST_VERIFIED",
+  "scope": "Read-only template count. MATCH and new enrollment require separate live proof; no signer authorization is claimed. No applet or fingerprint template was deleted."
+}

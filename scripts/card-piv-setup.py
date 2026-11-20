@@ -31,6 +31,7 @@ from smartcard.System import readers as pcsc_readers
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nuri_pcsc  # noqa: E402
+import card_fingerprint  # noqa: E402
 
 PIV_AID = bytes.fromhex("A000000308000010000100")
 DEFAULT_ADMIN_KEY = bytes.fromhex("010203040506070801020304050607080102030405060708")
@@ -365,7 +366,7 @@ def list_all_piv_cards() -> list[dict]:
             if chuid and b"\x34\x10" in chuid:
                 pos = chuid.index(b"\x34\x10") + 2
                 guid = chuid[pos : pos + 16].hex().upper()
-            found.append({
+            item = {
                 "reader": str(card.reader),
                 "protocol": card.proto,
                 "card_serial": card.serial,
@@ -373,7 +374,15 @@ def list_all_piv_cards() -> list[dict]:
                 "chuid_guid": guid,
                 "pin_tries_left": card.pin_tries_left(),
                 "auth_hash": card.get_cert_9a_pubkey_sha1() or "",
-            })
+            }
+            # ACR39U can invalidate the first session when the second one opens.
+            # Finish every PIV read before probing the fingerprint applet.
+            try:
+                item.update(card_fingerprint.status(name))
+            except Exception:
+                # A sensor/second-session failure must never hide a working PIV card.
+                item.update({"fingerprint_supported": False, "fingerprint_count": 0, "fingerprint_backend": ""})
+            found.append(item)
         except Exception:
             continue
     return found

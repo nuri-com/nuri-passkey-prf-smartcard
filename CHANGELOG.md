@@ -6,6 +6,21 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-20 — Feitian fingerprint management in the native Mac app
+
+- `scripts/card_fingerprint.py`: read-only LIST, on-card MATCH and additive
+  12-touch ENROLL for Feitian `FPSVCApplet` on card `87E5470B`; no template or
+  applet delete operation. JSON-lines progress keeps biometric images/templates
+  off the host and reports sensor timeout/no-memory/no-match errors explicitly.
+- `Nuri Card Setup.app`: detects Feitian capability in the existing deduplicated
+  PIV scan, shows template count and adds Match / guided Enroll controls with
+  live touch progress. The UI states that sensor matching does not unlock PIV,
+  FIDO2, macOS or wallet signing.
+- Hardware proof: ACS ACR39U `T=0`, SELECT and LIST passed, three pre-existing
+  templates preserved ([receipt](docs/proofs/real-card-87E5470B-feitian-fingerprint.json)).
+  No-touch MATCH timed out as designed; successful MATCH and new enrollment are
+  not claimed yet. Six fake-card protocol tests pass.
+
 ## 2026-11-03 — fingerprint card and reader handling
 
 ```mermaid
