@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build native macOS mini app "Nuri Card Setup.app" (PIV PIN change + macOS login pairing).
+# Build native macOS mini app "Nuri Card Setup.app" (PIV, pairing and Feitian fingerprints).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="${1:-$HOME/Applications/Nuri Card Setup.app}"

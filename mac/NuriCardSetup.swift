@@ -10,6 +10,9 @@ struct PivCardInfo: Identifiable, Decodable, Equatable {
     let chuidGuid: String
     let pinTriesLeft: Int
     let authHash: String
+    let fingerprintSupported: Bool
+    let fingerprintCount: Int
+    let fingerprintBackend: String
 
     var id: String { "\(cardSerial)|\(reader)" }
 
@@ -21,6 +24,24 @@ struct PivCardInfo: Identifiable, Decodable, Equatable {
         case chuidGuid = "chuid_guid"
         case pinTriesLeft = "pin_tries_left"
         case authHash = "auth_hash"
+        case fingerprintSupported = "fingerprint_supported"
+        case fingerprintCount = "fingerprint_count"
+        case fingerprintBackend = "fingerprint_backend"
+    }
+}
+
+struct FingerprintResult: Decodable {
+    let ok: Bool
+    let event: String?
+    let error: String?
+    let instruction: String?
+    let current: Int?
+    let maximum: Int?
+    let templateCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, event, error, instruction, current, maximum
+        case templateCount = "template_count"
     }
 }
 
@@ -190,6 +211,54 @@ final class CardViewModel: ObservableObject {
         runScAuthAdmin(action: "unpair", hash: card.authHash, serial: card.cardSerial)
     }
 
+    func fingerprintAction(_ action: String) {
+        guard let card = selectedCard, card.fingerprintSupported else { return }
+        guard action == "match" || action == "enroll" else { return }
+        let py = pythonPath
+        let script = repoPath + "/scripts/card_fingerprint.py"
+        busy = true
+        statusIsError = false
+        statusText = action == "match"
+            ? "Touch an enrolled finger on card \(card.cardSerial)..."
+            : "Touch and lift the same new finger 12 times. Follow progress below."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = Self.runCommandLines(
+                executable: py,
+                args: [script, "--reader", card.reader, "--" + action]
+            ) { line in
+                guard let data = line.data(using: .utf8),
+                      let event = try? JSONDecoder().decode(FingerprintResult.self, from: data) else { return }
+                DispatchQueue.main.async {
+                    if event.event == "touch", let current = event.current, let maximum = event.maximum {
+                        self.statusText = current == maximum
+                            ? "Enrollment complete: \(current)/\(maximum) touches."
+                            : "Touch \(current)/\(maximum) captured. Lift, then touch again."
+                    } else if let instruction = event.instruction {
+                        self.statusText = instruction
+                    }
+                }
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                let lines = res.stdout.split(separator: "\n")
+                let final = lines.last.flatMap { line in
+                    try? JSONDecoder().decode(FingerprintResult.self, from: Data(line.utf8))
+                }
+                if res.code == 0 {
+                    self.statusIsError = false
+                    self.statusText = action == "match"
+                        ? "Fingerprint MATCH on card \(card.cardSerial)."
+                        : "New fingerprint enrolled on card \(card.cardSerial)."
+                    self.refreshKeepStatus()
+                } else {
+                    self.statusIsError = true
+                    self.statusText = final?.error ?? (res.stderr.isEmpty ? "Fingerprint operation failed." : res.stderr)
+                }
+            }
+        }
+    }
+
     private func runScAuthAdmin(action: String, hash: String, serial: String) {
         guard Self.isValidUsername(username), Self.isValidHexHash(hash) else {
             statusIsError = true
@@ -271,6 +340,42 @@ final class CardViewModel: ObservableObject {
             }
         }
         return out
+    }
+
+    private static func runCommandLines(
+        executable: String,
+        args: [String],
+        onLine: @escaping (String) -> Void
+    ) -> (code: Int32, stdout: String, stderr: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = args
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        p.standardOutput = outPipe
+        p.standardError = errPipe
+        do {
+            try p.run()
+            var all = Data()
+            var pending = Data()
+            while true {
+                let chunk = try outPipe.fileHandleForReading.read(upToCount: 4096) ?? Data()
+                if chunk.isEmpty { break }
+                all.append(chunk)
+                pending.append(chunk)
+                while let newline = pending.firstIndex(of: 0x0A) {
+                    let line = pending.prefix(upTo: newline)
+                    if let text = String(data: line, encoding: .utf8), !text.isEmpty { onLine(text) }
+                    pending.removeSubrange(...newline)
+                }
+            }
+            if !pending.isEmpty, let text = String(data: pending, encoding: .utf8) { onLine(text) }
+            p.waitUntilExit()
+            let err = errPipe.fileHandleForReading.readDataToEndOfFile()
+            return (p.terminationStatus, String(data: all, encoding: .utf8) ?? "", String(data: err, encoding: .utf8) ?? "")
+        } catch {
+            return (1, "", error.localizedDescription)
+        }
     }
 
     private static func runCommand(
@@ -425,6 +530,27 @@ struct ContentView: View {
                     }
                 }
                 .padding(6)
+            }
+
+            if let c = vm.selectedCard, c.fingerprintSupported {
+                GroupBox("3. Fingerprints — Match on Card") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(c.fingerprintCount) enrolled template(s) · images and templates never leave the card")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Button("Match Finger") { vm.fingerprintAction("match") }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(vm.busy)
+                            Button("Enroll New Finger (12 touches)") { vm.fingerprintAction("enroll") }
+                                .disabled(vm.busy)
+                        }
+                        Text("Enrollment preserves existing fingers/applets. Match here tests the sensor; it does not unlock PIV or macOS.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(6)
+                }
             }
 
             // Status bar

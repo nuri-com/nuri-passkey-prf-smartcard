@@ -37,6 +37,7 @@ APPLETS = (
     ("NURI-SC", "4E55524953433031"),
     ("PIV", "A000000308000010000100"),
     ("IBA", "A00000090501000101"),
+    ("Feitian-FP", "46505356434170706C6574"),
     ("Satochip", "5361746F4368697001"),
 )
 # GlobalPlatform CPLC ICSerialNumber lives at bytes 12..16 of the 42-byte CPLC payload.

@@ -99,6 +99,11 @@ Only the Android balance and the AID3 speed are operator reports without receipt
   [docs/fingerprint.md](docs/fingerprint.md). The vendor biometric API is under
   NDA, so those applet builds live in the private org repo
   [`nuri-com/nuri-card-private-smartcard`](https://github.com/nuri-com/nuri-card-private-smartcard) ([private access](docs/private-access.md)).
+- Feitian BioCARD `87E5470B`: `Nuri Card Setup.app` now lists, matches and
+  enrolls on-card fingerprints (12 guided touches), preserving all existing
+  templates and applets. Live LIST proves three existing templates; successful
+  MATCH/new enrollment and signer authorization remain separate acceptance
+  steps. [Feitian controls and security boundary](docs/fingerprint.md#feitian-biocard-sensor-management-2026-11-20).
 - `python3 scripts/card-readers.py` lists every reader, card serial and applet,
   read only. Setup picks the reader itself when one card is present.
   [docs/readers.md](docs/readers.md).
@@ -534,7 +539,7 @@ FINALIZE and stays as history.
 
 | Card type | Serial | Silicon / OS | Fingerprint | Proven stack & receipts |
 |---|---|---|---|---|
-| **1. Feitian BioCARD sample** | `87E5470B` | Infineon (`4090`, OS `86AA`) | Sensor on card (Feitian NDA SDK; public applets use PIN) | Mainnet Arkade MuSig2 send, `FIDO2`+PRF, `ETH2`, `Vault`, `TOTP`, **`NURI-SC v1`** ([SC receipt](docs/proofs/real-card-87E5470B-secure-channel.json)) |
+| **1. Feitian BioCARD sample** | `87E5470B` | Infineon (`4090`, OS `86AA`) | `FPSVCApplet` LIST proven (3 templates); Mac match/enroll controls; signer authorization not yet wired | Mainnet Arkade MuSig2 send, `FIDO2`+PRF, `ETH2`, `Vault`, `TOTP`, **`NURI-SC v1`** ([SC receipt](docs/proofs/real-card-87E5470B-secure-channel.json)) |
 | **2. IDEX TrustedBio fingerprint card** | `B2183751` | Infineon `SLC38BML800` (`Javelin-OS 1.0`) | **Match-on-card thumb OR PIN** (`IBA` `A00000090501000101`) | **`MuSig2-UV`**, **`ETH2-UV`**, `FIDO2-up` (CTAP2 PIN), `Vault`, `TOTP` ([fingerprint](docs/fingerprint.md)) |
 | **3. €9.99 blank DIY card** ([xmrstreet.store](https://xmrstreet.store/product/smartcard-j3r180/)) | `57274221` | NXP JCOP v2.4.1 (`4790`, `JCOPv241`) | None (PIN-gated) | Full `v1.2.0` DIY applet set (`ETH1` 1.5 cofactor fix) + GP admin-key lock/unlock ([receipt](docs/proofs/real-card-57274221-eth1-cofactor.json), [GP lock](docs/proofs/real-card-57274221-gp-lock.json)) |
 
