@@ -22,6 +22,8 @@ required_files=(
   card/sc/NuriSecureChannel.java
   card/sc/NuriSecureChannelApplet.java
   card/sc/build.xml
+  card/piv/NuriPivApplet.java
+  card/piv/build.xml
   mobile/expo-nfc-prf-probe/App.tsx
   mobile/expo-nfc-prf-probe/TerminalScreen.tsx
   mobile/expo-nfc-prf-probe/ProfileScreen.tsx
@@ -38,6 +40,7 @@ required_files=(
   dist/nuri-eth-import-signer.cap
   dist/nuri-vault.cap
   dist/nuri-sc.cap
+  dist/nuri-piv.cap
   dist/SHA256SUMS
   LICENSES/GPL-2.0-or-later.txt
   THIRD_PARTY_NOTICES.md

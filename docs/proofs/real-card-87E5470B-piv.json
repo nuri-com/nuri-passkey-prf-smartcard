@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-20",
+  "reader": "ACS ACR39U ICC Reader",
+  "protocol": "T0",
+  "card_serial": "87E5470B",
+  "piv_aid": "A000000308000010000100",
+  "piv_version": "5.4.0",
+  "chuid_guid": "A28321E4223DD7AA73AB838A2A66BDE1",
+  "has_ccc": true,
+  "slot_9a_cert_sha256": "181958c6c39c9ec5e939bffcbf55b81a52a8d0350def24c986ea1beb5bc8942a",
+  "slot_9a_pubkey_sha1": "1688B9CDACA20B7155F6B909A2E1B1A4D4C0A0A8",
+  "slot_9d_cert_sha256": "1c82f4ddf4f01150699366fae39a6fe8ab5af13cf27ce06d9a5b0f839e6d0684",
+  "checks": {
+    "admin_3des_mutual_auth": "PASS",
+    "pin_verify": "PASS",
+    "gen_p256_9a_9d": "PASS",
+    "selfsign_cert_on_card": "PASS",
+    "cert_chained_put_and_get": "PASS",
+    "ecdsa_9a_verify": "PASS",
+    "ecdh_9d_verify": "PASS"
+  },
+  "result": "REAL_CARD_NURI_PIV_VERIFIED"
+}

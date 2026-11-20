@@ -11,6 +11,7 @@ npm run card:musig2:test:sim
 scripts/run-card-python.sh scripts/card-totp.py --selfcheck
 scripts/test-totp-sim.sh
 scripts/test-sc-sim.sh
+scripts/test-piv-sim.sh
 
 echo "CARD_V1_VIRTUAL_TESTS_OK"
 echo "ETH and Java Card hardware behavior still require a qualified physical card."

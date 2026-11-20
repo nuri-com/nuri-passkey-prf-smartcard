@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nuri-piv" default="build" basedir=".">
+  <property name="jckit.path" value="../../.build/card-v1/toolchain/oracle-javacard-sdks/jc304_kit"/>
+  <property name="ant.javacard.jar" value="../../tools/ant-javacard-proven.jar"/>
+  <property name="cap.output" value="../../dist/nuri-piv.cap"/>
+
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${ant.javacard.jar}"/>
+
+  <target name="build">
+    <javacard jckit="${jckit.path}">
+      <cap aid="A000000308000010" version="1.0" output="${cap.output}" sources=".">
+        <applet class="com.nuri.piv.NuriPivApplet" aid="A000000308000010000100"/>
+      </cap>
+    </javacard>
+  </target>
+</project>

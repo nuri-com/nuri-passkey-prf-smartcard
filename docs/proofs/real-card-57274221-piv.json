@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-20",
+  "reader": "HID Global OMNIKEY 5422 Smartcard Reader",
+  "protocol": "default",
+  "card_serial": "57274221",
+  "piv_aid": "A000000308000010000100",
+  "piv_version": "5.4.0",
+  "chuid_guid": "055676C2609733D396E53A4DA7D7C768",
+  "has_ccc": true,
+  "slot_9a_cert_sha256": "ebab4325f84bc95df9fa139f53a5564e3e748d27128d8e7c61dae99ce1a68680",
+  "slot_9a_pubkey_sha1": "E9696D07D439C83806945210008042EA8AB815B5",
+  "slot_9d_cert_sha256": "7e36a3053aabdcbff872a69498b9ad3614c2fcf6344b3c92bbf608bb51312975",
+  "checks": {
+    "admin_3des_mutual_auth": "PASS",
+    "pin_verify": "PASS",
+    "gen_p256_9a_9d": "PASS",
+    "selfsign_cert_on_card": "PASS",
+    "cert_chained_put_and_get": "PASS",
+    "ecdsa_9a_verify": "PASS",
+    "ecdh_9d_verify": "PASS"
+  },
+  "result": "REAL_CARD_NURI_PIV_VERIFIED"
+}

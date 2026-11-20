@@ -53,6 +53,7 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [proofs/real-card-57274221-eth1-cofactor.json](proofs/real-card-57274221-eth1-cofactor.json) — 2026-10-29 JCOP 2.4.1 card: ETH1 1.4 `6F00`, ETH1 1.5 two verified signatures, other applets unchanged (not funded).
 - [proofs/real-card-57274221-gp-lock.json](proofs/real-card-57274221-gp-lock.json) — 2026-10-30 real-card DIY GP key change: two lock/undo cycles verified, default key restored, existing-escrow refusal.
 - [proofs/real-card-87E5470B-secure-channel.json](proofs/real-card-87E5470B-secure-channel.json) — 2026-11-18 live physical-card NURI-SC v1 secure-channel receipt (`4E55524953433031` on `87E5470B` via `ACS ACR39U` `T=0`).
+- [proofs/real-card-57274221-piv.json](proofs/real-card-57274221-piv.json) / [proofs/real-card-87E5470B-piv.json](proofs/real-card-87E5470B-piv.json) — 2026-11-20 live physical-card NIST SP 800-73-4 PIV (`A000000308000010000100`, ECC P-256 `9A`+`9D`, macOS CryptoTokenKit `pivtoken`/`sc_auth`) receipts.
 - [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and observed physical reader/card runs.
 - [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items.
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.

@@ -259,9 +259,9 @@ python3 -m unittest discover -s host -p 'test_host.py' -v
 
 A separate **optional, PIN-less** NURIETH2 applet supports one-shot import of an existing secp256k1 key. It does not replace the PIN-gated ETH2 signer or FIDO2. Its ACR39U/T=0 setup, physical-card proof and security limits are documented in [the import-signer guide](docs/eth2-import-signer.md). Prefer a newly generated key whenever possible.
 
-### PGP: a separate roadmap item
+### PIV smartcard login (macOS CryptoTokenKit) & PGP roadmap
 
-There is no OpenPGP/PIV applet or verified GnuPG-to-PKCS#11 path in this release. OpenPGP signing/decryption and nginx-compatible TLS mechanisms belong on the roadmap, not in a working-feature checklist.
+Clean-room MIT **NIST SP 800-73-4 PIV** (`card/piv/NuriPivApplet.java`, `dist/nuri-piv.cap`, `A000000308000010000100`, ~6 KB CAP) adds ECC P-256 `9A` Authentication + `9D` Key Management (ECDH) directly alongside FIDO2, MuSig2, ETH2, Vault, TOTP, and NURI-SC, enabling native macOS `CryptoTokenKit` (`pivtoken` / `sc_auth` MacBook login & `sudo`) — proven live on both `57274221` ([receipt](docs/proofs/real-card-57274221-piv.json)) and `87E5470B` ([receipt](docs/proofs/real-card-87E5470B-piv.json)). Provision with `npm run card:piv:setup -- --reader OMNIKEY --provision`. OpenPGP signing/decryption and nginx-compatible TLS mechanisms remain roadmap items.
 
 ## For developers
 
