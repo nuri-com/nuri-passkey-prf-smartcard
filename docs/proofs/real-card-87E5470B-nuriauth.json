@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-20",
+  "card_serial": "87E5470B",
+  "reader": "ACS ACR39U ICC Reader",
+  "protocol": "T0",
+  "nuriauth_aid": "4E5552494155544801",
+  "protected_test_client_aid": "4E5552494155544802",
+  "installed_cap_sha256": "7933d7138b482893f7bb051434b4c37e3f75b26a1ef3d01b6c295cbd0fabfdff",
+  "registered_template_bitmap": "03",
+  "registered_template_count": 2,
+  "observed": [
+    "OR policy: correct PIN -> protected client SW=9000 data=4F4B",
+    "Fingerprint command without touch -> SW=63E9; no authorization claimed",
+    "AND policy: correct PIN alone -> protected client SW=6982",
+    "AND policy: correct PIN plus no-touch fingerprint timeout -> SW=63E9; protected operation not reached"
+  ],
+  "result": "REAL_CARD_NURIAUTH_OR_PIN_AND_NEGATIVE_CHECKS_VERIFIED",
+  "not_proven": "Successful live fingerprint MATCH and full PIN+Fingerprint AND success; wallet signer integration; runtime policy switching/status on Feitian; secure enrollment while the unauthenticated vendor demo applet remains installed",
+  "preservation": "Only experimental NuriUV/NuriAuth packages were replaced during development. Existing FIDO2, PIV, SSH, wallet and other credentials were not deleted or modified."
+}

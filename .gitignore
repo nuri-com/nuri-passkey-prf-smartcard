@@ -35,6 +35,7 @@ card/3.0.4
 card/**/3.0.4
 .nuri-card-wallet/
 card/dist/
+card/uv/3.0.4/
 # SSH provider embeds local interpreter/helper paths: build locally, never redistribute.
 dist/nuri-pcsc-sk-provider.so
 .worktrees/

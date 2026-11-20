@@ -1,0 +1,12 @@
+<project name="NuriUV" default="build" basedir=".">
+  <property name="uv.matcher.dir" value="matcher-none"/>
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="../../tools/ant-javacard-proven.jar"/>
+  <target name="build">
+    <javacard jckit="${jckit.path}">
+      <cap aid="4E55524941555448" version="1.0" output="${cap.output}" export="${cap.output}.exp" verify="false" sources="com/nuri/uv" sources2="${uv.matcher.dir}" jca="3.0.4">
+        <applet class="com.nuri.uv.NuriUvApplet" aid="4E5552494155544801"/>
+        <applet class="com.nuri.uv.NuriUvTestClient" aid="4E5552494155544802"/>
+      </cap>
+    </javacard>
+  </target>
+</project>

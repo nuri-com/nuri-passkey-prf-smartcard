@@ -38,6 +38,8 @@ APPLETS = (
     ("PIV", "A000000308000010000100"),
     ("IBA", "A00000090501000101"),
     ("Feitian-FP", "46505356434170706C6574"),
+    ("NuriAuth", "4E5552494155544801"),
+    ("NuriAuth-Test", "4E5552494155544802"),
     ("Satochip", "5361746F4368697001"),
 )
 # GlobalPlatform CPLC ICSerialNumber lives at bytes 12..16 of the 42-byte CPLC payload.

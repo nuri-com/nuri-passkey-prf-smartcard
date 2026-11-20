@@ -6,6 +6,20 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-20 — NuriAuth PIN / fingerprint policy bridge (experimental)
+
+- Added vendor-neutral on-card `pin`, `or`, and `and` policies with transient
+  sessions, five PIN tries, three fingerprint tries and a Shareable-Interface
+  protected client. Initial registration chooses the Feitian policy; runtime
+  switching/status on that OS is explicitly not claimed.
+- Native Mac app adds first-time NuriAuth registration and one-connection PIN,
+  fingerprint, and PIN+fingerprint authorization checks. Correct LIST decoding
+  fixed: Feitian `03` is a two-template bitmap, not three templates.
+- 86 simulator checks pass. Real card `87E5470B`: OR+PIN returned protected
+  `OK`; AND+PIN-alone was denied; no-touch fingerprint returned `63E9`.
+  Successful MATCH/full AND and wallet signer binding remain unfinished.
+  [Interface/limits](docs/user-verification.md), [receipt](docs/proofs/real-card-87E5470B-nuriauth.json).
+
 ## 2026-11-20 — Feitian fingerprint management in the native Mac app
 
 - `scripts/card_fingerprint.py`: read-only LIST, on-card MATCH and additive
@@ -16,7 +30,7 @@ flowchart LR
   PIV scan, shows template count and adds Match / guided Enroll controls with
   live touch progress. The UI states that sensor matching does not unlock PIV,
   FIDO2, macOS or wallet signing.
-- Hardware proof: ACS ACR39U `T=0`, SELECT and LIST passed, three pre-existing
+- Hardware proof: ACS ACR39U `T=0`, SELECT and LIST passed, two pre-existing
   templates preserved ([receipt](docs/proofs/real-card-87E5470B-feitian-fingerprint.json)).
   No-touch MATCH timed out as designed; successful MATCH and new enrollment are
   not claimed yet. Six fake-card protocol tests pass.
