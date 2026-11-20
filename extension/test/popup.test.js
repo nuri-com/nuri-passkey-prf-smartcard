@@ -55,7 +55,7 @@ test('toolbar never waits forever when the background does not answer', () => {
     chrome, document: page.document, ...pageGlobals, setTimeout(fn) { timeout = fn; return 1; },
   });
   timeout();
-  assert.match(page.element('out').innerHTML, /Wallet did not respond/);
+  assert.match(page.element('out').innerHTML, /Wallet balances did not respond/);
   assert.match(page.element('out').innerHTML, /click Refresh/);
 });
 test('toolbar renders SIM badge, ETH balance and full basescan hash link', async () => {

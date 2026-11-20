@@ -54,16 +54,30 @@ function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bi
   }
   out.innerHTML = rows.join("");
 }
+let latestInfo = null;
 function load() {
   let answered = false;
   const timeout = setTimeout(() => {
-    if (!answered) render({ error: { message: "Wallet did not respond. Check the card, then click Refresh." } });
+    if (!answered) render({ info: latestInfo, error: { message: "Wallet balances did not respond. Check the card, then click Refresh." } });
   }, 15000);
-  chrome.runtime.sendMessage({ type: "popup:account" }, (r) => {
-    answered = true;
-    clearTimeout(timeout);
-    const error = chrome.runtime.lastError;
-    render(error ? { error: { message: error.message } } : r || { error: { message: "Wallet unavailable" } });
+  chrome.runtime.sendMessage({ type: "popup:info" }, (first) => {
+    const firstError = chrome.runtime.lastError;
+    if (firstError || first?.error) {
+      answered = true;
+      clearTimeout(timeout);
+      render({ error: firstError || first.error });
+      return;
+    }
+    if (first?.info) {
+      latestInfo = first.info;
+      render({ ...first, error: null }); // Show the card before network balances.
+    }
+    chrome.runtime.sendMessage({ type: "popup:account" }, (r) => {
+      answered = true;
+      clearTimeout(timeout);
+      const error = chrome.runtime.lastError;
+      render(error ? { info: latestInfo, error: { message: error.message } } : r || { info: latestInfo, error: { message: "Wallet unavailable" } });
+    });
   });
 }
 

@@ -58,7 +58,14 @@ function nativeCall(method, params) {
   return new Promise((resolve, reject) => {
     try {
       const port = hostPort();
-      nativePending.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        if (!nativePending.delete(id)) return;
+        reject(rpcError(-32603, "Nuri Card host timed out. Reconnect the reader and click Refresh."));
+      }, 8000);
+      nativePending.set(id, {
+        resolve: (value) => { clearTimeout(timeout); resolve(value); },
+        reject: (error) => { clearTimeout(timeout); reject(error); },
+      });
       port.postMessage(params ? { id, method, params } : { id, method });
     } catch {
       nativePending.delete(id);
