@@ -96,7 +96,7 @@ existing fingers, applets and credentials. The vendor CAP/SDK remains private;
 the public repository contains only the small APDU host client.
 
 **Live boundary:** SELECT and LIST passed over ACS ACR39U `T=0`; the card reports
-three existing templates ([receipt](proofs/real-card-87E5470B-feitian-fingerprint.json)).
+two existing templates ([receipt](proofs/real-card-87E5470B-feitian-fingerprint.json)).
 A no-touch MATCH returned the expected timeout. A successful live MATCH and a
 new 12-touch enrollment are not claimed yet. These controls test/manage the
 sensor only: they do **not** authorize PIV, FIDO2, macOS login or wallet signing.

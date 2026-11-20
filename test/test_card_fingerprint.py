@@ -36,7 +36,7 @@ class FeitianFingerprintTests(unittest.TestCase):
 
     def test_list_preserves_templates(self):
         card, fake = self.card([(bytes.fromhex("0351009000"), 0x9000)])
-        self.assertEqual(card.list(), 3)
+        self.assertEqual(card.list(), 2)
         self.assertEqual(fake.commands, [bytes.fromhex("00F1510000")])
 
     def test_match_success(self):

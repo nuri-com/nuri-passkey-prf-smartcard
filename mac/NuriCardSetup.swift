@@ -38,9 +38,10 @@ struct FingerprintResult: Decodable {
     let current: Int?
     let maximum: Int?
     let templateCount: Int?
+    let authorized: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case ok, event, error, instruction, current, maximum
+        case ok, event, error, instruction, current, maximum, authorized
         case templateCount = "template_count"
     }
 }
@@ -65,6 +66,8 @@ final class CardViewModel: ObservableObject {
     @Published var oldPin: String = ""
     @Published var newPin: String = ""
     @Published var confirmPin: String = ""
+    @Published var uvPin: String = ""
+    @Published var uvPolicy: String = "and"
 
     @Published var busy: Bool = false
     @Published var statusText: String = "Scanning connected smartcards..."
@@ -259,6 +262,50 @@ final class CardViewModel: ObservableObject {
         }
     }
 
+    func uvAction(_ action: String) {
+        guard let card = selectedCard else { return }
+        let needsPin = action == "register" || action == "pin" || action == "and"
+        if needsPin && !(4...12).contains(uvPin.count) || needsPin && !uvPin.allSatisfy({ $0.isASCII && $0.isNumber }) {
+            statusIsError = true
+            statusText = "NuriAuth PIN must be 4–12 ASCII digits."
+            return
+        }
+        let script = repoPath + "/scripts/nuri_uv.py"
+        var args = [script, "--reader", card.reader]
+        switch action {
+        case "register": args += ["--set-pin-stdin", "--initial-policy", uvPolicy]
+        case "pin": args += ["--pin-check-stdin"]
+        case "and": args += ["--and-check-stdin"]
+        case "finger": args += ["--finger-check"]
+        default: return
+        }
+        busy = true
+        statusIsError = false
+        statusText = action == "register" ? "Registering NuriAuth \(uvPolicy.uppercased()) policy..." : "Checking on-card authorization..."
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = Self.runCommandLines(executable: self.pythonPath, args: args, stdinText: needsPin ? self.uvPin + "\n" : nil) { line in
+                guard let data = line.data(using: .utf8),
+                      let event = try? JSONDecoder().decode(FingerprintResult.self, from: data),
+                      let instruction = event.instruction else { return }
+                DispatchQueue.main.async { self.statusText = instruction }
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                self.uvPin = ""
+                let final = res.stdout.split(separator: "\n").last.flatMap {
+                    try? JSONDecoder().decode(FingerprintResult.self, from: Data($0.utf8))
+                }
+                if res.code == 0 {
+                    self.statusIsError = false
+                    self.statusText = action == "register" ? "NuriAuth policy registered." : "NuriAuth AUTHORIZED — protected client returned OK."
+                } else {
+                    self.statusIsError = true
+                    self.statusText = final?.error ?? "Authorization denied: satisfy the configured PIN/fingerprint policy."
+                }
+            }
+        }
+    }
+
     private func runScAuthAdmin(action: String, hash: String, serial: String) {
         guard Self.isValidUsername(username), Self.isValidHexHash(hash) else {
             statusIsError = true
@@ -345,6 +392,7 @@ final class CardViewModel: ObservableObject {
     private static func runCommandLines(
         executable: String,
         args: [String],
+        stdinText: String? = nil,
         onLine: @escaping (String) -> Void
     ) -> (code: Int32, stdout: String, stderr: String) {
         let p = Process()
@@ -354,6 +402,12 @@ final class CardViewModel: ObservableObject {
         let errPipe = Pipe()
         p.standardOutput = outPipe
         p.standardError = errPipe
+        if let stdinText = stdinText {
+            let inPipe = Pipe()
+            p.standardInput = inPipe
+            if let data = stdinText.data(using: .utf8) { inPipe.fileHandleForWriting.write(data) }
+            inPipe.fileHandleForWriting.closeFile()
+        }
         do {
             try p.run()
             var all = Data()
@@ -546,6 +600,35 @@ struct ContentView: View {
                                 .disabled(vm.busy)
                         }
                         Text("Enrollment preserves existing fingers/applets. Match here tests the sensor; it does not unlock PIV or macOS.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(6)
+                }
+            }
+
+            if let c = vm.selectedCard, c.fingerprintSupported {
+                GroupBox("4. NuriAuth — PIN / Fingerprint Policy") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SecureField("NuriAuth PIN (separate from PIV)", text: $vm.uvPin)
+                            .textFieldStyle(.roundedBorder)
+                        HStack {
+                            Picker("Initial policy", selection: $vm.uvPolicy) {
+                                Text("PIN OR finger").tag("or")
+                                Text("PIN AND finger").tag("and")
+                            }
+                            .labelsHidden()
+                            Button("Register Policy") { vm.uvAction("register") }
+                                .disabled(vm.busy)
+                        }
+                        HStack {
+                            Button("PIN Check") { vm.uvAction("pin") }.disabled(vm.busy)
+                            Button("Finger Check") { vm.uvAction("finger") }.disabled(vm.busy)
+                            Button("PIN + Finger Check") { vm.uvAction("and") }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(vm.busy)
+                        }
+                        Text("Checks call a protected on-card client. Registration is one-time; AND requires both in one power session.")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }

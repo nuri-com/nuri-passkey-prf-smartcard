@@ -52,7 +52,10 @@ class FeitianFingerprint:
         data = self._command(0x51)
         if len(data) < 4 or data[1] != 0x51 or data[3] != 0x90:
             raise response_error("LIST", data, 0x9000)
-        return data[0]
+        bitmap = data[0]
+        if bitmap & ~0x03:
+            raise response_error("LIST", data, 0x9000)
+        return bitmap.bit_count()
 
     def match(self) -> None:
         data = self._command(0x53)
