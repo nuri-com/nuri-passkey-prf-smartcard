@@ -2,7 +2,23 @@ import AppKit
 import Foundation
 import SwiftUI
 
-struct PivCardInfo: Identifiable, Decodable, Equatable {
+struct InventoryCard: Decodable {
+    let reader: String
+    let protocolName: String
+    let cardSerial: String
+    let atr: String?
+    let chip: String?
+    let applets: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case reader
+        case protocolName = "protocol"
+        case cardSerial = "card_serial"
+        case atr, chip, applets
+    }
+}
+
+struct PivCardInfo: Decodable, Equatable {
     let reader: String
     let protocolName: String
     let cardSerial: String
@@ -13,8 +29,6 @@ struct PivCardInfo: Identifiable, Decodable, Equatable {
     let fingerprintSupported: Bool
     let fingerprintCount: Int
     let fingerprintBackend: String
-
-    var id: String { "\(cardSerial)|\(reader)" }
 
     enum CodingKeys: String, CodingKey {
         case reader
@@ -27,6 +41,58 @@ struct PivCardInfo: Identifiable, Decodable, Equatable {
         case fingerprintSupported = "fingerprint_supported"
         case fingerprintCount = "fingerprint_count"
         case fingerprintBackend = "fingerprint_backend"
+    }
+}
+
+struct CardInfo: Identifiable, Equatable {
+    let reader: String
+    let protocolName: String
+    let cardSerial: String
+    let atr: String?
+    let chip: String?
+    let applets: [String]
+
+    var pivVersion: String?
+    var chuidGuid: String?
+    var pinTriesLeft: Int?
+    var authHash: String?
+    var fingerprintSupported: Bool?
+    var fingerprintCount: Int?
+    var fingerprintBackend: String?
+
+    var id: String { "\(cardSerial)|\(reader)" }
+
+    var supportsPiv: Bool { applets.contains("PIV") }
+    var supportsNuriAuth: Bool { applets.contains("NuriAuth") }
+    var hasFingerprintSensor: Bool {
+        applets.contains("Feitian-FP") || (chip ?? "").contains("IDEX TrustedBio")
+    }
+    var supportsFeitianFingerprint: Bool { fingerprintSupported == true }
+
+    init(inventory: InventoryCard, piv: PivCardInfo?) {
+        self.reader = inventory.reader
+        self.protocolName = inventory.protocolName
+        self.cardSerial = inventory.cardSerial
+        self.atr = inventory.atr
+        self.chip = inventory.chip
+        self.applets = inventory.applets
+        if let piv = piv {
+            self.pivVersion = piv.pivVersion
+            self.chuidGuid = piv.chuidGuid
+            self.pinTriesLeft = piv.pinTriesLeft
+            self.authHash = piv.authHash
+            self.fingerprintSupported = piv.fingerprintSupported
+            self.fingerprintCount = piv.fingerprintCount
+            self.fingerprintBackend = piv.fingerprintBackend
+        } else {
+            self.pivVersion = nil
+            self.chuidGuid = nil
+            self.pinTriesLeft = nil
+            self.authHash = nil
+            self.fingerprintSupported = nil
+            self.fingerprintCount = nil
+            self.fingerprintBackend = nil
+        }
     }
 }
 
@@ -58,7 +124,7 @@ struct ChangePinResult: Decodable {
 }
 
 final class CardViewModel: ObservableObject {
-    @Published var cards: [PivCardInfo] = []
+    @Published var cards: [CardInfo] = []
     @Published var selectedCardId: String = ""
     @Published var pairedHashes: Set<String> = []
     @Published var ctkVisibleHashes: Set<String> = []
@@ -85,7 +151,7 @@ final class CardViewModel: ObservableObject {
         }
     }
 
-    var selectedCard: PivCardInfo? {
+    var selectedCard: CardInfo? {
         cards.first(where: { $0.id == selectedCardId }) ?? cards.first
     }
 
@@ -98,26 +164,55 @@ final class CardViewModel: ObservableObject {
         return "/usr/bin/python3"
     }
 
+    private func scanCards() -> [CardInfo] {
+        let invScript = repoPath + "/scripts/card-readers.py"
+        let pivScript = repoPath + "/scripts/card-piv-setup.py"
+        let py = pythonPath
+
+        let invOut = Self.runCommand(executable: py, args: [invScript, "--json"])
+        let pivOut = Self.runCommand(executable: py, args: [pivScript, "--list-piv"])
+
+        var inventory: [InventoryCard] = []
+        if invOut.code == 0, let data = invOut.stdout.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode([InventoryCard].self, from: data) {
+            inventory = parsed
+        }
+
+        var pivBySerial: [String: PivCardInfo] = [:]
+        if pivOut.code == 0, let data = pivOut.stdout.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode([PivCardInfo].self, from: data) {
+            for card in parsed { pivBySerial[card.cardSerial] = card }
+        }
+
+        // Prefer the full physical-card inventory; fall back to PIV-only if needed.
+        if inventory.isEmpty {
+            return pivBySerial.values.map { piv in
+                CardInfo(
+                    inventory: InventoryCard(
+                        reader: piv.reader,
+                        protocolName: piv.protocolName,
+                        cardSerial: piv.cardSerial,
+                        atr: nil,
+                        chip: nil,
+                        applets: ["PIV"]
+                    ),
+                    piv: piv
+                )
+            }
+        }
+        return inventory.map { CardInfo(inventory: $0, piv: pivBySerial[$0.cardSerial]) }
+    }
+
     func refresh() {
         busy = true
         statusIsError = false
         statusText = "Scanning readers..."
-        let py = pythonPath
-        let script = repoPath + "/scripts/card-piv-setup.py"
         let user = username
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let pivOut = Self.runCommand(executable: py, args: [script, "--list-piv"])
+            let decodedCards = self.scanCards()
             let listOut = Self.runCommand(executable: "/usr/sbin/sc_auth", args: ["list", "-u", user])
             let idOut = Self.runCommand(executable: "/usr/sbin/sc_auth", args: ["identities"])
-
-            let decodedCards: [PivCardInfo]
-            if pivOut.code == 0, let data = pivOut.stdout.data(using: .utf8),
-               let parsed = try? JSONDecoder().decode([PivCardInfo].self, from: data) {
-                decodedCards = parsed
-            } else {
-                decodedCards = []
-            }
 
             let paired = Self.extractHashes(from: listOut.stdout)
             let ctkVisible = Self.extractHashes(from: idOut.stdout)
@@ -132,17 +227,21 @@ final class CardViewModel: ObservableObject {
                 }
                 if decodedCards.isEmpty {
                     self.statusIsError = true
-                    self.statusText = "No Nuri PIV smartcard detected. Insert card and click Refresh."
+                    self.statusText = "No smartcard detected. Insert card and click Refresh."
                 } else {
                     self.statusIsError = false
-                    self.statusText = "Found \(decodedCards.count) PIV card(s)."
+                    self.statusText = "Found \(decodedCards.count) card(s)."
                 }
             }
         }
     }
 
     func changePin() {
-        guard let card = selectedCard else { return }
+        guard let card = selectedCard, card.supportsPiv else {
+            statusIsError = true
+            statusText = "Selected card has no PIV applet."
+            return
+        }
         guard !oldPin.isEmpty else {
             statusIsError = true
             statusText = "Enter current PIN (default is 123456)."
@@ -205,17 +304,34 @@ final class CardViewModel: ObservableObject {
     }
 
     func pairSelectedCard() {
-        guard let card = selectedCard else { return }
-        runScAuthAdmin(action: "pair", hash: card.authHash, serial: card.cardSerial)
+        guard let card = selectedCard, card.supportsPiv, let hash = card.authHash, !hash.isEmpty else {
+            statusIsError = true
+            statusText = "Selected card has no usable PIV auth hash."
+            return
+        }
+        runScAuthAdmin(action: "pair", hash: hash, serial: card.cardSerial)
     }
 
     func unpairSelectedCard() {
-        guard let card = selectedCard else { return }
-        runScAuthAdmin(action: "unpair", hash: card.authHash, serial: card.cardSerial)
+        guard let card = selectedCard, card.supportsPiv, let hash = card.authHash, !hash.isEmpty else {
+            statusIsError = true
+            statusText = "Selected card has no usable PIV auth hash."
+            return
+        }
+        runScAuthAdmin(action: "unpair", hash: hash, serial: card.cardSerial)
     }
 
     func fingerprintAction(_ action: String) {
-        guard let card = selectedCard, card.fingerprintSupported else { return }
+        guard let card = selectedCard, card.hasFingerprintSensor else {
+            statusIsError = true
+            statusText = "Selected card has no fingerprint sensor."
+            return
+        }
+        guard card.supportsFeitianFingerprint else {
+            statusIsError = true
+            statusText = "Fingerprint sensor on this card is not yet supported by the app."
+            return
+        }
         guard action == "match" || action == "enroll" else { return }
         let py = pythonPath
         let script = repoPath + "/scripts/card_fingerprint.py"
@@ -263,7 +379,11 @@ final class CardViewModel: ObservableObject {
     }
 
     func uvAction(_ action: String) {
-        guard let card = selectedCard else { return }
+        guard let card = selectedCard, card.supportsNuriAuth else {
+            statusIsError = true
+            statusText = "Selected card has no NuriAuth applet."
+            return
+        }
         let needsPin = action == "register" || action == "pin" || action == "and"
         if needsPin && !(4...12).contains(uvPin.count) || needsPin && !uvPin.allSatisfy({ $0.isASCII && $0.isNumber }) {
             statusIsError = true
@@ -345,26 +465,20 @@ final class CardViewModel: ObservableObject {
     }
 
     private func refreshKeepStatus() {
-        let py = pythonPath
-        let script = repoPath + "/scripts/card-piv-setup.py"
         let user = username
         DispatchQueue.global(qos: .userInitiated).async {
-            let pivOut = Self.runCommand(executable: py, args: [script, "--list-piv"])
+            let decoded = self.scanCards()
             let listOut = Self.runCommand(executable: "/usr/sbin/sc_auth", args: ["list", "-u", user])
             let idOut = Self.runCommand(executable: "/usr/sbin/sc_auth", args: ["identities"])
-            let decoded: [PivCardInfo]
-            if pivOut.code == 0, let data = pivOut.stdout.data(using: .utf8),
-               let parsed = try? JSONDecoder().decode([PivCardInfo].self, from: data) {
-                decoded = parsed
-            } else {
-                decoded = self.cards
-            }
             let paired = Self.extractHashes(from: listOut.stdout)
             let ctk = Self.extractHashes(from: idOut.stdout)
             DispatchQueue.main.async {
                 self.cards = decoded
                 self.pairedHashes = paired
                 self.ctkVisibleHashes = ctk
+                if !decoded.contains(where: { $0.id == self.selectedCardId }) {
+                    self.selectedCardId = decoded.first?.id ?? ""
+                }
             }
         }
     }
@@ -488,7 +602,7 @@ struct ContentView: View {
             GroupBox("Connected Smartcard") {
                 VStack(alignment: .leading, spacing: 8) {
                     if vm.cards.isEmpty {
-                        Text("No PIV card found")
+                        Text("No smartcard found")
                             .foregroundColor(.secondary)
                     } else {
                         Picker("Card", selection: $vm.selectedCardId) {
@@ -509,18 +623,42 @@ struct ContentView: View {
                         }
 
                         if let c = vm.selectedCard {
-                            let isPaired = vm.pairedHashes.contains(c.authHash.uppercased())
-                            HStack(spacing: 10) {
-                                Label("PIN tries: \(c.pinTriesLeft)/5", systemImage: "key.fill")
-                                    .font(.caption)
-                                    .foregroundColor(c.pinTriesLeft <= 2 ? .red : .secondary)
-                                Spacer()
-                                Label(
-                                    isPaired ? "Registered for \(vm.username)" : "Not registered",
-                                    systemImage: isPaired ? "checkmark.seal.fill" : "exclamationmark.circle"
-                                )
-                                .font(.caption.bold())
-                                .foregroundColor(isPaired ? .green : .orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Reader: \(c.reader)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text("Protocol: \(c.protocolName) · ATR: \(c.atr ?? "-")")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text("Chip: \(c.chip ?? "unknown")")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text("Applets: \(c.applets.isEmpty ? "none" : c.applets.joined(separator: ", "))")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                Text("Fingerprint sensor: \(c.hasFingerprintSensor ? (c.supportsFeitianFingerprint ? "Feitian (supported)" : "IDEX (not yet supported in app)") : "none")")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                if c.supportsPiv, let tries = c.pinTriesLeft {
+                                    let isPaired = vm.pairedHashes.contains((c.authHash ?? "").uppercased())
+                                    HStack(spacing: 10) {
+                                        Label("PIV PIN tries: \(tries)/5", systemImage: "key.fill")
+                                            .font(.caption)
+                                            .foregroundColor(tries <= 2 ? .red : .secondary)
+                                        Spacer()
+                                        Label(
+                                            isPaired ? "Registered for \(vm.username)" : "Not registered",
+                                            systemImage: isPaired ? "checkmark.seal.fill" : "exclamationmark.circle"
+                                        )
+                                        .font(.caption.bold())
+                                        .foregroundColor(isPaired ? .green : .orange)
+                                    }
+                                } else {
+                                    Text("PIV: not present on this card")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
                             }
                         }
                     }
@@ -531,6 +669,11 @@ struct ContentView: View {
             // Change PIV PIN
             GroupBox("1. Change PIV PIN") {
                 VStack(alignment: .leading, spacing: 8) {
+                    if let c = vm.selectedCard, !c.supportsPiv {
+                        Text("This card has no PIV applet; PIV PIN change is disabled.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
                     SecureField("Current PIN (default: 123456)", text: $vm.oldPin)
                         .textFieldStyle(.roundedBorder)
                     SecureField("New PIN (6–8 characters)", text: $vm.newPin)
@@ -544,7 +687,7 @@ struct ContentView: View {
                         Spacer()
                         Button("Change PIN") { vm.changePin() }
                             .buttonStyle(.borderedProminent)
-                            .disabled(vm.busy || vm.selectedCard == nil)
+                            .disabled(vm.busy || vm.selectedCard == nil || !(vm.selectedCard?.supportsPiv ?? false))
                     }
                 }
                 .padding(6)
@@ -554,28 +697,35 @@ struct ContentView: View {
             GroupBox("2. Register Card with This Mac") {
                 VStack(alignment: .leading, spacing: 8) {
                     if let c = vm.selectedCard {
-                        let isPaired = vm.pairedHashes.contains(c.authHash.uppercased())
-                        Text("Card \(c.cardSerial) · Auth Hash: \(c.authHash.isEmpty ? "Not provisioned" : c.authHash)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                        HStack {
-                            if isPaired {
-                                Button("Unpair from Mac", role: .destructive) {
-                                    vm.unpairSelectedCard()
+                        if c.supportsPiv {
+                            let hash = c.authHash ?? ""
+                            let isPaired = vm.pairedHashes.contains(hash.uppercased())
+                            Text("Card \(c.cardSerial) · Auth Hash: \(hash.isEmpty ? "Not provisioned" : hash)")
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            HStack {
+                                if isPaired {
+                                    Button("Unpair from Mac", role: .destructive) {
+                                        vm.unpairSelectedCard()
+                                    }
+                                    .disabled(vm.busy)
+                                } else {
+                                    Button("Register for Mac Login & sudo") {
+                                        vm.pairSelectedCard()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(vm.busy || hash.isEmpty)
                                 }
-                                .disabled(vm.busy)
-                            } else {
-                                Button("Register for Mac Login & sudo") {
-                                    vm.pairSelectedCard()
+                                Spacer()
+                                if vm.busy {
+                                    ProgressView().scaleEffect(0.7)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(vm.busy || c.authHash.isEmpty)
                             }
-                            Spacer()
-                            if vm.busy {
-                                ProgressView().scaleEffect(0.7)
-                            }
+                        } else {
+                            Text("This card has no PIV applet; macOS registration is disabled.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
                         }
                     } else {
                         Text("Select a card above first.")
@@ -586,18 +736,24 @@ struct ContentView: View {
                 .padding(6)
             }
 
-            if let c = vm.selectedCard, c.fingerprintSupported {
+            if let c = vm.selectedCard, c.hasFingerprintSensor {
                 GroupBox("3. Fingerprints — Match on Card") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("\(c.fingerprintCount) enrolled template(s) · images and templates never leave the card")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if c.supportsFeitianFingerprint {
+                            Text("\(c.fingerprintCount ?? 0) enrolled template(s) · images and templates never leave the card")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Fingerprint sensor detected on \(c.chip ?? "this card"); this app cannot control it yet.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                         HStack {
                             Button("Match Finger") { vm.fingerprintAction("match") }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(vm.busy)
+                                .disabled(vm.busy || !c.supportsFeitianFingerprint)
                             Button("Enroll New Finger (12 touches)") { vm.fingerprintAction("enroll") }
-                                .disabled(vm.busy)
+                                .disabled(vm.busy || !c.supportsFeitianFingerprint)
                         }
                         Text("Enrollment preserves existing fingers/applets. Match here tests the sensor; it does not unlock PIV or macOS.")
                             .font(.caption2)
@@ -607,7 +763,7 @@ struct ContentView: View {
                 }
             }
 
-            if let c = vm.selectedCard, c.fingerprintSupported {
+            if let c = vm.selectedCard, c.supportsNuriAuth {
                 GroupBox("4. NuriAuth — PIN / Fingerprint Policy") {
                     VStack(alignment: .leading, spacing: 8) {
                         SecureField("NuriAuth PIN (separate from PIV)", text: $vm.uvPin)

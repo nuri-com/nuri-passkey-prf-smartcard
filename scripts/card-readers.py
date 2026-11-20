@@ -126,11 +126,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    readers = list(nuri_pcsc._list_readers())
+    # Prefer contact slots (names without '01') and drop dual-interface duplicates.
+    readers = sorted(nuri_pcsc._list_readers(), key=lambda r: ("01" in str(r), str(r)))
     if not readers:
         print("No PC/SC reader found. Plug the reader in and wait 2 seconds.")
         return 1
-    rows = [scan_reader(r) for r in readers]
+    rows = []
+    seen_serials: set[str] = set()
+    for reader in readers:
+        row = scan_reader(reader)
+        serial = row.get("serial")
+        if serial and serial in seen_serials:
+            continue
+        if serial:
+            seen_serials.add(serial)
+        rows.append(row)
     if args.json:
         print(json.dumps(rows, indent=2))
         return 0

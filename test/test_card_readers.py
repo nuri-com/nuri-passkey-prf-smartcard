@@ -2,6 +2,8 @@
 
 Fake pyscard readers only: no hardware, no network.
 """
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -125,6 +127,39 @@ printf 'READER=%s\\n' "$READER"
             self.assertEqual(out.returncode, 0, out.stderr)
             self.assertIn("Using the only reader with a card", out.stdout)
             self.assertIn("READER=HID Global OMNIKEY 5422 Smartcard Reader", out.stdout)
+
+
+class DualInterfaceDedupeTest(unittest.TestCase):
+    def test_same_serial_is_listed_once_and_contact_reader_wins(self):
+        contact = FakeConnection(
+            bytes.fromhex("3B8980014A434F50"),
+            cplc("B2183751"),
+            applets={"A0000006472F0001", "4E5552494D55473501"},
+        )
+        contactless = FakeConnection(
+            bytes.fromhex(card_readers.JAVELIN_ATR),
+            cplc("B2183751"),
+            applets={"A0000006472F0001", "4E5552494D55473501"},
+        )
+        readers = [
+            FakeReader("HID Global OMNIKEY 5422 Smartcard Reader 01", contactless),
+            FakeReader("HID Global OMNIKEY 5422 Smartcard Reader", contact),
+        ]
+        original = card_readers.nuri_pcsc._list_readers
+        original_argv = sys.argv
+        card_readers.nuri_pcsc._list_readers = lambda: readers
+        sys.argv = ["card-readers.py", "--json"]
+        try:
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.assertEqual(card_readers.main(), 0)
+            rows = json.loads(buffer.getvalue())
+        finally:
+            card_readers.nuri_pcsc._list_readers = original
+            sys.argv = original_argv
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reader"], "HID Global OMNIKEY 5422 Smartcard Reader")
+        self.assertEqual(rows[0]["serial"], "B2183751")
 
 
 if __name__ == "__main__":
