@@ -10,7 +10,7 @@ const MEMPOOL_API = "https://mempool.space/api";
 const ENS_RPC = "https://cloudflare-eth.com";
 
 // Keep the side panel available, but the toolbar uses default_popup for Brave compatibility.
-chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
 
 // ---------------------------------------------------------------------------
 // State (persisted in chrome.storage.session / local because SW can be killed)
@@ -53,15 +53,17 @@ function hostPort() {
   });
   return port;
 }
+const LONG_NATIVE_METHODS = new Set(["bitcoin_preview", "bitcoin_sign_partial", "verify_pin", "sign_hash", "webauthn_create", "webauthn_get"]);
 function nativeCall(method, params) {
   const id = nextNativeId++;
+  const timeoutMs = LONG_NATIVE_METHODS.has(method) ? 240000 : 30000;
   return new Promise((resolve, reject) => {
     try {
       const port = hostPort();
       const timeout = setTimeout(() => {
         if (!nativePending.delete(id)) return;
         reject(rpcError(-32603, "Nuri Card host timed out. Reconnect the reader and click Refresh."));
-      }, 8000);
+      }, timeoutMs);
       nativePending.set(id, {
         resolve: (value) => { clearTimeout(timeout); resolve(value); },
         reject: (error) => { clearTimeout(timeout); reject(error); },
@@ -318,10 +320,9 @@ async function bitcoinSpend(origin, req) {
 
 async function bitcoinAccount() {
   const info = await bitcoinCard();
-  const [wallet, balance] = await Promise.all([
-    nativeCall("bitcoin_info").catch((e) => { throw bitcoinFailure(e); }),
-    nativeCall("bitcoin_balance").catch((e) => { throw bitcoinFailure(e); }),
-  ]);
+  // Host processes stdio sequentially; run one after another so timeouts count execution, not queue wait.
+  const wallet = await nativeCall("bitcoin_info").catch((e) => { throw bitcoinFailure(e); });
+  const balance = await nativeCall("bitcoin_balance").catch((e) => { throw bitcoinFailure(e); });
   let onchain = null;
   let onchainError = null;
   if (Number.isFinite(Number(balance.onchain_sats))) onchain = Number(balance.onchain_sats);
@@ -504,7 +505,8 @@ const handlers = {
   // path is the same preview -> popup -> card partial flow the side panel uses.
   async nuri_bitcoinInfo(_p, { origin, state }) {
     await ensureConnected(origin, state);
-    const [wallet, balance] = await Promise.all([nativeCall("bitcoin_info"), nativeCall("bitcoin_balance")]);
+    const wallet = await nativeCall("bitcoin_info");
+    const balance = await nativeCall("bitcoin_balance");
     return {
       network: wallet.network,
       ark_address: wallet.ark_address,
@@ -597,16 +599,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "popup:account") {
-    Promise.all([getState(), cardInfo(true)]).then(async ([state]) => {
+    Promise.all([getState(), cardInfo(msg.refresh === true)]).then(async ([state, info]) => {
       const { lastTx } = await chrome.storage.local.get("lastTx");
       const [eth, bitcoin] = await Promise.allSettled([
-        rpc(state.chainId, "eth_getBalance", [(await cardInfo()).address, "latest"]),
+        rpc(state.chainId, "eth_getBalance", [info.address, "latest"]),
         bitcoinAccount(),
       ]);
       const ethBalance = eth.status === "fulfilled" ? H.formatEther(BigInt(eth.value)) : null;
       const ethError = eth.status === "rejected" ? eth.reason.message : null;
       sendResponse({
-        state, info: await cardInfo(), ethBalance, ethError, lastTx,
+        state, info, ethBalance, ethError, lastTx,
         bitcoin: bitcoin.status === "fulfilled" ? bitcoin.value : null,
         bitcoinError: bitcoin.status === "rejected" ? bitcoin.reason.message : null,
       });

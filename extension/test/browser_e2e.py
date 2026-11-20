@@ -58,7 +58,7 @@ def run(extension, evidence, executable=None):
                     page.goto(f"http://127.0.0.1:{server.server_port}/test-dapp.html")
                     page.wait_for_function("document.querySelector('#prov').textContent === 'Nuri Card (com.nuri.card)'")
                     behavior = sw.evaluate("chrome.sidePanel.getPanelBehavior()")
-                    assert behavior["openPanelOnActionClick"] is True, behavior
+                    assert behavior["openPanelOnActionClick"] is False, behavior
                     assert sw.evaluate("chrome.runtime.getManifest().side_panel.default_path") == "popup.html"
                     panel = ctx.new_page()
                     panel.set_viewport_size({"width": 360, "height": 800})

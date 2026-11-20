@@ -14,7 +14,7 @@ function railRows(bitcoin) {
   return rows;
 }
 
-function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bitcoinError, lastTx }) {
+function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bitcoinError, lastTx, loadingBalances }) {
   const rows = [];
   if (error) rows.push(`<p class="err">${esc(error.message || "Wallet unavailable")}</p>`);
   if (info) {
@@ -30,9 +30,11 @@ function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bi
         .join("");
     } else if (bitcoinError) {
       rows.push(`<p class="k">Bitcoin</p><p class="err">${esc(bitcoinError)}</p>`);
+    } else if (loadingBalances) {
+      rows.push('<p><span class="k">Bitcoin</span><br>Loading…</p>');
     }
     const eth = ethBalance ?? balance;
-    rows.push(`<p><span class="k">Ethereum</span><br>${eth == null ? "Balance unavailable" : esc(eth) + " ETH"}</p>`);
+    rows.push(`<p><span class="k">Ethereum</span><br>${eth == null ? (loadingBalances ? "Loading…" : "Balance unavailable") : esc(eth) + " ETH"}</p>`);
     if (ethError) rows.push(`<p class="err">${esc(ethError)}</p>`);
     rows.push(`<p><span class="k">Card address</span><br><code>${esc(info.address)}</code></p>`);
     if (state) {
@@ -54,12 +56,12 @@ function render({ info, state, error, balance, ethBalance, ethError, bitcoin, bi
   }
   out.innerHTML = rows.join("");
 }
-let latestInfo = null;
 function load() {
   let answered = false;
-  const timeout = setTimeout(() => {
+  let latestInfo = null;
+  let timeout = setTimeout(() => {
     if (!answered) render({ info: latestInfo, error: { message: "Wallet balances did not respond. Check the card, then click Refresh." } });
-  }, 15000);
+  }, 20000);
   chrome.runtime.sendMessage({ type: "popup:info" }, (first) => {
     const firstError = chrome.runtime.lastError;
     if (firstError || first?.error) {
@@ -70,8 +72,12 @@ function load() {
     }
     if (first?.info) {
       latestInfo = first.info;
-      render({ ...first, error: null }); // Show the card before network balances.
+      render({ ...first, loadingBalances: true, error: null }); // Show the card before network balances.
     }
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      if (!answered) render({ info: latestInfo, error: { message: "Wallet balances did not respond. Check the card, then click Refresh." } });
+    }, 35000);
     chrome.runtime.sendMessage({ type: "popup:account" }, (r) => {
       answered = true;
       clearTimeout(timeout);

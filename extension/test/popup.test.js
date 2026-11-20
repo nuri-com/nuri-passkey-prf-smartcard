@@ -58,6 +58,14 @@ test('toolbar never waits forever when the background does not answer', () => {
   assert.match(page.element('out').innerHTML, /Wallet balances did not respond/);
   assert.match(page.element('out').innerHTML, /click Refresh/);
 });
+test('popup:account reuses card info fetched by popup:info instead of reading the card twice', async (t) => {
+  const h = createHarness({ local: { connectedOrigins: {} }, httpFetch: async () => ({ ok: true, json: async () => ({ result: '0x0', chain_stats: { funded_txo_sum: 0, spent_txo_sum: 0 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0 } }) }) });
+  t.after(h.dispose);
+  const from = { id: 'test', url: h.chrome.runtime.getURL('popup.html') };
+  assert.ok((await h.message({ type: 'popup:info' }, from)).info);
+  assert.ok((await h.message({ type: 'popup:account' }, from)).bitcoin);
+  assert.equal(h.calls.filter((c) => c.method === 'info').length, 1);
+});
 test('toolbar renders SIM badge, ETH balance and full basescan hash link', async () => {
   const page = dom(), hash = '0x' + 'ab'.repeat(32);
   const chrome = { runtime: { sendMessage(_msg, cb) { cb({ info: { mode: 'sim', address: E.ZeroAddress, applet: 'eth1', applet_version: 'sim', reader: 'fake' }, state: { chainId: '0x2105', connectedOrigins: {} }, balance: '1.23', lastTx: { hash, chainId: '0x2105' } }); } } };
