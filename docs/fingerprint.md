@@ -93,7 +93,10 @@ scripts/run-card-python.sh scripts/card_fingerprint.py --reader 'ACS ACR39U ICC 
 `Nuri Card Setup.app` exposes the same three actions for Feitian cards and
 reports each of the 12 enrollment touches. Enrollment is additive and preserves
 existing fingers, applets and credentials. The vendor CAP/SDK remains private;
-the public repository contains only the small APDU host client.
+the public repository contains only the small APDU host client. The app also
+lists every PC/SC-detected physical card and gates actions per capability; IDEX
+cards are shown with their sensor present, but the IDEX vendor API is not yet
+wired into the app, so those controls stay disabled.
 
 **Live boundary:** SELECT and LIST passed over ACS ACR39U `T=0`; the card reports
 two existing templates ([receipt](proofs/real-card-87E5470B-feitian-fingerprint.json)).

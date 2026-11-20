@@ -6,6 +6,19 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-20 — All-card discovery in native Mac app
+
+- `Nuri Card Setup.app` now lists every PC/SC-detected physical card (Feitian,
+  IDEX, NXP) from `scripts/card-readers.py --json` and merges PIV details from
+  `scripts/card-piv-setup.py --list-piv`, instead of PIV-only discovery.
+- Actions are gated per card: PIV PIN/pairing only on cards with a PIV applet,
+  Feitian MATCH/ENROLL only on cards with `FPSVCApplet`, NuriAuth only on cards
+  with the NuriAuth applet. IDEX fingerprint sensor presence is shown, but its
+  vendor SDK is not yet wired into the app.
+- `scripts/card-readers.py` now prefers contact readers and deduplicates
+  dual-interface cards by CPLC serial, so a contactless duplicate no longer
+  appears twice. Seven fake-reader tests pass, including the new dedupe case.
+
 ## 2026-11-20 — NuriAuth PIN / fingerprint policy bridge (experimental)
 
 - Added vendor-neutral on-card `pin`, `or`, and `and` policies with transient

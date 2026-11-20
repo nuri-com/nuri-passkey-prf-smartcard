@@ -104,6 +104,11 @@ Only the Android balance and the AID3 speed are operator reports without receipt
   templates and applets. Live LIST proves two existing templates; successful
   MATCH/new enrollment and signer authorization remain separate acceptance
   steps. [Feitian controls and security boundary](docs/fingerprint.md#feitian-biocard-sensor-management-2026-11-20).
+- `Nuri Card Setup.app` now lists every PC/SC-detected physical card and gates
+  actions per capability: PIV actions only on cards with a PIV applet, Feitian
+  fingerprint controls only on cards with `FPSVCApplet`, NuriAuth only on cards
+  with the NuriAuth applet. IDEX sensor presence is shown, but its vendor API is
+  not yet wired into the app.
 - **NuriAuth experimental bridge:** on-card PIN-only, PIN-OR-fingerprint, and
   PIN-AND-fingerprint policies now gate a real second applet. Mac setup includes
   registration and all three authorization checks. Live OR+PIN succeeded;
