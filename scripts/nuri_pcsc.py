@@ -24,7 +24,10 @@ pyscard installed and tests can inject fake readers/connections.
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import tempfile
+import threading
 from typing import Callable, Optional
 
 # Same values as smartcard.CardConnection.T0_protocol / T1_protocol, so we do
@@ -144,14 +147,61 @@ def _select_ok(sw: int) -> bool:
     return sw == 0x9000 or (sw >> 8) == 0x61
 
 
+_READER_LOCKS: dict[str, list] = {}
+_READER_LOCKS_GUARD = threading.Lock()
+
+
+def _reader_lock(reader_name: str):
+    """Serialize processes sharing one reader; ACR39U resets concurrent sessions."""
+    try:
+        import fcntl  # Unix; other platforms retain the existing behavior.
+    except ImportError:
+        return None
+    with _READER_LOCKS_GUARD:
+        existing = _READER_LOCKS.get(reader_name)
+        if existing is not None:
+            existing[1] += 1
+            return existing[0]
+        digest = hashlib.sha256(reader_name.encode("utf-8")).hexdigest()[:24]
+        handle = open(os.path.join(tempfile.gettempdir(), f"nuri-pcsc-{digest}.lock"), "a+b")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            handle.close()
+            raise
+        _READER_LOCKS[reader_name] = [handle, 1]
+        return handle
+
+
+def _reader_unlock(handle) -> None:
+    if handle is None:
+        return
+    with _READER_LOCKS_GUARD:
+        entry = next((item for item in _READER_LOCKS.items() if item[1][0] is handle), None)
+        if entry is None:
+            return
+        reader_name, state = entry
+        state[1] -= 1
+        if state[1]:
+            return
+        del _READER_LOCKS[reader_name]
+        try:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 class Applet:
     """A connected card with one applet selected."""
 
-    def __init__(self, conn, reader_name: str, protocol: str, aid_hex: str):
+    def __init__(self, conn, reader_name: str, protocol: str, aid_hex: str, lock=None):
         self.conn = conn
         self.reader_name = reader_name
         self.protocol = protocol
         self.aid_hex = aid_hex.upper()
+        self._lock = lock
 
     def transmit(self, apdu: bytes) -> tuple[bytes, int]:
         return transmit_raw(self.conn, apdu)
@@ -160,7 +210,11 @@ class Applet:
         return bytes(self.conn.getATR() or b"")
 
     def close(self) -> None:
-        _disconnect(self.conn)
+        try:
+            _disconnect(self.conn)
+        finally:
+            _reader_unlock(self._lock)
+            self._lock = None
 
     def __enter__(self):
         return self
@@ -228,14 +282,19 @@ def open_applet(aid_hex: str, reader: Optional[str] = None) -> Applet:
     worst: Optional[CardError] = None
     rank = {"NO_CARD": 0, "TRANSPORT": 1, "NO_APPLET": 2}
     for rdr in candidates:
-        conn = rdr.createConnection()
+        lock = _reader_lock(str(rdr))
         try:
+            conn = rdr.createConnection()
             protocol = connect_ladder(conn, probe)
         except CardError as error:
+            _reader_unlock(lock)
             if worst is None or rank[error.code] > rank[worst.code]:
                 worst = error
             continue
-        return Applet(conn, str(rdr), protocol, aid_hex)
+        except Exception:
+            _reader_unlock(lock)
+            raise
+        return Applet(conn, str(rdr), protocol, aid_hex, lock=lock)
     assert worst is not None
     raise CardError(worst.code, f"{worst} on readers: {', '.join(str(r) for r in candidates)}")
 

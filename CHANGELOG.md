@@ -15,6 +15,9 @@ flowchart LR
 - Native Mac app adds first-time NuriAuth registration and one-connection PIN,
   fingerprint, and PIN+fingerprint authorization checks. Correct LIST decoding
   fixed: Feitian `03` is a two-template bitmap, not three templates.
+- PC/SC now takes a reentrant per-reader process lock so app and CLI fingerprint
+  operations cannot reset each other's ACR39U sessions (`0x80100016`). All 47
+  PC/SC tests pass; two concurrent real-card LIST processes both succeed.
 - 86 simulator checks pass. Real card `87E5470B`: OR+PIN returned protected
   `OK`; AND+PIN-alone was denied; no-touch fingerprint returned `63E9`.
   Successful MATCH/full AND and wallet signer binding remain unfinished.
