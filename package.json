@@ -80,6 +80,7 @@
     "card:piv:build": "scripts/build-piv-cap.sh",
     "card:piv:test:sim": "scripts/test-piv-sim.sh",
     "card:piv:setup": "scripts/run-card-python.sh scripts/card-piv-setup.py",
+    "card:mac:app": "scripts/build-mac-piv-app.sh",
     "card:ctap:makecred-matrix": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-matrix",
     "card:ctap:makecred-pin": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-pin",
     "card:ctap:makecred-uv": "scripts/run-card-python.sh scripts/direct-ctap-diagnostics.py makecred-uv",
