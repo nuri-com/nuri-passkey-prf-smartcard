@@ -92,10 +92,11 @@ def _parse_asn1_sig(resp: bytes) -> bytes:
 class PivCard:
     def __init__(self, reader_hint: str):
         all_r = list(pcsc_readers())
-        matched = [r for r in all_r if reader_hint.lower() in str(r).lower()]
+        exact = [r for r in all_r if str(r).lower() == reader_hint.lower()]
+        matched = exact or [r for r in all_r if reader_hint.lower() in str(r).lower()]
         if not matched:
             raise RuntimeError(f"No reader matching {reader_hint!r}; found {[str(x) for x in all_r]}")
-        # Prefer exact match or contact slot (without '01')
+        # Prefer contact slot (without '01') when substring matches both slots
         matched.sort(key=lambda r: ("01" in str(r), len(str(r))))
         self.reader = matched[0]
         self.conn = self.reader.createConnection()
@@ -346,11 +347,19 @@ def build_selfsigned_cert_on_card(
 
 
 def list_all_piv_cards() -> list[dict]:
+    # Scan contact readers before contactless ('Reader 01') so dual-interface cards
+    # inserted in OMNIKEY contact slot aren't duplicated by the top RF pad.
+    ordered = sorted(pcsc_readers(), key=lambda r: ("01" in str(r), str(r)))
     found = []
-    for r in pcsc_readers():
+    seen_serials: set[str] = set()
+    for r in ordered:
         name = str(r)
         try:
             card = PivCard(name)
+            if card.serial != "UNKNOWN" and card.serial in seen_serials:
+                continue
+            if card.serial != "UNKNOWN":
+                seen_serials.add(card.serial)
             chuid = card.get_data(OBJ_CHUID)
             guid = ""
             if chuid and b"\x34\x10" in chuid:
