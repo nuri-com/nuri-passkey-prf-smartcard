@@ -156,6 +156,52 @@ class PivCard:
         if sw != 0x9000:
             raise RuntimeError(f"PUT DATA {obj.hex()} failed: {sw:04X}")
 
+    def pin_tries_left(self) -> int:
+        _, sw = self.tx(bytes.fromhex("00200080"))
+        if sw == 0x9000:
+            return 5
+        if (sw & 0xFFF0) == 0x63C0:
+            return sw & 0x0F
+        if sw == 0x6983:
+            return 0
+        return -1
+
+    def get_cert_9a_pubkey_sha1(self) -> str | None:
+        raw = self.get_data(OBJ_CERT_9A)
+        if not raw:
+            return None
+        # Find 0x70 TLV inside 0x53 wrapper
+        i = 0
+        if raw[i] != 0x53:
+            return None
+        i += 1
+        if raw[i] == 0x81:
+            i += 2
+        elif raw[i] == 0x82:
+            i += 3
+        else:
+            i += 1
+        if i >= len(raw) or raw[i] != 0x70:
+            return None
+        i += 1
+        if raw[i] == 0x81:
+            clen = raw[i + 1]
+            i += 2
+        elif raw[i] == 0x82:
+            clen = (raw[i + 1] << 8) | raw[i + 2]
+            i += 3
+        else:
+            clen = raw[i]
+            i += 1
+        cert = x509.load_der_x509_certificate(raw[i : i + clen])
+        pub = cert.public_key()
+        if isinstance(pub, ec.EllipticCurvePublicKey):
+            pt = pub.public_bytes(
+                serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+            )
+            return hashlib.sha1(pt).hexdigest().upper()
+        return None
+
     def verify_pin(self, pin: str) -> None:
         p = _pad_pin(pin)
         _, sw = self.tx(bytes([0x00, 0x20, 0x00, 0x80, 0x08]) + p)
@@ -165,6 +211,10 @@ class PivCard:
     def change_pin(self, old_pin: str, new_pin: str) -> None:
         body = _pad_pin(old_pin) + _pad_pin(new_pin)
         _, sw = self.tx(bytes([0x00, 0x24, 0x00, 0x80, 0x10]) + body)
+        if sw == 0x6983:
+            raise RuntimeError("PIV PIN is blocked (0 tries left; use PUK to unblock)")
+        if (sw & 0xFFF0) == 0x63C0:
+            raise RuntimeError(f"Wrong current PIN ({sw & 0x0F} tries left)")
         if sw != 0x9000:
             raise RuntimeError(f"CHANGE PIN failed: {sw:04X}")
 
@@ -295,14 +345,72 @@ def build_selfsigned_cert_on_card(
     return cert_der
 
 
+def list_all_piv_cards() -> list[dict]:
+    found = []
+    for r in pcsc_readers():
+        name = str(r)
+        try:
+            card = PivCard(name)
+            chuid = card.get_data(OBJ_CHUID)
+            guid = ""
+            if chuid and b"\x34\x10" in chuid:
+                pos = chuid.index(b"\x34\x10") + 2
+                guid = chuid[pos : pos + 16].hex().upper()
+            found.append({
+                "reader": str(card.reader),
+                "protocol": card.proto,
+                "card_serial": card.serial,
+                "piv_version": card.get_version(),
+                "chuid_guid": guid,
+                "pin_tries_left": card.pin_tries_left(),
+                "auth_hash": card.get_cert_9a_pubkey_sha1() or "",
+            })
+        except Exception:
+            continue
+    return found
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Provision & verify Nuri PIV on a physical card")
-    ap.add_argument("--reader", required=True, help="Reader name substring (e.g. OMNIKEY or ACR39U)")
+    ap.add_argument("--list-piv", action="store_true", help="List all connected PIV cards as JSON")
+    ap.add_argument("--reader", help="Reader name substring (e.g. OMNIKEY or ACR39U)")
     ap.add_argument("--pin", default=DEFAULT_PIN, help="Current PIV PIN (default 123456)")
     ap.add_argument("--new-pin", help="Optionally change PIV PIN after verification")
+    ap.add_argument(
+        "--change-pin-stdin",
+        action="store_true",
+        help="Read 'old_pin\\nnew_pin\\n' from stdin and change PIV PIN (avoids argv exposure)",
+    )
     ap.add_argument("--provision", action="store_true", help="Generate 9A+9D P-256 keys & self-signed certs")
     ap.add_argument("--out", help="Write sanitized JSON proof receipt")
     args = ap.parse_args()
+
+    if args.list_piv:
+        print(json.dumps(list_all_piv_cards(), indent=2))
+        return 0
+
+    if not args.reader:
+        ap.error("--reader is required unless --list-piv is set")
+
+    if args.change_pin_stdin:
+        lines = sys.stdin.read().splitlines()
+        if len(lines) < 2:
+            print(json.dumps({"ok": False, "error": "Expected old_pin and new_pin on stdin"}))
+            return 1
+        old_pin, new_pin = lines[0], lines[1]
+        try:
+            card = PivCard(args.reader)
+            card.change_pin(old_pin, new_pin)
+            print(json.dumps({
+                "ok": True,
+                "card_serial": card.serial,
+                "reader": str(card.reader),
+                "pin_tries_left": card.pin_tries_left(),
+            }))
+            return 0
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}))
+            return 1
 
     card = PivCard(args.reader)
     version = card.get_version()
