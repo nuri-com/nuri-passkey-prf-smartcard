@@ -66,3 +66,42 @@ test('missing options rejected', async (t) => {
   const h = setup(t);
   assert.equal((await rpcFrom(h, CONNECT, 'nuri_webauthnGet', [])).error.code, -32602);
 });
+
+test('get: AMBIGUOUS_CREDENTIAL keeps popup open for card-offered credential selection', async (t) => {
+  const choices = [
+    { id: 'Y3JlZF8x', name: 'alice', displayName: 'Alice' },
+    { id: 'Y3JlZF8y', name: 'bob', displayName: 'Bob' },
+  ];
+  const h = createHarness({
+    autoApprove: false,
+    nativeHandler: async (msg) => {
+      assert.equal(msg.method, 'webauthn_get');
+      if (msg.params.pin !== '2468') return { error: { code: 'PIN_WRONG', message: 'wrong card PIN', tries_left: 7 } };
+      const allow = msg.params.publicKey.allowCredentials;
+      if (!allow?.length) {
+        return { error: { code: 'AMBIGUOUS_CREDENTIAL', message: 'card holds several credentials; choose one', credentials: choices } };
+      }
+      return { result: { id: allow[0].id, type: 'public-key', response: {}, clientExtensionResults: { prf: { results: { first: 'cHJmMg' } } } } };
+    },
+  });
+  t.after(h.dispose);
+  const noAllowOpts = { rpId: 'nuri.com', challenge: 'Y2hhbGxlbmdl', extensions: { prf: { eval: { first: 'c2FsdA' } } } };
+  const pending = rpcFrom(h, CONNECT, 'nuri_webauthnGet', [noAllowOpts]);
+  const view = await h.open(await h.pendingWindow());
+
+  // First attempt without allowCredentials returns AMBIGUOUS_CREDENTIAL with choices; popup stays open
+  const amb = await h.decide(view, true, '2468');
+  assert.equal(amb.error.data.code, 'AMBIGUOUS_CREDENTIAL');
+  assert.deepEqual(amb.error.data.credentials, choices);
+
+  // Forged credentialId not offered by card is rejected fail-closed
+  const forged = await h.decide(view, true, '2468', 'Zm9yZ2Vk');
+  assert.equal(forged.error.code, 4001);
+
+  // Choosing an offered credential succeeds and forwards allowCredentials
+  assert.equal((await h.decide(view, true, '2468', 'Y3JlZF8y')).ok, true);
+  const r = await pending;
+  assert.equal(r.result.id, 'Y3JlZF8y');
+  assert.equal(r.result.clientExtensionResults.prf.results.first, 'cHJmMg');
+  assert.deepEqual(h.calls.at(-1).params.publicKey.allowCredentials, [{ type: 'public-key', id: 'Y3JlZF8y' }]);
+});

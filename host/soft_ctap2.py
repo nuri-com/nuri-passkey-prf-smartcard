@@ -44,7 +44,10 @@ class SoftCtap2Device(CtapDevice):
         self._ka = ec.generate_private_key(ec.SECP256R1())
         self._token = os.urandom(32)
         self.creds: dict[bytes, dict] = {}
+        self._pending_assertions: list[dict] = []
         self.counter = 0
+        self.pin_tokens_issued = 0
+        self.operations: list[int] = []
 
     @property
     def capabilities(self):
@@ -62,8 +65,10 @@ class SoftCtap2Device(CtapDevice):
         if cmd != CTAPHID.CBOR:
             raise CtapError(ERR.INVALID_COMMAND)
         op, args = data[0], (cbor.decode(data[1:]) if len(data) > 1 else {})
+        if op in (0x01, 0x02):
+            self.operations.append(op)
         try:
-            out = {0x04: self._info, 0x06: self._client_pin, 0x01: self._make, 0x02: self._get}[op](args)
+            out = {0x04: self._info, 0x06: self._client_pin, 0x01: self._make, 0x02: self._get, 0x08: self._get_next}[op](args)
         except CtapError as e:
             return struct.pack(">B", e.code)
         except KeyError:
@@ -97,6 +102,7 @@ class SoftCtap2Device(CtapDevice):
                 raise CtapError(ERR.PIN_BLOCKED if self.retries == 0 else ERR.PIN_INVALID)
             self.retries = 8
             self._token = os.urandom(32)
+            self.pin_tokens_issued += 1
             return {2: _aes(ss, self._token, True)}
         raise CtapError(ERR.INVALID_SUBCOMMAND)
 
@@ -135,22 +141,35 @@ class SoftCtap2Device(CtapDevice):
         uv = a.get(6) is not None
         if uv:
             self._check_uv(cdh, a[6])
-        cid = found[0]
-        cred = self.creds[cid]
-        ext = None
-        hs = (a.get(4) or {}).get("hmac-secret")
-        if hs and up:
-            ss = self._shared(hs[1])
-            if not hmac.compare_digest(_hm16(ss, hs[2]), hs[3]):
-                raise CtapError(ERR.EXTENSION_FIRST)
-            salts = _aes(ss, hs[2], False)
-            out = b"".join(hmac.new(cred["cred_random"], salts[i:i + 32], hashlib.sha256).digest()
-                           for i in range(0, len(salts), 32))
-            ext = {"hmac-secret": _aes(ss, out, True)}
-        flags = (0x01 if up else 0) | (0x04 if uv else 0) | (0x80 if ext else 0)
-        auth_data = self._auth_data(rp_id, flags, ext=ext)
-        sig = cred["key"].sign(auth_data + cdh, ec.ECDSA(hashes.SHA256()))
-        resp = {1: {"type": "public-key", "id": cid}, 2: auth_data, 3: sig, 4: {"id": cred["user"]["id"]}}
-        if not allow:
-            resp[5] = len(found)
-        return resp
+        def _build(cid, include_count=False):
+            cred = self.creds[cid]
+            ext = None
+            hs = (a.get(4) or {}).get("hmac-secret")
+            if hs and up:
+                ss = self._shared(hs[1])
+                if not hmac.compare_digest(_hm16(ss, hs[2]), hs[3]):
+                    raise CtapError(ERR.EXTENSION_FIRST)
+                salts = _aes(ss, hs[2], False)
+                out = b"".join(hmac.new(cred["cred_random"], salts[i:i + 32], hashlib.sha256).digest()
+                               for i in range(0, len(salts), 32))
+                ext = {"hmac-secret": _aes(ss, out, True)}
+            flags = (0x01 if up else 0) | (0x04 if uv else 0) | (0x80 if ext else 0)
+            auth_data = self._auth_data(rp_id, flags, ext=ext)
+            sig = cred["key"].sign(auth_data + cdh, ec.ECDSA(hashes.SHA256()))
+            user = {"id": cred["user"]["id"]}
+            if cred["user"].get("name"):
+                user["name"] = cred["user"]["name"]
+            if cred["user"].get("displayName"):
+                user["displayName"] = cred["user"]["displayName"]
+            resp = {1: {"type": "public-key", "id": cid}, 2: auth_data, 3: sig, 4: user}
+            if include_count and not allow:
+                resp[5] = len(found)
+            return resp
+
+        self._pending_assertions = [_build(cid) for cid in found[1:]] if not allow else []
+        return _build(found[0], include_count=True)
+
+    def _get_next(self, _):
+        if not self._pending_assertions:
+            raise CtapError(ERR.NOT_ALLOWED)
+        return self._pending_assertions.pop(0)

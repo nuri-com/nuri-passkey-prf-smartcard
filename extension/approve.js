@@ -54,14 +54,34 @@
   const shown = await send({ type: "approval:displayed", binding, hash });
   if (!shown?.ok) { fail(shown?.error); return; }
   let busy = false;
+  let choosingCred = false;
+  const showCredChoices = (credentials) => {
+    const select = $("#cred");
+    select.textContent = "";
+    for (const c of credentials) {
+      if (!c?.id) continue;
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      const label = c.displayName || c.name || "Passkey";
+      const shortId = c.id.length > 14 ? `${c.id.slice(0, 8)}…${c.id.slice(-4)}` : c.id;
+      opt.textContent = `${label} (${shortId})`;
+      select.appendChild(opt);
+    }
+    choosingCred = select.options.length > 0;
+    $("#credBox").hidden = !choosingCred;
+  };
   const settle = async (approved) => {
     if (busy && approved) return;
+    if (approved && choosingCred && !$("#cred").value) {
+      $("#error").textContent = "Choose a passkey on the card."; return;
+    }
     if (approved && needsPin && (new TextEncoder().encode($("#pin").value).length < 4 || new TextEncoder().encode($("#pin").value).length > 16)) {
       $("#error").textContent = "PIN must be 4–16 bytes."; return;
     }
     busy = true;
     $("#approve").disabled = true;
     let msg = { type: "approval", binding, hash, approved };
+    if (approved && choosingCred) msg.credentialId = $("#cred").value;
     if (approved && needsPin) msg.pin = $("#pin").value;
     $("#pin").value = "";
     let pending;
@@ -71,7 +91,11 @@
     const error = result?.error;
     const code = error?.data?.code;
     $("#error").textContent = error?.message || "Approval no longer available";
-    if (["PIN_REQUIRED", "PIN_WRONG"].includes(code) && error?.data?.tries_left !== 0) {
+    if (code === "AMBIGUOUS_CREDENTIAL" && Array.isArray(error?.data?.credentials) && error.data.credentials.length > 1) {
+      showCredChoices(error.data.credentials);
+      $("#error").textContent = "Multiple passkeys on card. Choose one and re-enter your PIN.";
+      pinState(true, undefined); busy = false; $("#approve").disabled = false; $("#cred").focus();
+    } else if (["PIN_REQUIRED", "PIN_WRONG"].includes(code) && error?.data?.tries_left !== 0) {
       pinState(true, error.data.tries_left); busy = false; $("#approve").disabled = false; $("#pin").focus();
     } else fail(error);
   };

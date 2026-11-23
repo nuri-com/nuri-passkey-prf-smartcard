@@ -9,8 +9,8 @@ AuthenticationResponseJSON, base64url), including clientExtensionResults.prf.
 The origin comes from the extension (Chrome's sender URL, never the page) and
 must be in ALLOWED_ORIGINS; rp.id must be RP_ID. PRF uses python-fido2's
 hmac-secret mapping, i.e. salt = SHA-256("WebAuthn PRF" || 0x00 || input),
-the same as Chrome's navigator.credentials PRF. The PIN is used for one
-ClientPIN token and never stored, logged or echoed.
+the same as Chrome's navigator.credentials PRF. The PIN is used only within
+one request and is never stored, logged or echoed.
 """
 
 from __future__ import annotations
@@ -144,6 +144,25 @@ def _client(device, origin: str, pin_buf: bytearray | None):
     )
 
 
+def _credential_choices(assertions) -> list[dict[str, str]]:
+    choices: list[dict[str, str]] = []
+    for assertion in assertions:
+        cred = assertion.credential or {}
+        cid = cred.get("id")
+        if not cid:
+            continue
+        item: dict[str, str] = {"id": _b64u(cid)}
+        user = assertion.user or {}
+        if user.get("name"):
+            item["name"] = str(user["name"])
+        if user.get("displayName"):
+            item["displayName"] = str(user["displayName"])
+        if user.get("id"):
+            item["userId"] = _b64u(user["id"])
+        choices.append(item)
+    return choices
+
+
 def _run(params: Any, pin_buf: bytearray | None, kind: str,
          open_device: Callable = _open_device, client_factory: Callable = _client) -> dict:
     origin, raw = _check_request(params, kind)
@@ -155,19 +174,44 @@ def _run(params: Any, pin_buf: bytearray | None, kind: str,
     device = open_device()
     try:
         client = client_factory(device, origin, pin_buf)
+        inline_prf = None
         try:
             if kind == "create":
                 response = client.make_credential(options)
+                # This card supports hmac-secret on getAssertion, but not CTAP2.1
+                # hmac-secret-mc on makeCredential. Resolve creation-time PRF with
+                # a separate UV assertion inside this same approved native request.
+                # The PIN buffer dies with the request; no PIN/token is cached.
+                prf_eval = ((raw.get("extensions") or {}).get("prf") or {}).get("eval")
+                if prf_eval and not response.client_extension_results.prf.results:
+                    prf_options = PublicKeyCredentialRequestOptions.from_dict({
+                        "challenge": _b64u(options.challenge),
+                        "rpId": options.rp.id,
+                        "userVerification": "required",
+                        "allowCredentials": [{"type": "public-key", "id": _b64u(response.raw_id)}],
+                        "extensions": {"prf": {"eval": prf_eval}},
+                    })
+                    selection = client.get_assertion(prf_options)
+                    if len(selection.get_assertions()) != 1:
+                        raise BridgeError("AMBIGUOUS_CREDENTIAL", "card holds several credentials; pass allowCredentials")
+                    inline_prf = selection.get_response(0).client_extension_results
             else:
                 selection = client.get_assertion(options)
-                if len(selection.get_assertions()) != 1:
-                    raise BridgeError("AMBIGUOUS_CREDENTIAL", "card holds several credentials; pass allowCredentials")
+                assertions = selection.get_assertions()
+                if len(assertions) != 1:
+                    raise BridgeError(
+                        "AMBIGUOUS_CREDENTIAL",
+                        "card holds several credentials; choose one",
+                        credentials=_credential_choices(assertions),
+                    )
                 response = selection.get_response(0)
         except BridgeError:
             raise
         except Exception as exc:
             raise _map_error(exc, device)
         out = jsonify(dict(response))
+        if inline_prf:
+            out["clientExtensionResults"]["prf"] = jsonify(dict(inline_prf))["prf"]
         if kind == "create":
             # Mirror AuthenticatorAttestationResponse.getPublicKey(): DER SPKI (ES256 only).
             from cryptography.hazmat.primitives import serialization

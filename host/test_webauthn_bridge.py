@@ -120,6 +120,21 @@ class SoftAuthenticatorTests(unittest.TestCase):
         self.assertEqual(auth_data[:32], hashlib.sha256(b"nuri.com").digest())
         self.assertTrue(auth_data[32] & 0x04, "UV flag")
 
+    def test_create_resolves_prf_in_one_request_without_reusing_uv(self):
+        options = create_options(extensions={"prf": {"eval": {"first": websafe_encode(b"nuri-prf-salt-v1")}}})
+        reg = self.call("create", options)
+        cred_id = reg["id"]
+        first = websafe_decode(reg["clientExtensionResults"]["prf"]["results"]["first"])
+        salt = hashlib.sha256(b"WebAuthn PRF\x00" + b"nuri-prf-salt-v1").digest()
+        self.assertEqual(first, self.dev.expected_hmac(websafe_decode(cred_id), salt))
+        self.assertEqual(self.dev.operations, [0x01, 0x02, 0x02], "credential selection + PRF assertion")
+        self.assertEqual(self.dev.pin_tokens_issued, 2, "makeCredential and PRF assertion each require fresh UV")
+
+        binding = self.call("get", get_options(cred_id))
+        second = websafe_decode(binding["clientExtensionResults"]["prf"]["results"]["first"])
+        self.assertEqual(first, second)
+        self.assertEqual(self.dev.pin_tokens_issued, 3, "separately approved binding assertion requires UV")
+
     def test_wrong_pin_reports_tries(self):
         reg = self.call("create", create_options())
         with self.assertRaises(wb.BridgeError) as cm:
@@ -136,6 +151,25 @@ class SoftAuthenticatorTests(unittest.TestCase):
         with self.assertRaises(wb.BridgeError) as cm:
             self.call("get", get_options(websafe_encode(b"x" * 32)))
         self.assertEqual(cm.exception.code, "NO_CREDENTIAL")
+
+    def test_multiple_credentials_returns_choices_and_allows_selection(self):
+        first = self.call("create", create_options(user={"id": websafe_encode(b"1" * 16), "name": "alice", "displayName": "Alice"}))
+        second = self.call("create", create_options(user={"id": websafe_encode(b"2" * 16), "name": "bob", "displayName": "Bob"}))
+        with self.assertRaises(wb.BridgeError) as cm:
+            self.call("get", get_options())
+        self.assertEqual(cm.exception.code, "AMBIGUOUS_CREDENTIAL")
+        creds = cm.exception.extra.get("credentials")
+        self.assertEqual([c["id"] for c in creds], [first["id"], second["id"]])
+        self.assertEqual([c.get("name") for c in creds], ["alice", "bob"])
+        self.assertEqual([c.get("displayName") for c in creds], ["Alice", "Bob"])
+
+        chosen = self.call("get", get_options(second["id"]))
+        self.assertEqual(chosen["id"], second["id"])
+        salt = hashlib.sha256(b"WebAuthn PRF\x00" + b"nuri-prf-salt-v1").digest()
+        self.assertEqual(
+            websafe_decode(chosen["clientExtensionResults"]["prf"]["results"]["first"]),
+            self.dev.expected_hmac(websafe_decode(second["id"]), salt),
+        )
 
 
 class HostDispatchTests(unittest.TestCase):

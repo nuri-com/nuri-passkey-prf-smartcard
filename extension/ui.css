@@ -9,12 +9,12 @@ code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 1
 pre { white-space: pre-wrap; margin: 12px 0; padding: 12px 0; border-block: 1px solid #dddac9; }
 .row { margin: 12px 0; }
 .k { color: #615A62; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { min-height: 48px; padding: 12px 18px; border: 1px solid #2C232E; border-radius: 9px; cursor: pointer; color: #2C232E; background: transparent; }
 button.primary, #approve { background: #BEAAFF; }
 button:disabled { opacity: .4; cursor: default; }
 a { color: #2C232E; text-underline-offset: 3px; }
-button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #7753C6; outline-offset: 3px; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #7753C6; outline-offset: 3px; }
 .controls { display: grid; gap: 12px; margin-top: 24px; }
 .err, #error { color: #942D1A; white-space: pre-wrap; }
 .sim { background: #FFE2D6; padding: 12px; margin-bottom: 18px; }
@@ -35,5 +35,5 @@ summary { cursor: pointer; }
 .kind { margin-bottom: 18px; font-weight: 600; }
 .actions { position: sticky; bottom: 0; margin: 24px -24px -24px; padding: 18px 24px; background: #fffdf2; border-top: 1px solid #dddac9; display: flex; gap: 12px; }
 .actions button { flex: 1; }
-#pin { display: block; width: 100%; padding: 12px; margin: 12px 0; border: 1px solid #615A62; border-radius: 9px; color: #2C232E; background: #fff; }
+#pin, #cred { display: block; width: 100%; padding: 12px; margin: 12px 0; border: 1px solid #615A62; border-radius: 9px; color: #2C232E; background: #fff; }
 [hidden] { display: none !important; }

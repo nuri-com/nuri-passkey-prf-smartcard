@@ -191,9 +191,13 @@ async function approvalMessage(msg, sender) {
     if (!a.displayed) throw rpcError(4001, "Approval has not been displayed");
     if (!msg.approved) { cancelApproval(msg.approvalId); return { ok: true }; }
     if (a.busy) throw rpcError(4001, "Approval already used");
+    const credentialId = typeof msg.credentialId === "string" && msg.credentialId ? msg.credentialId : undefined;
+    if (credentialId !== undefined && (a.payload.kind !== "webauthn_get" || !a.allowedCredentialIds?.has(credentialId))) {
+      throw rpcError(4001, "Selected credential was not offered by the card");
+    }
     a.busy = true;
     try {
-      const pending = a.action ? a.action(pin) : Promise.resolve(true);
+      const pending = a.action ? a.action(pin, credentialId) : Promise.resolve(true);
       pin = undefined;
       const value = await pending;
       if (approvals.get(msg.approvalId) !== a) throw rpcError(4001, "Approval cancelled while signing");
@@ -206,6 +210,14 @@ async function approvalMessage(msg, sender) {
       if (["PIN_REQUIRED", "PIN_WRONG"].includes(code) && e?.data?.tries_left !== 0 && approvals.get(msg.approvalId) === a) {
         a.busy = false;
         return { error: e }; // same displayed hash; user explicitly retries once per click
+      }
+      if (code === "AMBIGUOUS_CREDENTIAL" && a.payload.kind === "webauthn_get" && Array.isArray(e?.data?.credentials) && approvals.get(msg.approvalId) === a) {
+        const offered = e.data.credentials.map((c) => c?.id).filter((id) => typeof id === "string" && id.length > 0);
+        if (offered.length > 1) {
+          a.allowedCredentialIds = new Set(offered);
+          a.busy = false;
+          return { error: e };
+        }
       }
       cancelApproval(msg.approvalId, e?.message || "Card signing failed");
       throw e;
@@ -538,8 +550,17 @@ async function cardWebAuthn(kind, origin, params) {
   const summary = kind === "create"
     ? { rpId: publicKey.rp?.id, account: publicKey.user?.name, prf: !!publicKey.extensions?.prf, pinRequired: true }
     : { rpId: publicKey.rpId, credentials: (publicKey.allowCredentials || []).length, prf: !!publicKey.extensions?.prf?.eval, pinRequired: true };
-  return requestApproval(origin, `webauthn_${kind}`, summary,
-    (pin) => nativeCall(`webauthn_${kind}`, pin === undefined ? { origin, publicKey } : { origin, publicKey, pin }));
+  const siteAllowed = kind === "get" && Array.isArray(publicKey.allowCredentials) && publicKey.allowCredentials.length
+    ? new Set(publicKey.allowCredentials.map((c) => c?.id).filter((id) => typeof id === "string" && id.length > 0))
+    : null;
+  return requestApproval(origin, `webauthn_${kind}`, summary, (pin, credentialId) => {
+    let reqPublicKey = publicKey;
+    if (kind === "get" && credentialId) {
+      if (siteAllowed && !siteAllowed.has(credentialId)) throw rpcError(4001, "Selected credential is not allowed for this request");
+      reqPublicKey = { ...publicKey, allowCredentials: [{ type: "public-key", id: credentialId }] };
+    }
+    return nativeCall(`webauthn_${kind}`, pin === undefined ? { origin, publicKey: reqPublicKey } : { origin, publicKey: reqPublicKey, pin });
+  });
 }
 
 const PASSTHROUGH = new Set([

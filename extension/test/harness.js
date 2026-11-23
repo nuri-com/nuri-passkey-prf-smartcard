@@ -139,7 +139,7 @@ function createHarness(options = {}) {
     if (!shown.ok) return shown;
     return view;
   }
-  async function decide(view, approved = true, pin) { return message({ type: 'approval', approvalId: view.approvalId, windowId: view.windowId, binding: view.binding, hash: view.hash, approved, ...(pin === undefined ? {} : { pin }) }, view.from); }
+  async function decide(view, approved = true, pin, credentialId) { return message({ type: 'approval', approvalId: view.approvalId, windowId: view.windowId, binding: view.binding, hash: view.hash, approved, ...(pin === undefined ? {} : { pin }), ...(credentialId === undefined ? {} : { credentialId }) }, view.from); }
   async function pendingWindow() { for (let tries = 0; tries < 100; tries++) { await tick(); const ids = [...windows.keys()]; if (ids.length) return ids.at(-1); } throw new Error('no approval window'); }
   function dispose() { closed = true; child?.kill(); timers.clear(); }
   return { sandbox, chrome, storage, windows, contexts, calls, rpcCalls, badges, info, wallet, message, open, decide, pendingWindow, sender, dispose, tick, expire: () => { for (const fn of [...timers.values()]) fn(); }, rpc: (method, params) => message({ type: 'rpc', method, params }), toolbar: () => message({ type: 'popup:state' }, { id: 'test', url: chrome.runtime.getURL('popup.html') }) };

@@ -6,6 +6,21 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-23 — Card WebAuthn multi-credential selection & inline creation PRF
+
+- `host/webauthn_bridge.py`: return public credential descriptors (`id`, `name`,
+  `displayName`, `userId`) on `AMBIGUOUS_CREDENTIAL` when a card holds multiple
+  discoverable credentials for `nuri.com`, and resolve creation-time PRF with a
+  second UV assertion inside the same `webauthn_create` request for cards lacking
+  CTAP2.1 `hmac-secret-mc`.
+- `extension/background.js`, `extension/approve.html`, `extension/approve.js`,
+  `extension/ui.css`: keep the approval popup open on `AMBIGUOUS_CREDENTIAL`,
+  present a dropdown of card-offered credentials (fail-closed against unoffered
+  or site-disallowed IDs), and retry `webauthn_get` with `allowCredentials`.
+- Added CTAP2 `0x08` (`authenticatorGetNextAssertion`) in `host/soft_ctap2.py`;
+  12/12 `host/test_webauthn_bridge.py`, 86/86 `host/test_host.py`, and 61/61
+  extension tests pass.
+
 ## 2026-11-20 — All-card discovery in native Mac app
 
 - `Nuri Card Setup.app` now lists every PC/SC-detected physical card (Feitian,

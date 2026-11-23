@@ -610,7 +610,7 @@ client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
 
 | Feature / scope | Status |
 |---|---|
-| FIDO2 WebAuthn create/get with PRF | proven on a physical card |
+| FIDO2 WebAuthn create/get with PRF (inline create PRF + multi-credential popup selector) | proven on a physical card |
 | FIDO2 SSH bridge | proven on a physical card |
 | ETH1 digest signing without PIN | proven on a physical card |
 | ETH2 v2.1.0 PIN-gated digest signer | proven on a physical card |
