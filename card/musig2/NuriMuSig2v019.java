@@ -26,8 +26,8 @@ import javacardx.crypto.*;
  */
 public class NuriMuSig2v019 extends Applet {
 
-    // Version 1.14: incompatible nonce/finalize frames; see docs/musig2-pin-and-hardening.md
-    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x11};
+    // Version 1.18: transactional CHANGE_PIN (INS 0x23) added on top of 1.14+ PIN2 frames
+    private static final byte[] APPLET_VERSION = {(byte)0x01, (byte)0x12};
     private static final byte[] APPLET_AID = {
         (byte)0x4E, (byte)0x55, (byte)0x52, (byte)0x49,
         (byte)0x4D, (byte)0x55, (byte)0x47, (byte)0x01
@@ -42,6 +42,7 @@ public class NuriMuSig2v019 extends Applet {
     private static final byte INS_VERIFY = (byte)0x20;
     private static final byte INS_SET_PIN = (byte)0x21;
     private static final byte INS_PIN_STATUS = (byte)0x22;
+    private static final byte INS_CHANGE_PIN = (byte)0x23;
 
     // Status codes
     private static final short SW_NONCES_NOT_READY = (short)0x6984;
@@ -281,6 +282,7 @@ public class NuriMuSig2v019 extends Applet {
                 case INS_VERIFY: verify(apdu); break;
                 case INS_SET_PIN: setPin(apdu); break;
                 case INS_PIN_STATUS: pinStatus(apdu); break;
+                case INS_CHANGE_PIN: changePin(apdu); break;
                 case INS_GET_NONCES: requirePin(); getNonces(apdu); break;
                 case INS_FINALIZE: requirePin(); doFinalize(apdu); break;
                 default: ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
@@ -293,7 +295,7 @@ public class NuriMuSig2v019 extends Applet {
             pin.reset();
             throw error;
         } finally {
-            finishCommand(buffer, ins == INS_VERIFY || ins == INS_SET_PIN);
+            finishCommand(buffer, ins == INS_VERIFY || ins == INS_SET_PIN || ins == INS_CHANGE_PIN);
         }
     }
 
@@ -365,6 +367,35 @@ public class NuriMuSig2v019 extends Applet {
         pinSet = true;
         JCSystem.commitTransaction();
         // SET_PIN does not authorize signing. VERIFY is a separate operation.
+        pin.reset();
+        burnNonces();
+    }
+
+    /** Data: Lo(1) || oldPIN(Lo) || Ln(1) || newPIN(Ln). Transactional PIN update. */
+    private void changePin(APDU apdu) {
+        if (!pinSet) ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        byte[] buffer = apdu.getBuffer();
+        short got = apdu.setIncomingAndReceive();
+        short length = apdu.getIncomingLength();
+        if (got != length || length < 2) ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        short oLen = (short)(buffer[ISO7816.OFFSET_CDATA] & 0xFF);
+        short oOff = (short)(ISO7816.OFFSET_CDATA + 1);
+        if (oLen < 1 || oLen > 12 || (short)(oOff + oLen) >= (short)(ISO7816.OFFSET_CDATA + length))
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        short nLen = (short)(buffer[(short)(oOff + oLen)] & 0xFF);
+        short nOff = (short)(oOff + oLen + 1);
+        if ((short)(nOff + nLen) != (short)(ISO7816.OFFSET_CDATA + length))
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        validPin(buffer, nOff, nLen);
+        if (pin.getTriesRemaining() == 0) ISOException.throwIt((short)0x6983);
+        if (!pin.check(buffer, oOff, (byte)oLen)) {
+            byte tries = pin.getTriesRemaining();
+            if (tries == 0) ISOException.throwIt((short)0x6983);
+            ISOException.throwIt((short)(0x63C0 | tries));
+        }
+        JCSystem.beginTransaction();
+        pin.update(buffer, nOff, (byte)nLen);
+        JCSystem.commitTransaction();
         pin.reset();
         burnNonces();
     }

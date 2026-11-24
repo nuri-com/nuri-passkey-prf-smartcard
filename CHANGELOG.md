@@ -6,6 +6,12 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-25 — MuSig2 v1.18: transactional CHANGE_PIN (INS 0x23) for new cards
+
+- `card/musig2/NuriMuSig2v019.java` (`1.18`, `0x0112`): added transactional `INS_CHANGE_PIN` (`0x23`, `Lo(1) || oldPIN || Ln(1) || newPIN` with `JCSystem.beginTransaction()`, APDU buffer wipe, session reset, and nonce burn) and updated `dist/nuri-musig2-v20-keygen{,-aid2,-aid3}.cap` + `dist/SHA256SUMS` + `dist/README.md` (`CARD_V1_RELEASE_VERIFIED`).
+- `test/musig2-jcardsim/PinHardeningTest.java`, `NonceLifetimeTest.java`, `scripts/nuri_musig2_card.py`: added jCardSim `CHANGE_PIN` hardening coverage (`1245` checks) and `change-pin [--stdin]` CLI support.
+- `docs/musig2-pin-and-hardening.md`, `README.md`: documented that `v1.18` is ready in `dist/` for all fresh blank cards while funded `v1.17` cards (such as `87E5470B`) intentionally stay untouched so no private key is wiped by reflashing.
+
 ## 2026-11-25 — Document per-applet PIN/PUK map, Apple NFC vs PIV boundary, and MuSig2 v1.3.0 CHANGE_PIN roadmap
 
 - `README.md`: added one-glance `PINs, PUKs, and Apple flows` table under `Moving parts` (clarifying FIDO2 iPhone NFC vs PIV macOS login, isolated applet PINs, and backup-card provisioning without cloning) and added `CHANGE_PIN` for `v1.3.0` to the MuSig2 roadmap row.

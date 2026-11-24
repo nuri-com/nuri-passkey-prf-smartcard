@@ -19,7 +19,7 @@ public final class PinHardeningTest {
     private static int checks;
 
     public static void main(String[] args) throws Exception {
-        pinPolicy(); retries(); installPolicy(); sessionBinding(); errorsBurn();
+        pinPolicy(); changePin(); retries(); installPolicy(); sessionBinding(); errorsBurn();
         points(); fieldMath(); publicCacheAndShortKey(); blindedAndFault(); exceptionCleanup(); keygenTransaction();
         System.out.println("MUSIG2_JCARDSIM_PIN_HARDENING_OK checks=" + checks);
     }
@@ -70,6 +70,59 @@ public final class PinHardeningTest {
         clean(true);
         s = keyed(); sw(s, 0x20, new byte[]{57,57,57,57}, 0x63C4); auth(s);
         require(ok(s, 0x22, null)[2] == 5, "successful verify restores retries");
+    }
+    private static byte[] pinChangeFrame(byte[] oldP, byte[] newP) {
+        byte[] f = new byte[2 + oldP.length + newP.length];
+        f[0] = (byte)oldP.length;
+        System.arraycopy(oldP, 0, f, 1, oldP.length);
+        f[1 + oldP.length] = (byte)newP.length;
+        System.arraycopy(newP, 0, f, 2 + oldP.length, newP.length);
+        return f;
+    }
+    private static void changePin() throws Exception {
+        byte[] newPin = {53,54,55,56,57,48}; // synthetic fixture "567890"
+        Simulator s = fresh(null);
+        sw(s, 0x23, pinChangeFrame(PIN, newPin), 0x6985);
+
+        s = keyed();
+        byte[] pub = ok(s, 3, null);
+        sw(s, 0x23, new byte[]{4}, 0x6700); auth(s);
+        byte[] withTrail = new byte[pinChangeFrame(PIN, newPin).length + 1];
+        System.arraycopy(pinChangeFrame(PIN, newPin), 0, withTrail, 0, withTrail.length - 1);
+        sw(s, 0x23, withTrail, 0x6700); auth(s);
+        sw(s, 0x23, pinChangeFrame(PIN, new byte[]{49,50,51}), 0x6700); auth(s);
+        sw(s, 0x23, pinChangeFrame(PIN, new byte[13]), 0x6700); auth(s);
+        sw(s, 0x23, pinChangeFrame(PIN, new byte[]{49,50,51,65}), 0x6A80); auth(s);
+
+        byte[] stale = payload(ok(s, 0x40, null));
+        sw(s, 0x23, pinChangeFrame(new byte[]{57,57,57,57}, newPin), 0x63C4);
+        clean(true);
+        require(ok(s, 0x22, null)[2] == 4, "wrong old PIN decrements retries to 4");
+        sw(s, 0x40, null, 0x6982);
+        auth(s);
+        sw(s, 0x41, stale, 0x6984);
+        auth(s);
+
+        byte[] preChangeNonces = payload(ok(s, 0x40, null));
+        ok(s, 0x23, pinChangeFrame(PIN, newPin));
+        clean(true);
+        require(ok(s, 0x22, null)[2] == 5, "successful CHANGE_PIN restores retries to 5");
+        sw(s, 0x40, null, 0x6982);
+        sw(s, 0x20, PIN, 0x63C4);
+        ok(s, 0x20, newPin);
+        require(ok(s, 0x22, null)[2] == 5, "verify with new PIN restores retries to 5");
+        sw(s, 0x41, preChangeNonces, 0x6984);
+        ok(s, 0x20, newPin);
+        require(Arrays.equals(pub, ok(s, 3, null)), "pubkey unchanged after CHANGE_PIN");
+        byte[] n = ok(s, 0x40, null);
+        ok(s, 0x41, payload(n));
+        clean(true);
+
+        for (int left = 4; left >= 0; left--) {
+            sw(s, 0x23, pinChangeFrame(PIN, newPin), left == 0 ? 0x6983 : (0x63C0 | left));
+            s.reset(); s.selectApplet(AID);
+        }
+        sw(s, 0x23, pinChangeFrame(newPin, PIN), 0x6983);
     }
     private static void installPolicy() {
         Simulator s = fresh(new byte[]{0,0,2,1,0});

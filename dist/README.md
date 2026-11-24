@@ -15,7 +15,7 @@ attestation and vault CAPs are simulator only. [Feature status](../README.md#fea
 |---|---|---|---|---|---|
 | `FIDO2.cap` | `third_party/fido2-applet/ + patch 0001` | `A0000006472F0001` | 0.4, advertises up:false | MIT | `173a6290e7dfb9e55c3c837956345500ca2dcf1b634fabf258e6f51027f7f24d` |
 | `FIDO2-up.cap` | `third_party/fido2-applet/ + patches 0001/0002` | `A0000006472F0001` | 0.4, advertises up:true; no physical touch check | MIT | `ec670c69f0f47c09526c1744d314f899681d7d935806278d2fbfbd2019f699d9` |
-| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.17 (`APPLET_VERSION` 0x0111), package 2.2; PIN/token/attestation | MIT | `2eb4c417274c20bcc36cd0be6a5a61dc33c7b7bb7c22dc399d650ea72cee8741` |
+| `nuri-musig2-v20-keygen.cap` | `card/musig2/` | `4E5552494D554701` | 1.18 (`APPLET_VERSION` 0x0112), package 2.2; PIN/token/`CHANGE_PIN`/attestation | MIT | `2cfc224dfe262f5242bf9256c709ceda1ca63d548f5d34db2548926a2c7e7021` |
 | `nuri-oath-totp.cap` | `card/totp/` | `4E555249544F5450` | 1.0; admin PIN does not gate CALC | MIT | `2f18861cd541e61ecc5af6d0a50a25f7bd2992d85fd205a66bbcb97a2adfb7c0` |
 | `nuri-eth-signer.cap` | `card/eth/` | `4E55524945544801` | 1.5 / SIGN; demo, no PIN; cofactor fix for NXP JCOP 2.4.1 | GPL-2.0-or-later combined | `627649805d0fd7042ebefe08f5f2e50da8556bd109752904116ec1f86e07e470` |
 | `nuri-eth2-signer.cap` | `card/eth2/` | `4E5552494554483201` | 2.1.0; mandatory-default PIN and attestation; transactional SET/CHANGE/UNBLOCK; hardware tear unverified | MIT | `f1e7eef017a36a9218d095cabcb195b8283534c34081bd36828dc92aef5d8403` |
@@ -32,8 +32,8 @@ its source/platform correspondence is checked separately.
 
 | Identity | Package AID | Applet AID | Artifact / scope |
 |---|---|---|---|
-| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; applet 1.17, hash in `SHA256SUMS`; the PIN2 receipt covers the v1.15 CAP from v1.1.0 |
-| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; applet 1.17, released in v1.2.0, sha256 `d6f1cef2886166630132c6cc65b73580315686038e331bf3229f5058833ff7a9`; live mainnet cosign receipt |
+| AID2 | `4E5552494D554732` | `4E5552494D55473201` | `nuri-musig2-v20-keygen-aid2.cap`; applet 1.18 (`89f0df094dfbc6039baf6466e5f90b57049ea618a5dcd472039dab7b961292a2` in `SHA256SUMS`); the PIN2 receipt covers the v1.15 CAP from v1.1.0 |
+| AID3 | `4E5552494D554733` | `4E5552494D55473301` | `nuri-musig2-v20-keygen-aid3.cap`; applet 1.18, sha256 `0371a49359d5ad65ff28b07aba24423f6542c7f03185db992ade0b184d10cb8e` (adds `CHANGE_PIN` for new cards; v1.17 released in v1.2.0 holds the live mainnet cosign receipt) |
 
 Released in v1.2.0. CI job `card-release` rebuilt all CAPs from main
 `f95d77ce9cffd776c866002a8b0fad3c2350fe3d` with identical components and printed

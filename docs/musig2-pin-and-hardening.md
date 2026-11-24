@@ -53,21 +53,21 @@ Sources: `card/musig2/NuriMuSig2v019.java:192-199,249-299,321-349`.
   old pair. Successful repeat VERIFY leaves the current nonce pair intact.
   Sources: `NuriMuSig2v019.java:234-293,528-580`.
 
-### No CHANGE_PIN in v1.2.0 (planned for v1.3.0)
+### CHANGE_PIN in v1.18 (and why funded v1.17 cards stay untouched)
 
-- **Current `v1.2.0` contract:** `card/musig2/NuriMuSig2v019.java` (AID2 and AID3)
-  supports `VERIFY` (`0x20`), once-only `SET_PIN` (`0x21`), and `PIN_STATUS`
-  (`0x22`), with **no `CHANGE_PIN`** instruction.
-- **Why `v1.2.0` is kept frozen:** Java Card cannot upgrade an applet in place
-  without deleting the instance (which wipes the on-card Bitcoin private key),
-  and the `v1.2.0` CAP checksums in `dist/SHA256SUMS` are pinned as the proven
-  live-mainnet baseline. **Never delete or reinstall MuSig2 on a funded card**
-  just to change its PIN.
-- **Planned `v1.3.0` upgrade:** Add transactional `CHANGE_PIN` using
-  `JCSystem.beginTransaction()` (matching `card/eth2/NuriEthSignerV2.java`),
-  bundled with `NURI-SC v1` / biometric UV work for fresh card builds. On new
-  blank cards, set one consistent PIN across all applets during initial
-  provisioning.
+- **Shipped in v1.18 (`dist/` CAPs):** `card/musig2/NuriMuSig2v019.java` (`0x0112`,
+  built into `dist/nuri-musig2-v20-keygen.cap`, `dist/nuri-musig2-v20-keygen-aid2.cap`,
+  and `dist/nuri-musig2-v20-keygen-aid3.cap`) now implements transactional `CHANGE_PIN`
+  (`INS 0x23`, frame `Lo(1) || oldPIN || Ln(1) || newPIN`, using
+  `JCSystem.beginTransaction()`, resetting session authorization and burning pending
+  nonces). CLI support: `scripts/nuri_musig2_card.py change-pin [--stdin]`.
+  Verified in jCardSim (`test/musig2-jcardsim/PinHardeningTest.java`); physical
+  acceptance on a fresh spare card remains pending.
+- **Why funded v1.17 cards (such as `87E5470B`) are intentionally NOT reflashed:**
+  Java Card cannot upgrade an applet in place without deleting the existing
+  instance, which permanently wipes its on-card Bitcoin private key. Keep
+  existing funded `1.17` cards untouched on their original PIN, and provision
+  all new blank cards with `1.18` (`dist/`) so `CHANGE_PIN` is available from day 1.
 
 ### Installation data
 
@@ -98,6 +98,7 @@ SET_PIN deliberately has no previous owner credential to authenticate against.
 | `20` VERIFY | raw PIN digits | status only |
 | `21` SET_PIN | raw PIN digits | status only |
 | `22` PIN_STATUS | none | required flag, set flag, tries (3 bytes) |
+| `23` CHANGE_PIN | `Lo(1) \|\| oldPIN \|\| Ln(1) \|\| newPIN` | status only (requires applet v1.18+; resets auth and burns nonces) |
 | `40` GET_NONCES | none, PIN verified | K1(33) + K2(33) + token(4) = **70 bytes** |
 | `41` FINALIZE | a(32) + b(32) + parity(1) + e(32) + token(4) + Ragg(65) + Pagg(65) = **231 bytes** | partial s(32) |
 

@@ -51,6 +51,7 @@ INS_KEYGEN = 0x04
 INS_VERIFY = 0x20
 INS_SET_PIN = 0x21
 INS_PIN_STATUS = 0x22
+INS_CHANGE_PIN = 0x23
 INS_GET_NONCES = 0x40
 INS_FINALIZE = 0x41
 
@@ -276,6 +277,24 @@ class MuSig2Card:
             raise PinError(str(error)) from None
         self._read_pin_status()
 
+    def change_pin(self, old_pin: bytes, new_pin: bytes):
+        if self.version_tuple is None or self.version_tuple < (1, 18):
+            raise PinError(
+                "CHANGE_PIN requires MuSig2 applet >= 1.18; older cards (1.14–1.17) have once-only SET_PIN"
+            )
+        if not (1 <= len(old_pin) <= 12):
+            raise PinError("old PIN must be 1–12 bytes")
+        if not (4 <= len(new_pin) <= 12 and all(48 <= b <= 57 for b in new_pin)):
+            raise PinError("new PIN must be 4–12 ASCII digits")
+        body = bytes([len(old_pin)]) + old_pin + bytes([len(new_pin)]) + new_pin
+        try:
+            self._tx(bytes([0x00, INS_CHANGE_PIN, 0x00, 0x00, len(body)]) + body)
+        except RuntimeError as error:
+            raise PinError(str(error)) from None
+        finally:
+            self.pin_verified = False
+        self._read_pin_status()
+
     # -- MuSig2 ----------------------------------------------------------
     def pubkey(self) -> bytes:
         try:
@@ -339,10 +358,11 @@ class MuSig2Card:
 
 
 def _cli(argv) -> int:
-    """pin-status | set-pin. set-pin reads NURI_CARD_NEW_PIN or prompts twice."""
+    """pin-status | set-pin | change-pin [--stdin]."""
     import json
 
     cmd = argv[0] if argv else "pin-status"
+    use_stdin = "--stdin" in argv[1:]
     card = MuSig2Card()
     card.connect(verify_pin=False)
     try:
@@ -360,7 +380,23 @@ def _cli(argv) -> int:
             card.set_pin(validate_pin(pin))
             print(json.dumps({"status": "NURI_MUSIG2_PIN_SET", **card.version_info()}))
             return 0
-        print("usage: nuri_musig2_card.py pin-status|set-pin", file=sys.stderr)
+        if cmd == "change-pin":
+            if use_stdin:
+                lines = sys.stdin.read().splitlines()
+                if len(lines) < 2:
+                    raise PinError("expected old_pin and new_pin lines on stdin")
+                old_pin, new_pin = lines[0], lines[1]
+            else:
+                if not _tty():
+                    raise PinError("use --stdin or run from a terminal")
+                old_pin = getpass.getpass("Current Nuri card PIN: ")
+                new_pin = getpass.getpass("New Nuri card PIN: ")
+                if getpass.getpass("Repeat new PIN: ") != new_pin:
+                    raise PinError("PINs do not match")
+            card.change_pin(old_pin.encode("ascii", errors="strict"), validate_pin(new_pin))
+            print(json.dumps({"status": "NURI_MUSIG2_PIN_CHANGED", **card.version_info()}))
+            return 0
+        print("usage: nuri_musig2_card.py pin-status|set-pin|change-pin [--stdin]", file=sys.stderr)
         return 2
     finally:
         card.close()
