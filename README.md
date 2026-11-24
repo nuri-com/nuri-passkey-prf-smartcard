@@ -549,6 +549,18 @@ npm run card:mac:app              # Build or update Nuri Card Setup.app
 bin/nuricard connect --probe      # Check PC/SC / USB-HID Nuri Connect readiness
 ```
 
+#### PINs, PUKs, and Apple flows (one-glance map)
+
+| Applet | Used for | Tries / PUK / `CHANGE_PIN` | Notes |
+|---|---|---|---|
+| **FIDO2** (`scripts/manage-fido2-pin.py`, `Nuri Card Setup.app`) | Apple Account Security Keys (via **iPhone NFC**), `wallet.nuri.com`, SSH, `bin/nuricard` | 8 tries · **no PUK** (reset wipes passkeys) · supports `CHANGE_PIN` | macOS Apple Security Keys is USB-HID only (not PC/SC); 3 wrong tries in a row soft-locks until re-tap; Apple requires 2 separate keys |
+| **PIV** (`Nuri Card Setup.app`, `scripts/card-piv-setup.py`) | macOS login & `sudo` | 5 tries · default PIN `123456` / PUK `12345678` · supports `CHANGE_PIN` | Managed via CryptoTokenKit (`sc_auth`) |
+| **ETH2** (`card/eth2/NuriEthSignerV2.java`) | Ethereum signing | 5 tries · optional 16-byte PUK · transactional `CHANGE_PIN` | Replaces PIN-less ETH1 |
+| **MuSig2 AID2/AID3 (`v1.2.0`)** (`card/musig2/NuriMuSig2v019.java`) | Bitcoin / Arkade cosigning | 5 tries · no PUK · **once-only `SET_PIN`, no `CHANGE_PIN`** | Frozen `v1.2.0` baseline — never reinstall on funded cards; transactional `CHANGE_PIN` planned for `v1.3.0` ([details](docs/musig2-pin-and-hardening.md#no-change_pin-in-v120-planned-for-v130)) |
+| **NuriAuth** ([user-verification](docs/user-verification.md)) | Experimental PIN/fingerprint policy bridge | 5 PIN tries / 3 finger tries | Protected dummy test client only; not used by Apple, Mac, or wallets yet |
+
+> **Provisioning rule:** Java Card applets are isolated and private keys cannot be cloned across cards. On fresh blank cards, set the same chosen PIN across every applet during initial provisioning and enroll a 2nd independent card as backup (store PINs in a password manager/Keychain, never in git).
+
 ## Proven on a real card and latest findings
 
 The accepted `v1.1.0` release includes the reproducible **AID2 v1.15 PIN2**
@@ -589,7 +601,7 @@ not installation instructions for this release. See [Arkade boundaries](docs/ark
 | Track | Where it stands | Next acceptance boundary |
 |---|---|---|
 | Card as independent Bitcoin cosigner | Standalone host wallet and historical Signet proof exist | Revalidate exact applet/client/recovery policy; same-card PRF is not independent recovery |
-| MuSig2 authorization | Current applet has its own PIN and nonce-session token; AID2 real-card proof accepted | Qualify AID3 fast path separately, including fault/side-channel and nonce lifecycle behavior |
+| MuSig2 authorization | Current applet has its own PIN and nonce-session token; AID2 real-card proof accepted | Qualify AID3 fast path separately, including fault/side-channel and nonce lifecycle behavior; add transactional `CHANGE_PIN` in `v1.3.0` without touching frozen `v1.2.0` funded cards |
 | Hardware-wallet recovery participant | Design direction, not shipped acceptance | Evaluate deterministic extra Taproot recovery leaf and independent key backup; do not call a third MuSig2 participant threshold recovery |
 | Fingerprint authorization | Proven on the IDEX TrustedBio card: thumb OR PIN unlocks MuSig2-UV and ETH2-UV ([fingerprint](docs/fingerprint.md)); vendor try limit is not personalised and the UV builds carry no attestation module | Reproduce on a second card, prove enforcement per custom signer, and ship only with a personalised try limit |
 | Card-client Arkade integration | Local untweaked/tweaked signature proofs | Live remote policy, explicit account mapping and receipt-backed transaction acceptance |

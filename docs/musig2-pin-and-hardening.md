@@ -53,6 +53,22 @@ Sources: `card/musig2/NuriMuSig2v019.java:192-199,249-299,321-349`.
   old pair. Successful repeat VERIFY leaves the current nonce pair intact.
   Sources: `NuriMuSig2v019.java:234-293,528-580`.
 
+### No CHANGE_PIN in v1.2.0 (planned for v1.3.0)
+
+- **Current `v1.2.0` contract:** `card/musig2/NuriMuSig2v019.java` (AID2 and AID3)
+  supports `VERIFY` (`0x20`), once-only `SET_PIN` (`0x21`), and `PIN_STATUS`
+  (`0x22`), with **no `CHANGE_PIN`** instruction.
+- **Why `v1.2.0` is kept frozen:** Java Card cannot upgrade an applet in place
+  without deleting the instance (which wipes the on-card Bitcoin private key),
+  and the `v1.2.0` CAP checksums in `dist/SHA256SUMS` are pinned as the proven
+  live-mainnet baseline. **Never delete or reinstall MuSig2 on a funded card**
+  just to change its PIN.
+- **Planned `v1.3.0` upgrade:** Add transactional `CHANGE_PIN` using
+  `JCSystem.beginTransaction()` (matching `card/eth2/NuriEthSignerV2.java`),
+  bundled with `NURI-SC v1` / biometric UV work for fresh card builds. On new
+  blank cards, set one consistent PIN across all applets during initial
+  provisioning.
+
 ### Installation data
 
 The installer strictly parses the GP layout `Li|AID|Lc|control|La|application`.

@@ -6,6 +6,11 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-25 — Document per-applet PIN/PUK map, Apple NFC vs PIV boundary, and MuSig2 v1.3.0 CHANGE_PIN roadmap
+
+- `README.md`: added one-glance `PINs, PUKs, and Apple flows` table under `Moving parts` (clarifying FIDO2 iPhone NFC vs PIV macOS login, isolated applet PINs, and backup-card provisioning without cloning) and added `CHANGE_PIN` for `v1.3.0` to the MuSig2 roadmap row.
+- `docs/musig2-pin-and-hardening.md`: documented why `v1.2.0` MuSig2 (`SET_PIN` once-only, no `CHANGE_PIN`) stays frozen for live funded cards and scheduled transactional `CHANGE_PIN` (matching `ETH2`) for `v1.3.0`.
+
 ## 2026-11-24 — Nuri Card Setup.app: Nuri icon, FIDO2/PIV PIN verify & all-applet fix
 
 - `mac/AppIcon.png` + `scripts/build-mac-piv-app.sh`: bundle the official 1024×1024 Nuri icon into `AppIcon.icns` (`CFBundleIconFile`) and refresh app metadata.
