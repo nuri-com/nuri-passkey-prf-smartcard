@@ -1,5 +1,12 @@
 # NuriAuth: on-card PIN / fingerprint policy
 
+```mermaid
+flowchart LR
+  H["Host CLI / Nuri Card Setup.app"] -->|"PIN / Finger Check"| A["NuriAuth 4E5552494155544801"]
+  A --> G["On-card PIN / OR / AND gate"]
+  G -->|"Shareable Interface"| C["Protected Client 4E5552494155544802"]
+```
+
 Status 2026-11-20: **experimental protected-client bridge**, not yet wallet
 signer integration. NuriAuth owns a separate PIN and transient verification
 session. A second applet calls its Shareable Interface and cannot perform its

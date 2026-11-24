@@ -526,6 +526,29 @@ one applet can change one identity without changing another. PRF compatibility
 is a separate host-key path, not permission to substitute a remembered address.
 [Current integration boundaries](docs/arkade-lightning.md).
 
+### Moving parts: how the repo fits together
+
+```mermaid
+flowchart LR
+  Card["Physical Card Applets (FIDO2, MuSig2, ETH2, PIV, Vault, TOTP, NURI-SC, NuriAuth)"] --> PCSC["Serialized PC/SC Lock (scripts/nuri_pcsc.py)"]
+  PCSC --> Mac["Nuri Card Setup.app (mac/NuriCardSetup.swift)"]
+  PCSC --> CLI["Direct CLI Connect (bin/nuricard)"]
+  PCSC --> Ext["Chrome/Brave Extension + Host (extension/ + host/)"]
+  PCSC --> Agent["Home Cosigner, MCP, Vault, SSH (scripts/)"]
+```
+
+- **Native Mac app (`mac/NuriCardSetup.swift`):** Built via `npm run card:mac:app` (`scripts/build-mac-piv-app.sh`) into `Nuri Card Setup.app`. Lists every PC/SC card (`scripts/card-readers.py`), manages PIV PIN & macOS login pairing (`scripts/card-piv-setup.py`), Feitian fingerprints (`scripts/card_fingerprint.py`), and NuriAuth policy checks (`scripts/nuri_uv.py`).
+- **Direct CLI & Connect (`bin/nuricard`):** `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` approve `connect.nuri.com` sessions directly over PC/SC or USB-HID with native macOS PIN prompts (`host/webauthn_bridge.py`).
+- **Chrome/Brave extension + Native host:** `extension/` side-panel wallet + `host/nuri_card_host.py` native messaging host with multi-credential selector and inline creation-time PRF.
+- **Always-on Home Cosigner & Agent tools:** `scripts/home-cosigner/`, `scripts/card-mcp-server.mjs`, `scripts/card-secrets.py`, and OpenSSH (`scripts/ssh-pcsc-sk-helper.py`).
+- **Private NDA companion:** Vendor-specific biometric SDK builds (`MuSig2-UV`, `ETH2-UV`, Feitian SDK probes) live in `nuri-com/nuri-card-private-smartcard` ([private access](docs/private-access.md)).
+
+```sh
+python3 scripts/card-readers.py   # Read-only inventory of connected readers and cards
+npm run card:mac:app              # Build or update Nuri Card Setup.app
+bin/nuricard connect --probe      # Check PC/SC / USB-HID Nuri Connect readiness
+```
+
 ## Proven on a real card and latest findings
 
 The accepted `v1.1.0` release includes the reproducible **AID2 v1.15 PIN2**
@@ -604,13 +627,17 @@ explicit software simulator, not a physical card or a mainnet transfer.
 ## Feature status
 
 Status is path-specific: a real-card result does not qualify every applet revision,
-client, reader or transaction flow. Latest physical runs: 2026-10-28, card CPLC
-`87E5470B`, OMNIKEY 5422. Evidence (file:line), receipts and open items per row:
+client, reader or transaction flow. Latest physical runs: 2026-10-28 through
+2026-11-24 across cards `87E5470B`, `B2183751` and `57274221`. Evidence
+(file:line), receipts and open items per row:
 [feature status](docs/feature-status.md).
 
 | Feature / scope | Status |
 |---|---|
 | FIDO2 WebAuthn create/get with PRF (inline create PRF + multi-credential popup selector) | proven on a physical card |
+| Direct CLI Nuri Connect PRF approver (`bin/nuricard` connect over PC/SC or USB-HID) | proven on a physical card |
+| NIST SP 800-73-4 PIV (`A000000308000010000100`) + macOS CryptoTokenKit pairing & `Nuri Card Setup.app` | proven on a physical card |
+| [NuriAuth on-card PIN/fingerprint policy bridge](docs/user-verification.md) (experimental protected client; wallet signer binding pending) | proven on a physical card |
 | FIDO2 SSH bridge | proven on a physical card |
 | ETH1 digest signing without PIN | proven on a physical card |
 | ETH2 v2.1.0 PIN-gated digest signer | proven on a physical card |
@@ -877,7 +904,9 @@ restricted UI dependency; an ordinary public clone cannot build it alone.
 
 | Path | Contents |
 |---|---|
-| `card/` | MuSig2, ETH1, ETH2, TOTP, vault and NURI-SC v1 (`card/sc/`) applet sources |
+| `card/` | MuSig2, ETH1, ETH2, TOTP, vault, PIV (`card/piv/`), NuriAuth (`card/uv/`) and NURI-SC v1 (`card/sc/`) applet sources |
+| `mac/` | Native SwiftUI macOS setup app (`mac/NuriCardSetup.swift`, built via `scripts/build-mac-piv-app.sh` into `Nuri Card Setup.app`) |
+| `bin/` | Unified CLI entry point (`bin/nuricard`, including `--probe` and direct `connect.nuri.com` approval) |
 | `third_party/` and `patches/` | Vendored FIDO2/build sources and recorded changes |
 | `src/` | Host MuSig2/session implementation and simulators |
 | `host/` and `extension/` | Native browser bridge and Chrome prototype |

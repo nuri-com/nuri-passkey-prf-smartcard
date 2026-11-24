@@ -54,6 +54,9 @@ physical-card acceptance; historical evidence does not qualify new CAP revisions
 - [proofs/real-card-57274221-gp-lock.json](proofs/real-card-57274221-gp-lock.json) — 2026-10-30 real-card DIY GP key change: two lock/undo cycles verified, default key restored, existing-escrow refusal.
 - [proofs/real-card-87E5470B-secure-channel.json](proofs/real-card-87E5470B-secure-channel.json) — 2026-11-18 live physical-card NURI-SC v1 secure-channel receipt (`4E55524953433031` on `87E5470B` via `ACS ACR39U` `T=0`).
 - [proofs/real-card-57274221-piv.json](proofs/real-card-57274221-piv.json) / [proofs/real-card-87E5470B-piv.json](proofs/real-card-87E5470B-piv.json) — 2026-11-20 live physical-card NIST SP 800-73-4 PIV (`A000000308000010000100`, ECC P-256 `9A`+`9D`, macOS CryptoTokenKit `pivtoken`/`sc_auth`) receipts.
+- [proofs/real-card-87E5470B-feitian-fingerprint.json](proofs/real-card-87E5470B-feitian-fingerprint.json) — 2026-11-20 Feitian BioCARD 87E5470B FPSVCApplet SELECT/LIST hardware receipt (two pre-existing templates preserved).
+- [proofs/real-card-87E5470B-nuriauth.json](proofs/real-card-87E5470B-nuriauth.json) — 2026-11-20 Feitian BioCARD 87E5470B NuriAuth OR+PIN allow and AND+PIN-only deny hardware receipt.
+- [user-verification.md](user-verification.md) — Experimental NuriAuth on-card PIN/OR/AND fingerprint policy bridge, 86 simulator checks, and Feitian 87E5470B proof limits.
 - [reader-compatibility.md](reader-compatibility.md) — Shared PC/SC ladder, error handling and observed physical reader/card runs.
 - [feature-status.md](feature-status.md) — Per-feature status with file:line evidence, receipts and open items.
 - [real-card-key-handling.md](real-card-key-handling.md) — Separate GP/FIDO2/applet authorization and destructive identity lifecycle operations.

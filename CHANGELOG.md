@@ -6,6 +6,11 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-24 — Moving-parts architecture docs, feature-status sync & docs-links fix
+
+- `README.md`: added `Moving parts: how the repo fits together` diagram and build/run map covering `mac/NuriCardSetup.swift` (`Nuri Card Setup.app`), `bin/nuricard`, `extension/` + `host/`, `scripts/home-cosigner/`, and the `nuri-card-private-smartcard` NDA boundary; updated Feature Status and Repo Layout tables.
+- `docs/README.md`, `docs/user-verification.md`, `docs/feature-status.md`: indexed missing `user-verification.md` and `87E5470B` Feitian/NuriAuth receipts, added required Mermaid diagram to `docs/user-verification.md`, and synced stale planned rows with 2026-11-18..24 hardware proofs (`test/docs-links.test.js` green).
+
 ## 2026-11-24 — Direct CLI Nuri Connect approver over PC/SC + USB-HID PRF (`nuricard connect`)
 
 - Add `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` (`npm run connect:approve`, `bin/nuricard connect <approval_url>`) to approve `connect.nuri.com` sessions (`agent_grant`, `wallet_connect`, `ethereum_personal_sign`, `ethereum_typed_data`, `ethereum_transaction`, `nostr_event`) directly over PC/SC Nuri Smartcard or USB-HID FIDO2 security key via `host/webauthn_bridge.py` with zero browser or Chrome extension.
