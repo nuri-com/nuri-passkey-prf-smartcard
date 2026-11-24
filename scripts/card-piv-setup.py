@@ -207,6 +207,10 @@ class PivCard:
     def verify_pin(self, pin: str) -> None:
         p = _pad_pin(pin)
         _, sw = self.tx(bytes([0x00, 0x20, 0x00, 0x80, 0x08]) + p)
+        if sw == 0x6983:
+            raise RuntimeError("PIV PIN is blocked (0 tries left; use PUK to unblock)")
+        if (sw & 0xFFF0) == 0x63C0:
+            raise RuntimeError(f"Wrong PIV PIN ({sw & 0x0F} tries left)")
         if sw != 0x9000:
             raise RuntimeError(f"VERIFY PIN failed: {sw:04X}")
 
@@ -395,6 +399,11 @@ def main() -> int:
     ap.add_argument("--pin", default=DEFAULT_PIN, help="Current PIV PIN (default 123456)")
     ap.add_argument("--new-pin", help="Optionally change PIV PIN after verification")
     ap.add_argument(
+        "--verify-pin-stdin",
+        action="store_true",
+        help="Read 'pin\\n' from stdin and verify PIV PIN without changing it (avoids argv exposure)",
+    )
+    ap.add_argument(
         "--change-pin-stdin",
         action="store_true",
         help="Read 'old_pin\\nnew_pin\\n' from stdin and change PIV PIN (avoids argv exposure)",
@@ -409,6 +418,32 @@ def main() -> int:
 
     if not args.reader:
         ap.error("--reader is required unless --list-piv is set")
+
+    if args.verify_pin_stdin:
+        lines = sys.stdin.read().splitlines()
+        if not lines:
+            print(json.dumps({"ok": False, "error": "Expected PIN on stdin"}))
+            return 1
+        card = None
+        try:
+            card = PivCard(args.reader)
+            card.verify_pin(lines[0])
+            print(json.dumps({
+                "ok": True,
+                "card_serial": card.serial,
+                "reader": str(card.reader),
+                "pin_tries_left": card.pin_tries_left(),
+            }))
+            return 0
+        except Exception as e:
+            tries = None
+            if card is not None:
+                try:
+                    tries = card.pin_tries_left()
+                except Exception:
+                    tries = None
+            print(json.dumps({"ok": False, "error": str(e), "pin_tries_left": tries}))
+            return 1
 
     if args.change_pin_stdin:
         lines = sys.stdin.read().splitlines()

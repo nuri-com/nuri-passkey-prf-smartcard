@@ -4,17 +4,16 @@ import SwiftUI
 
 struct InventoryCard: Decodable {
     let reader: String
-    let protocolName: String
-    let cardSerial: String
+    let card: Bool
     let atr: String?
+    let serial: String?
     let chip: String?
+    let protocolName: String?
     let applets: [String]
 
     enum CodingKeys: String, CodingKey {
-        case reader
+        case reader, card, atr, serial, chip, applets
         case protocolName = "protocol"
-        case cardSerial = "card_serial"
-        case atr, chip, applets
     }
 }
 
@@ -44,6 +43,21 @@ struct PivCardInfo: Decodable, Equatable {
     }
 }
 
+struct FidoPinResult: Decodable {
+    let ok: Bool
+    let clientPin: Bool?
+    let pinRetries: Int?
+    let pinPowerCycleState: Bool?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, error
+        case clientPin = "client_pin"
+        case pinRetries = "pin_retries"
+        case pinPowerCycleState = "pin_power_cycle_state"
+    }
+}
+
 struct CardInfo: Identifiable, Equatable {
     let reader: String
     let protocolName: String
@@ -59,9 +73,13 @@ struct CardInfo: Identifiable, Equatable {
     var fingerprintSupported: Bool?
     var fingerprintCount: Int?
     var fingerprintBackend: String?
+    var fidoPinSet: Bool?
+    var fidoPinRetries: Int?
+    var fidoPowerCycle: Bool?
 
     var id: String { "\(cardSerial)|\(reader)" }
 
+    var supportsFido2: Bool { applets.contains("FIDO2") }
     var supportsPiv: Bool { applets.contains("PIV") }
     var supportsNuriAuth: Bool { applets.contains("NuriAuth") }
     var hasFingerprintSensor: Bool {
@@ -69,10 +87,10 @@ struct CardInfo: Identifiable, Equatable {
     }
     var supportsFeitianFingerprint: Bool { fingerprintSupported == true }
 
-    init(inventory: InventoryCard, piv: PivCardInfo?) {
+    init(inventory: InventoryCard, piv: PivCardInfo?, fido: FidoPinResult?) {
         self.reader = inventory.reader
-        self.protocolName = inventory.protocolName
-        self.cardSerial = inventory.cardSerial
+        self.protocolName = inventory.protocolName ?? piv?.protocolName ?? "default"
+        self.cardSerial = inventory.serial ?? piv?.cardSerial ?? "UNKNOWN"
         self.atr = inventory.atr
         self.chip = inventory.chip
         self.applets = inventory.applets
@@ -93,6 +111,9 @@ struct CardInfo: Identifiable, Equatable {
             self.fingerprintCount = nil
             self.fingerprintBackend = nil
         }
+        self.fidoPinSet = fido?.clientPin
+        self.fidoPinRetries = fido?.pinRetries
+        self.fidoPowerCycle = fido?.pinPowerCycleState
     }
 }
 
@@ -129,6 +150,9 @@ final class CardViewModel: ObservableObject {
     @Published var pairedHashes: Set<String> = []
     @Published var ctkVisibleHashes: Set<String> = []
 
+    @Published var fidoOldPin: String = ""
+    @Published var fidoNewPin: String = ""
+    @Published var fidoConfirmPin: String = ""
     @Published var oldPin: String = ""
     @Published var newPin: String = ""
     @Published var confirmPin: String = ""
@@ -167,6 +191,7 @@ final class CardViewModel: ObservableObject {
     private func scanCards() -> [CardInfo] {
         let invScript = repoPath + "/scripts/card-readers.py"
         let pivScript = repoPath + "/scripts/card-piv-setup.py"
+        let fidoScript = repoPath + "/scripts/manage-fido2-pin.py"
         let py = pythonPath
 
         let invOut = Self.runCommand(executable: py, args: [invScript, "--json"])
@@ -175,7 +200,7 @@ final class CardViewModel: ObservableObject {
         var inventory: [InventoryCard] = []
         if invOut.code == 0, let data = invOut.stdout.data(using: .utf8),
            let parsed = try? JSONDecoder().decode([InventoryCard].self, from: data) {
-            inventory = parsed
+            inventory = parsed.filter { $0.card }
         }
 
         var pivBySerial: [String: PivCardInfo] = [:]
@@ -184,23 +209,35 @@ final class CardViewModel: ObservableObject {
             for card in parsed { pivBySerial[card.cardSerial] = card }
         }
 
+        func probeFido(reader: String) -> FidoPinResult? {
+            let out = Self.runCommand(executable: py, args: [fidoScript, "status", "--json", "--reader", reader])
+            guard let data = out.stdout.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(FidoPinResult.self, from: data)
+        }
+
         // Prefer the full physical-card inventory; fall back to PIV-only if needed.
         if inventory.isEmpty {
             return pivBySerial.values.map { piv in
                 CardInfo(
                     inventory: InventoryCard(
                         reader: piv.reader,
-                        protocolName: piv.protocolName,
-                        cardSerial: piv.cardSerial,
+                        card: true,
                         atr: nil,
+                        serial: piv.cardSerial,
                         chip: nil,
+                        protocolName: piv.protocolName,
                         applets: ["PIV"]
                     ),
-                    piv: piv
+                    piv: piv,
+                    fido: nil
                 )
             }
         }
-        return inventory.map { CardInfo(inventory: $0, piv: pivBySerial[$0.cardSerial]) }
+        return inventory.map { inv in
+            let serial = inv.serial ?? ""
+            let fido = inv.applets.contains("FIDO2") ? probeFido(reader: inv.reader) : nil
+            return CardInfo(inventory: inv, piv: pivBySerial[serial], fido: fido)
+        }
     }
 
     func refresh() {
@@ -232,6 +269,173 @@ final class CardViewModel: ObservableObject {
                     self.statusIsError = false
                     self.statusText = "Found \(decodedCards.count) card(s)."
                 }
+            }
+        }
+    }
+
+    func verifyFidoPin() {
+        guard let card = selectedCard, card.supportsFido2 else {
+            statusIsError = true
+            statusText = "Selected card has no FIDO2 applet."
+            return
+        }
+        guard !fidoOldPin.isEmpty else {
+            statusIsError = true
+            statusText = "Enter current FIDO2 PIN to verify."
+            return
+        }
+        let py = pythonPath
+        let script = repoPath + "/scripts/manage-fido2-pin.py"
+        let reader = card.reader
+        let payload = fidoOldPin + "\n"
+
+        busy = true
+        statusIsError = false
+        statusText = "Verifying FIDO2 PIN on card \(card.cardSerial)..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = Self.runCommand(
+                executable: py,
+                args: [script, "verify", "--stdin", "--json", "--reader", reader],
+                stdinText: payload
+            )
+            let parsed = res.stdout.data(using: .utf8).flatMap {
+                try? JSONDecoder().decode(FidoPinResult.self, from: $0)
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                if res.code == 0, parsed?.ok == true {
+                    let retries = parsed?.pinRetries ?? 8
+                    self.statusIsError = false
+                    self.statusText = "FIDO2 PIN OK on card \(card.cardSerial)! (\(retries)/8 tries left)"
+                } else {
+                    var msg = parsed?.error ?? res.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let retries = parsed?.pinRetries {
+                        msg += " (\(retries)/8 tries left)"
+                    }
+                    if parsed?.pinPowerCycleState == true || msg.contains("PIN_AUTH_BLOCKED") {
+                        msg += " — lift and re-insert the card to clear soft-lock."
+                    }
+                    self.statusIsError = true
+                    self.statusText = msg.isEmpty ? "FIDO2 PIN verification failed." : msg
+                }
+                self.refreshKeepStatus()
+            }
+        }
+    }
+
+    func changeFidoPin() {
+        guard let card = selectedCard, card.supportsFido2 else {
+            statusIsError = true
+            statusText = "Selected card has no FIDO2 applet."
+            return
+        }
+        guard !fidoOldPin.isEmpty else {
+            statusIsError = true
+            statusText = "Enter current FIDO2 PIN."
+            return
+        }
+        guard (4...63).contains(fidoNewPin.count) else {
+            statusIsError = true
+            statusText = "New FIDO2 PIN must be 4–63 characters."
+            return
+        }
+        guard fidoNewPin == fidoConfirmPin else {
+            statusIsError = true
+            statusText = "New FIDO2 PIN and confirmation do not match."
+            return
+        }
+        guard fidoOldPin != fidoNewPin else {
+            statusIsError = true
+            statusText = "New FIDO2 PIN must be different from current PIN."
+            return
+        }
+
+        let py = pythonPath
+        let script = repoPath + "/scripts/manage-fido2-pin.py"
+        let reader = card.reader
+        let payload = "\(fidoOldPin)\n\(fidoNewPin)\n"
+
+        busy = true
+        statusIsError = false
+        statusText = "Changing FIDO2 PIN on card \(card.cardSerial)..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = Self.runCommand(
+                executable: py,
+                args: [script, "change", "--stdin", "--json", "--reader", reader],
+                stdinText: payload
+            )
+            let parsed = res.stdout.data(using: .utf8).flatMap {
+                try? JSONDecoder().decode(FidoPinResult.self, from: $0)
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                if res.code == 0, parsed?.ok == true {
+                    self.fidoOldPin = ""
+                    self.fidoNewPin = ""
+                    self.fidoConfirmPin = ""
+                    self.statusIsError = false
+                    self.statusText = "FIDO2 PIN updated on card \(card.cardSerial)!"
+                    self.refreshKeepStatus()
+                } else {
+                    var msg = parsed?.error ?? res.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let retries = parsed?.pinRetries {
+                        msg += " (\(retries)/8 tries left)"
+                    }
+                    if parsed?.pinPowerCycleState == true || msg.contains("PIN_AUTH_BLOCKED") {
+                        msg += " — lift and re-insert the card to clear soft-lock."
+                    }
+                    self.statusIsError = true
+                    self.statusText = msg.isEmpty ? "FIDO2 PIN change failed." : msg
+                    self.refreshKeepStatus()
+                }
+            }
+        }
+    }
+
+    func verifyPivPin() {
+        guard let card = selectedCard, card.supportsPiv else {
+            statusIsError = true
+            statusText = "Selected card has no PIV applet."
+            return
+        }
+        guard !oldPin.isEmpty else {
+            statusIsError = true
+            statusText = "Enter current PIV PIN to verify (default is 123456)."
+            return
+        }
+
+        let py = pythonPath
+        let script = repoPath + "/scripts/card-piv-setup.py"
+        let reader = card.reader
+        let payload = oldPin + "\n"
+
+        busy = true
+        statusIsError = false
+        statusText = "Verifying PIV PIN on card \(card.cardSerial)..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = Self.runCommand(
+                executable: py,
+                args: [script, "--reader", reader, "--verify-pin-stdin"],
+                stdinText: payload
+            )
+            let parsed = res.stdout.data(using: .utf8).flatMap {
+                try? JSONDecoder().decode(ChangePinResult.self, from: $0)
+            }
+            DispatchQueue.main.async {
+                self.busy = false
+                if res.code == 0, parsed?.ok == true {
+                    let tries = parsed?.pinTriesLeft ?? 5
+                    self.statusIsError = false
+                    self.statusText = "PIV PIN OK on card \(card.cardSerial)! (\(tries)/5 tries left)"
+                } else {
+                    let msg = parsed?.error ?? res.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.statusIsError = true
+                    self.statusText = msg.isEmpty ? "PIV PIN verification failed." : msg
+                }
+                self.refreshKeepStatus()
             }
         }
     }
@@ -582,12 +786,13 @@ struct ContentView: View {
     @StateObject private var vm = CardViewModel()
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Nuri Card — Mac Setup")
                         .font(.title2.bold())
-                    Text("Change PIV PIN & register card for macOS login / sudo")
+                    Text("Verify & change FIDO2 / PIV PINs, Mac login pairing & fingerprints")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -613,6 +818,9 @@ struct ContentView: View {
                         }
                         .labelsHidden()
                         .onChange(of: vm.selectedCardId) { _ in
+                            vm.fidoOldPin = ""
+                            vm.fidoNewPin = ""
+                            vm.fidoConfirmPin = ""
                             vm.oldPin = ""
                             vm.newPin = ""
                             vm.confirmPin = ""
@@ -640,6 +848,19 @@ struct ContentView: View {
                                 Text("Fingerprint sensor: \(c.hasFingerprintSensor ? (c.supportsFeitianFingerprint ? "Feitian (supported)" : "IDEX (not yet supported in app)") : "none")")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
+                                if c.supportsFido2 {
+                                    HStack(spacing: 10) {
+                                        let triesText = c.fidoPinRetries.map { "\($0)/8" } ?? (c.fidoPinSet == false ? "not set" : "?")
+                                        Label("FIDO2 PIN tries: \(triesText)", systemImage: "person.badge.key.fill")
+                                            .font(.caption)
+                                            .foregroundColor((c.fidoPinRetries ?? 8) <= 2 ? .red : .secondary)
+                                        if c.fidoPowerCycle == true {
+                                            Text("Re-insert card to clear soft-lock")
+                                                .font(.caption2.bold())
+                                                .foregroundColor(.orange)
+                                        }
+                                    }
+                                }
                                 if c.supportsPiv, let tries = c.pinTriesLeft {
                                     let isPaired = vm.pairedHashes.contains((c.authHash ?? "").uppercased())
                                     HStack(spacing: 10) {
@@ -666,25 +887,52 @@ struct ContentView: View {
                 .padding(6)
             }
 
-            // Change PIV PIN
-            GroupBox("1. Change PIV PIN") {
+            if let c = vm.selectedCard, c.supportsFido2 {
+                GroupBox("1. FIDO2 PIN — Passkey / Apple Security Key / Wallet") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SecureField("Current FIDO2 PIN", text: $vm.fidoOldPin)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("New FIDO2 PIN (4–63 characters, only to change)", text: $vm.fidoNewPin)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("Confirm New FIDO2 PIN", text: $vm.fidoConfirmPin)
+                            .textFieldStyle(.roundedBorder)
+                        HStack {
+                            Text("No PUK on FIDO2 · 8 tries max (3 wrong = re-tap)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Verify FIDO2 PIN") { vm.verifyFidoPin() }
+                                .disabled(vm.busy)
+                            Button("Change FIDO2 PIN") { vm.changeFidoPin() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(vm.busy)
+                        }
+                    }
+                    .padding(6)
+                }
+            }
+
+            // Change / Verify PIV PIN
+            GroupBox("2. PIV PIN — macOS Login & sudo") {
                 VStack(alignment: .leading, spacing: 8) {
                     if let c = vm.selectedCard, !c.supportsPiv {
-                        Text("This card has no PIV applet; PIV PIN change is disabled.")
+                        Text("This card has no PIV applet; PIV PIN actions are disabled.")
                             .font(.caption)
                             .foregroundColor(.orange)
                     }
-                    SecureField("Current PIN (default: 123456)", text: $vm.oldPin)
+                    SecureField("Current PIV PIN (default: 123456)", text: $vm.oldPin)
                         .textFieldStyle(.roundedBorder)
-                    SecureField("New PIN (6–8 characters)", text: $vm.newPin)
+                    SecureField("New PIV PIN (6–8 characters, only to change)", text: $vm.newPin)
                         .textFieldStyle(.roundedBorder)
-                    SecureField("Confirm New PIN", text: $vm.confirmPin)
+                    SecureField("Confirm New PIV PIN", text: $vm.confirmPin)
                         .textFieldStyle(.roundedBorder)
                     HStack {
                         Text("PUK default: 12345678")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         Spacer()
+                        Button("Verify PIV PIN") { vm.verifyPivPin() }
+                            .disabled(vm.busy || vm.selectedCard == nil || !(vm.selectedCard?.supportsPiv ?? false))
                         Button("Change PIN") { vm.changePin() }
                             .buttonStyle(.borderedProminent)
                             .disabled(vm.busy || vm.selectedCard == nil || !(vm.selectedCard?.supportsPiv ?? false))
@@ -694,7 +942,7 @@ struct ContentView: View {
             }
 
             // Register / Unpair with Mac
-            GroupBox("2. Register Card with This Mac") {
+            GroupBox("3. Register Card with This Mac") {
                 VStack(alignment: .leading, spacing: 8) {
                     if let c = vm.selectedCard {
                         if c.supportsPiv {
@@ -737,7 +985,7 @@ struct ContentView: View {
             }
 
             if let c = vm.selectedCard, c.hasFingerprintSensor {
-                GroupBox("3. Fingerprints — Match on Card") {
+                GroupBox("4. Fingerprints — Match on Card") {
                     VStack(alignment: .leading, spacing: 8) {
                         if c.supportsFeitianFingerprint {
                             Text("\(c.fingerprintCount ?? 0) enrolled template(s) · images and templates never leave the card")
@@ -764,7 +1012,7 @@ struct ContentView: View {
             }
 
             if let c = vm.selectedCard, c.supportsNuriAuth {
-                GroupBox("4. NuriAuth — PIN / Fingerprint Policy") {
+                GroupBox("5. NuriAuth — PIN / Fingerprint Policy") {
                     VStack(alignment: .leading, spacing: 8) {
                         SecureField("NuriAuth PIN (separate from PIV)", text: $vm.uvPin)
                             .textFieldStyle(.roundedBorder)
@@ -804,8 +1052,13 @@ struct ContentView: View {
             .padding(.top, 2)
         }
         .padding(18)
-        .frame(width: 470)
+        }
+        .frame(width: 500, height: 740)
         .onAppear {
+            if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+               let icon = NSImage(contentsOfFile: iconPath) {
+                NSApp.applicationIconImage = icon
+            }
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             vm.refresh()

@@ -537,7 +537,7 @@ flowchart LR
   PCSC --> Agent["Home Cosigner, MCP, Vault, SSH (scripts/)"]
 ```
 
-- **Native Mac app (`mac/NuriCardSetup.swift`):** Built via `npm run card:mac:app` (`scripts/build-mac-piv-app.sh`) into `Nuri Card Setup.app`. Lists every PC/SC card (`scripts/card-readers.py`), manages PIV PIN & macOS login pairing (`scripts/card-piv-setup.py`), Feitian fingerprints (`scripts/card_fingerprint.py`), and NuriAuth policy checks (`scripts/nuri_uv.py`).
+- **Native Mac app (`mac/NuriCardSetup.swift`):** Built via `npm run card:mac:app` (`scripts/build-mac-piv-app.sh`) into `Nuri Card Setup.app` (bundled with `mac/AppIcon.png`). Lists every PC/SC card (`scripts/card-readers.py`), verifies/changes FIDO2 PIN (`scripts/manage-fido2-pin.py`), verifies/changes PIV PIN & macOS login pairing (`scripts/card-piv-setup.py`), manages Feitian fingerprints (`scripts/card_fingerprint.py`), and runs NuriAuth policy checks (`scripts/nuri_uv.py`).
 - **Direct CLI & Connect (`bin/nuricard`):** `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` approve `connect.nuri.com` sessions directly over PC/SC or USB-HID with native macOS PIN prompts (`host/webauthn_bridge.py`).
 - **Chrome/Brave extension + Native host:** `extension/` side-panel wallet + `host/nuri_card_host.py` native messaging host with multi-credential selector and inline creation-time PRF.
 - **Always-on Home Cosigner & Agent tools:** `scripts/home-cosigner/`, `scripts/card-mcp-server.mjs`, `scripts/card-secrets.py`, and OpenSSH (`scripts/ssh-pcsc-sk-helper.py`).

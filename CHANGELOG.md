@@ -6,6 +6,12 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-24 — Nuri Card Setup.app: Nuri icon, FIDO2/PIV PIN verify & all-applet fix
+
+- `mac/AppIcon.png` + `scripts/build-mac-piv-app.sh`: bundle the official 1024×1024 Nuri icon into `AppIcon.icns` (`CFBundleIconFile`) and refresh app metadata.
+- `mac/NuriCardSetup.swift`: fix `InventoryCard` JSON decoding against `scripts/card-readers.py --json` (so `FIDO2`, `Feitian-FP`, `NuriAuth`, ATR, and chip metadata display again), add **FIDO2 PIN Verify / Change** (`8`-try counter + soft-lock hint) and **PIV PIN Verify**, and make the window scrollable.
+- `scripts/manage-fido2-pin.py` (`--reader`, `--stdin`, `--json`) and `scripts/card-piv-setup.py` (`--verify-pin-stdin`): non-argv stdin/JSON PIN verification and status probes.
+
 ## 2026-11-24 — Moving-parts architecture docs, feature-status sync & docs-links fix
 
 - `README.md`: added `Moving parts: how the repo fits together` diagram and build/run map covering `mac/NuriCardSetup.swift` (`Nuri Card Setup.app`), `bin/nuricard`, `extension/` + `host/`, `scripts/home-cosigner/`, and the `nuri-card-private-smartcard` NDA boundary; updated Feature Status and Repo Layout tables.
