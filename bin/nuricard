@@ -24,6 +24,7 @@ ENTRIES=(
   "Build TOTP applet CAP|card:totp:build"
 
   "H|FIDO2 / Passkey"
+  "Approve Nuri Connect URL directly via card|connect_prompt"
   "WebAuthn PRF card test|card:test"
   "WebAuthn PRF card test (PIN/UV required)|card:test:pin"
   "PIN status|card:pin:status"
@@ -82,6 +83,9 @@ dispatch() {
     totp_put)
       local s; read -r -p "BASE32 secret: " s || true
       if [ -n "${s// /}" ]; then run card:totp -- put "$s"; else echo "No secret entered, aborted."; fi ;;
+    connect_prompt)
+      local u; read -r -p "Nuri Connect approval URL or session ID: " u || true
+      if [ -n "${u// /}" ]; then run connect:approve -- "$u"; else echo "No URL entered, aborted."; fi ;;
     APPLETS) gp -r "$GP_READER" -l 2>&1 | grep -E 'APP:|PKG:' || true ;;
     ALLCMDS) npm run 2>/dev/null | grep -E '^  [a-z]' || true ;;
     RESET)
@@ -134,11 +138,14 @@ case "$cmd" in
     menu ;;
   help|--help|-h)
     echo "nuricard                    interactive menu (idiot-proof)"
+    echo "nuricard connect <url>      approve a connect.nuri.com link directly via card (no browser/extension)"
     echo "nuricard totp               current TOTP code from the card"
     echo "nuricard totp put \"BASE32\"   store a TOTP secret on the card"
     echo "nuricard <npm-script> [-- args]   run any command from package.json"
     echo
     npm run 2>/dev/null | grep -E '^  [a-z]' || true ;;
+  connect)
+    exec npm run --silent connect:approve -- "$@" ;;
   totp)
     if [ "${1:-}" = "put" ]; then shift; exec npm run --silent card:totp -- put "$@"; fi
     exec npm run --silent card:totp -- code "$@" ;;

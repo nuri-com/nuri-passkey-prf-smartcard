@@ -6,6 +6,13 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-24 — Direct CLI Nuri Connect approver over PC/SC PRF (`nuricard connect`)
+
+- Add `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` (`npm run connect:approve`, `bin/nuricard connect <approval_url>`) to approve `connect.nuri.com` sessions (`agent_grant`, `wallet_connect`, `ethereum_personal_sign`, `ethereum_typed_data`, `ethereum_transaction`, `nostr_event`) directly over PC/SC via `host/webauthn_bridge.py` with zero browser or Chrome extension.
+- Zero new npm dependencies: implements RFC draft-irtf-cfrg-xchacha `HChaCha20` + `XChaCha20-Poly1305` over Node's native `chacha20-poly1305`, byte-identical Nuri wallet & Agent Grant derivation, masked `/dev/tty` or `NURI_CARD_PIN_FD` PIN handling with immediate buffer zeroization, and optional CTAP2 `CredentialManagement` ES256 SPKI lookup.
+- Update `scripts/run-card-python.sh` to reuse an up-to-date Python 3.10+ venv and auto-discover Homebrew `python3.13`/`3.14` when macOS `/usr/bin/python3` is 3.9.
+- Add `test/connect-approve.test.js` (5/5 passing: RFC XChaCha20-Poly1305 vectors, origin guard, wallet/agent round-trip, and mock end-to-end `agent_grant` approval; cross-verified byte-for-byte against `wallet-paymentrequired-com`).
+
 ## 2026-11-23 — Card WebAuthn multi-credential selection & inline creation PRF
 
 - `host/webauthn_bridge.py`: return public credential descriptors (`id`, `name`,

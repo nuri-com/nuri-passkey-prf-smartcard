@@ -108,6 +108,7 @@
     "nuri:wallet:address": "node scripts/nuri-card-wallet.mjs address",
     "nuri:wallet:utxos": "node scripts/nuri-card-wallet.mjs utxos",
     "nuri:wallet:spend": "node scripts/nuri-card-wallet.mjs spend",
+    "connect:approve": "node scripts/connect-approve.mjs",
     "arkade:send": "node scripts/send/cli.mjs",
     "arkade:proof": "node scripts/send/e2e-proof.mjs"
   },
