@@ -2,12 +2,22 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Repeat passes only on manual runs; PRs and pushes run each suite once.
+  REPEAT: ${{ github.event_name == 'workflow_dispatch' && 3 || 1 }}
+
 jobs:
   node-tests:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +28,7 @@ jobs:
       - run: npm ci
       - name: Live read-only proof, no card or signing credentials
         run: node scripts/send/e2e-proof.mjs --dry-run
-      - run: for run in 1 2 3; do npm test; done
+      - run: for run in $(seq "$REPEAT"); do npm test; done
       - name: Validate README and proof diagrams with negative control
         run: |
           npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund mermaid@11.12.0 jsdom@26.1.0
@@ -39,11 +49,13 @@ jobs:
         if: always()
         with:
           name: card-e2e-dry-proof
+          retention-days: 14
           path: |
             docs/e2e-proof.md
             docs/proofs/e2e-proof.json
 
   chrome-extension:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,18 +77,20 @@ jobs:
           fi
       - name: Real Chromium UI and Python native messaging, explicit simulator
         run: |
-          for run in 1 2 3; do
+          for run in $(seq "$REPEAT"); do
             python extension/test/browser_e2e.py "$RUNNER_TEMP/Nuri Card" "$RUNNER_TEMP/evidence-$run"
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: nuri-card-chrome-prototype
+          retention-days: 14
           path: |
             ${{ runner.temp }}/Nuri Card.zip
             ${{ runner.temp }}/evidence-*
 
   card-release:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +129,7 @@ jobs:
       - run: python3 -m unittest discover -s test -p test_nuri_pcsc.py -v
 
   virtual-card:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
