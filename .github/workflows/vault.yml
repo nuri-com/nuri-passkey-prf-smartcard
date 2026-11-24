@@ -11,11 +11,19 @@ on:
       - 'scripts/*vault*'
       - 'scripts/card-secrets.py'
       - '.github/workflows/vault.yml'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Repeat passes only on manual runs; PRs and pushes run each suite once.
+  REPEAT: ${{ github.event_name == 'workflow_dispatch' && 3 || 1 }}
 permissions:
   contents: read
 jobs:
   vault:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,9 +43,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes ant
       # Only the vault's already-pinned dependency; no PC/SC package or reader needed.
       - run: python3 -m pip install cryptography==48.0.1
-      - name: Simulator and broker checks (three independent passes)
+      - name: Simulator and broker checks (repeated three times on manual runs)
         run: |
-          for pass in 1 2 3; do
+          for pass in $(seq "$REPEAT"); do
             bash scripts/test-vault-sim.sh
             python3 -m unittest discover -s test -p 'test_card_secrets*.py' -v
             python3 -m unittest discover -s test -p 'test_vault*.py' -v
