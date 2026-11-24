@@ -171,7 +171,7 @@ test("approveConnectSession completes agent_grant end-to-end against mock connec
   assert.equal(res.status, "approved");
   assert.equal(postedBody.session_id, sessionId);
   assert.equal(postedBody.cred_id_b64u, "mockCredId");
-  assert.equal(postedBody.credential_pubkey_b64u, "mockSpkiPubkeyB64u");
+  assert.equal(postedBody.credential_pubkey_b64u, undefined);
 
   // Verify the main EOA signature over agentGrantProofMessage and E2EE bundle decryption.
   const expectedMsg = agentGrantProofMessage({

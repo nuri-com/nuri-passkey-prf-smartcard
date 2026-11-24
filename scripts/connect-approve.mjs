@@ -559,6 +559,35 @@ export function parseConnectInput(input, originOverride = null) {
   throw new Error(`cannot_parse_session_id: ${raw}`);
 }
 
+export function probeHardwareKey() {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(
+      resolve(ROOT, "scripts/run-card-python.sh"),
+      [resolve(ROOT, "scripts/connect-card-webauthn.py"), "--probe"],
+      { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: process.env },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (c) => { stdout += c; });
+    child.stderr.on("data", (c) => { stderr += c; });
+    child.on("error", rejectPromise);
+    child.on("close", () => {
+      const line = stdout.trim().split("\n").pop() || "";
+      if (!line) {
+        resolvePromise({ ok: false, available: false, reason: stderr.trim() || "probe_empty" });
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(line));
+      } catch (err) {
+        resolvePromise({ ok: false, available: false, reason: `probe_bad_json: ${err.message}` });
+      }
+    });
+  });
+}
+
 export function defaultCardBridge(requestObj) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(
@@ -643,6 +672,7 @@ export async function approveConnectSession({
   }
 
   // Print concise human-readable approval summary before touching card.
+  let summary = `${session.kind}/${operation}`;
   log(`Session:   ${session.session_id} (${session.kind}/${operation})`);
   if (operation === "agent_grant") {
     const req = validateAgentGrantPayload(payload);
@@ -651,8 +681,10 @@ export async function approveConnectSession({
     if (req.policy.daily_limit_usdc) lims.push(`<= ${req.policy.daily_limit_usdc} USDC/day`);
     if (req.policy.max_per_tx_sats !== undefined) lims.push(`<= ${req.policy.max_per_tx_sats} sats/tx`);
     if (req.policy.daily_limit_sats !== undefined) lims.push(`<= ${req.policy.daily_limit_sats} sats/day`);
-    log(`Action:    Authorize Nuri Agent Wallet (slot #${req.index}) ${lims.length ? `[${lims.join(", ")}]` : ""}`);
+    summary = `Authorize Nuri Agent Wallet (slot #${req.index})${lims.length ? `\nLimits: ${lims.join(", ")}` : ""}`;
+    log(`Action:    ${summary.replace("\n", " — ")}`);
   } else if (typeof payload.message === "string" && payload.message) {
+    summary = `Sign (${operation}): ${payload.message.slice(0, 140)}`;
     log(`Message:   ${payload.message.slice(0, 160)}`);
   }
 
@@ -671,8 +703,10 @@ export async function approveConnectSession({
 
   const bridgeRes = await cardBridge({
     kind: "get",
+    summary,
+    interactive_tty: Boolean(process.stdin.isTTY),
     params: { origin: DEFAULT_CONNECT_ORIGIN, publicKey },
-    include_cred_pubkey: true,
+    include_cred_pubkey: false,
   });
   if (!bridgeRes?.ok) {
     const err = new Error(`${bridgeRes?.code || "CARD_ERROR"}: ${bridgeRes?.error || "card failed"}`);
@@ -723,8 +757,11 @@ export async function approveConnectSession({
       result = await signWalletOperation(operation, payload, wallet);
     }
 
-    const credentialPubkeyB64u =
-      session.credential_pubkey_b64u || bridgeRes.credential_pubkey_b64u || undefined;
+    // Mirror connect.nuri.com browser approval-client.ts: only submit
+    // credential_pubkey_b64u when the session already carries it (Connect DO
+    // looks up any previously bound credential_pubkey_b64u server-side, and
+    // legacy/card credentials without an arkade fingerprint verify via main EOA sig).
+    const credentialPubkeyB64u = session.credential_pubkey_b64u || undefined;
 
     completionBody = {
       session_id: session.session_id,
@@ -772,13 +809,14 @@ export async function approveConnectSession({
 }
 
 function parseCliArgs(argv) {
-  const out = { input: null, credId: null, originOverride: null, dryRun: false, json: false };
+  const out = { input: null, credId: null, originOverride: null, dryRun: false, json: false, probe: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--cred" && argv[i + 1]) out.credId = argv[++i];
     else if (a === "--origin" && argv[i + 1]) out.originOverride = argv[++i];
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--json") out.json = true;
+    else if (a === "--probe") out.probe = true;
     else if (a === "-h" || a === "--help") out.help = true;
     else if (!a.startsWith("-") && !out.input) out.input = a;
   }
@@ -788,32 +826,44 @@ function parseCliArgs(argv) {
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = parseCliArgs(process.argv.slice(2));
-  if (args.help || !args.input) {
-    console.log("Usage: nuricard connect <approval_url_or_session_id> [--cred <id>] [--dry-run] [--json]");
-    process.exit(args.help ? 0 : 1);
-  }
-  approveConnectSession(args)
-    .then((res) => {
-      if (args.json) {
+  if (args.probe) {
+    probeHardwareKey()
+      .then((res) => {
         console.log(JSON.stringify(res, null, 2));
-      } else {
-        console.log(`Approved:  ${res.session_id} (${res.operation})${res.dry_run ? " [DRY RUN]" : ""}`);
-        console.log(`Main EOA:  ${res.wallet.eth_user_eoa}`);
-        console.log(`Main BTC:  ${res.wallet.bitcoin_address}`);
-        if (res.agent_public) {
-          console.log(`Agent EOA: ${res.agent_public.agent_eth_eoa} (slot #${res.agent_public.index})`);
-          console.log(`Agent BTC: ${res.agent_public.agent_btc_public_key_33_hex}`);
+        process.exit(res.available ? 0 : 2);
+      })
+      .catch((err) => {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      });
+  } else if (args.help || !args.input) {
+    console.log("Usage: nuricard connect <approval_url_or_session_id> [--cred <id>] [--dry-run] [--json]");
+    console.log("       nuricard connect --probe");
+    process.exit(args.help ? 0 : 1);
+  } else {
+    approveConnectSession(args)
+      .then((res) => {
+        if (args.json) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          console.log(`Approved:  ${res.session_id} (${res.operation})${res.dry_run ? " [DRY RUN]" : ""}`);
+          console.log(`Main EOA:  ${res.wallet.eth_user_eoa}`);
+          console.log(`Main BTC:  ${res.wallet.bitcoin_address}`);
+          if (res.agent_public) {
+            console.log(`Agent EOA: ${res.agent_public.agent_eth_eoa} (slot #${res.agent_public.index})`);
+            console.log(`Agent BTC: ${res.agent_public.agent_btc_public_key_33_hex}`);
+          }
         }
-      }
-    })
-    .catch((err) => {
-      console.error(`Error: ${err.message}`);
-      if (err.code === "AMBIGUOUS_CREDENTIAL" && Array.isArray(err.extra?.credentials)) {
-        console.error("Multiple credentials on card — re-run with --cred <id>:");
-        for (const c of err.extra.credentials) {
-          console.error(`  ${c.id}  ${c.name || c.displayName || ""}`);
+      })
+      .catch((err) => {
+        console.error(`Error: ${err.message}`);
+        if (err.code === "AMBIGUOUS_CREDENTIAL" && Array.isArray(err.extra?.credentials)) {
+          console.error("Multiple credentials on card — re-run with --cred <id>:");
+          for (const c of err.extra.credentials) {
+            console.error(`  ${c.id}  ${c.name || c.displayName || ""}`);
+          }
         }
-      }
-      process.exit(1);
-    });
+        process.exit(1);
+      });
+  }
 }

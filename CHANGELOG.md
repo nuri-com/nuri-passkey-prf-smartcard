@@ -6,11 +6,12 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
-## 2026-11-24 — Direct CLI Nuri Connect approver over PC/SC PRF (`nuricard connect`)
+## 2026-11-24 — Direct CLI Nuri Connect approver over PC/SC + USB-HID PRF (`nuricard connect`)
 
-- Add `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` (`npm run connect:approve`, `bin/nuricard connect <approval_url>`) to approve `connect.nuri.com` sessions (`agent_grant`, `wallet_connect`, `ethereum_personal_sign`, `ethereum_typed_data`, `ethereum_transaction`, `nostr_event`) directly over PC/SC via `host/webauthn_bridge.py` with zero browser or Chrome extension.
-- Zero new npm dependencies: implements RFC draft-irtf-cfrg-xchacha `HChaCha20` + `XChaCha20-Poly1305` over Node's native `chacha20-poly1305`, byte-identical Nuri wallet & Agent Grant derivation, masked `/dev/tty` or `NURI_CARD_PIN_FD` PIN handling with immediate buffer zeroization, and optional CTAP2 `CredentialManagement` ES256 SPKI lookup.
-- Update `scripts/run-card-python.sh` to reuse an up-to-date Python 3.10+ venv and auto-discover Homebrew `python3.13`/`3.14` when macOS `/usr/bin/python3` is 3.9.
+- Add `scripts/connect-approve.mjs` + `scripts/connect-card-webauthn.py` (`npm run connect:approve`, `bin/nuricard connect <approval_url>`) to approve `connect.nuri.com` sessions (`agent_grant`, `wallet_connect`, `ethereum_personal_sign`, `ethereum_typed_data`, `ethereum_transaction`, `nostr_event`) directly over PC/SC Nuri Smartcard or USB-HID FIDO2 security key via `host/webauthn_bridge.py` with zero browser or Chrome extension.
+- Add read-only hardware probe (`nuricard connect --probe`) and native macOS hidden-input PIN + credential-chooser dialogs (`osascript`) for non-TTY AI agent shells so PINs go directly from macOS UI into card memory (zeroized in `finally`) without entering chat/LLM context.
+- Align `credential_pubkey_b64u` submission with `connect.nuri.com` browser behavior (avoids `arkade_credential_pubkey_mismatch` on legacy/card credentials); verified live end-to-end on OMNIKEY 5422 (`HID Global OMNIKEY 5422 Smartcard Reader 01`) approving `wallet.nuri.com` `agent_grant` session `b90105da...` → `0x408Eae4b6A41e9205ccD35c0A38a8A439C34e495`.
+- Zero new npm dependencies: implements RFC draft-irtf-cfrg-xchacha `HChaCha20` + `XChaCha20-Poly1305` over Node's native `chacha20-poly1305`, byte-identical Nuri wallet & Agent Grant derivation, and `scripts/run-card-python.sh` Python 3.10+ venv fast-path + Homebrew auto-discovery.
 - Add `test/connect-approve.test.js` (5/5 passing: RFC XChaCha20-Poly1305 vectors, origin guard, wallet/agent round-trip, and mock end-to-end `agent_grant` approval; cross-verified byte-for-byte against `wallet-paymentrequired-com`).
 
 ## 2026-11-23 — Card WebAuthn multi-credential selection & inline creation PRF
