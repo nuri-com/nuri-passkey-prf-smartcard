@@ -756,13 +756,24 @@ def handle(request: Any) -> dict[str, Any]:
                     pin_buf = _pin_buffer(pin)
                     pin = None
                 return ok_response(req_id, bc.handle_sign_partial(params, pin_buf))
+        if method in ("totp_status", "totp_code", "totp_put"):
+            import totp_commands as tc
+            if method == "totp_status":
+                return ok_response(req_id, tc.handle_status(params))
+            if method == "totp_code":
+                return ok_response(req_id, tc.handle_code(params))
+            if not isinstance(params, dict):
+                raise HostError("BAD_REQUEST", "params must be an object")
+            pin_buf = _pin_buffer(pin) if pin is not None else None
+            pin = None
+            return ok_response(req_id, tc.handle_put(params, pin_buf))
         raise HostError("BAD_REQUEST", f"unknown method {method!r}")
     except HostError as exc:
         if exc.code == "CARD_CHANGED":
             _reset_session()
         return error_response(req_id, exc.code, exc.message, exc.extra)
     except Exception as exc:  # never leak a traceback as a crash; report it
-        if method in ("verify_pin", "webauthn_create", "webauthn_get", "bitcoin_sign_partial"):
+        if method in ("verify_pin", "webauthn_create", "webauthn_get", "bitcoin_sign_partial", "totp_put"):
             # The exception text may embed APDU bytes (the PIN): never echo it.
             return error_response(req_id, "CARD_ERROR", f"internal error during {method} ({type(exc).__name__})")
         return error_response(req_id, "CARD_ERROR", f"{type(exc).__name__}: {exc}")
@@ -771,6 +782,7 @@ def handle(request: Any) -> dict[str, Any]:
         pin = None
         if isinstance(params, dict):
             params.pop("pin", None)
+            params.pop("secret", None)
 
 
 def response_mode() -> str:

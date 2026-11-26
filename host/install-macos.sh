@@ -67,6 +67,7 @@ if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" != 1 ]]; then
   cp "$HERE/nuri_card_host.py" "$LAUNCH_DIR/host/nuri_card_host.py"
   cp "$HERE/webauthn_bridge.py" "$LAUNCH_DIR/host/webauthn_bridge.py"
   cp "$HERE/bitcoin_commands.py" "$LAUNCH_DIR/host/bitcoin_commands.py"
+  cp "$HERE/totp_commands.py" "$LAUNCH_DIR/host/totp_commands.py"
   cp "$REPO/scripts/nuri_pcsc.py" "$REPO/scripts/nuri_attest.py" "$LAUNCH_DIR/scripts/"
   # Bitcoin rail: MuSig2 APDU driver, cosign cores, card-arkade bridge + its lib.
   cp "$REPO/scripts/nuri_musig2_card.py" "$REPO/scripts/card-cosign-tweaked.py" \
@@ -81,7 +82,7 @@ if [[ "${NURI_HOST_INSTALL_LAUNCHER_ONLY:-}" != 1 ]]; then
     (cd "$LAUNCH_DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --silent) \
       || { echo "npm ci failed in $LAUNCH_DIR: the Bitcoin rail will be unavailable" >&2; }
   fi
-  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py host/webauthn_bridge.py host/bitcoin_commands.py \
+  (cd "$LAUNCH_DIR" && shasum -a 256 host/nuri_card_host.py host/webauthn_bridge.py host/bitcoin_commands.py host/totp_commands.py \
       scripts/nuri_pcsc.py scripts/nuri_attest.py scripts/nuri_musig2_card.py scripts/card-cosign-tweaked.py \
       scripts/real-card-arkade-signer-proof.py scripts/card-arkade-claim-signer.py scripts/card-prf-backup.py \
       scripts/musig2-card-status.py scripts/ext-card-wallet.mjs scripts/arkade-card-e2e.mjs scripts/lib/card-arkade-identity.mjs > SHA256SUMS

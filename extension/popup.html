@@ -11,6 +11,30 @@
   <header><img src="icon128.png" alt="Nuri"><h1>Nuri Wallet</h1></header>
   <main id="out" aria-live="polite">Reading card…</main>
 
+  <section class="panel" id="totpPanel">
+    <h2>2FA Code (TOTP)</h2>
+    <div class="totpRow">
+      <code id="totpCode">------</code>
+      <span class="k" id="totpMeta">Checking card…</span>
+    </div>
+    <div class="rowWrap">
+      <button id="totpFill" class="primary">Fill in Tab</button>
+      <button id="totpCopy">Copy</button>
+      <button id="totpRefresh">Refresh</button>
+    </div>
+    <div id="totpMsg" class="result"></div>
+    <details id="totpSetupDetails">
+      <summary>Set up / replace TOTP secret</summary>
+      <label for="totpSecret">Base32 secret or otpauth:// URI</label>
+      <input id="totpSecret" type="password" placeholder="JBSWY3DPEHPK3PXP or otpauth://…" spellcheck="false" autocomplete="off">
+      <div id="totpPinRow" hidden>
+        <label for="totpPin">TOTP Admin PIN (4–16 chars)</label>
+        <input id="totpPin" type="password" placeholder="Chosen on first save (applet v1.1)" autocomplete="off">
+      </div>
+      <button id="totpSave">Save to Card</button>
+    </details>
+  </section>
+
   <section class="panel" id="receivePanel" hidden>
     <h2>Receive</h2>
     <div id="receive"></div>

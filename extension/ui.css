@@ -23,6 +23,12 @@ h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
 .panel label { color: #615A62; }
 .panel input, .panel select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #615A62; border-radius: 9px; background: #fff; color: #2C232E; }
 .row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.rowWrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.totpRow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#totpCode { font-size: 26px; font-weight: 600; letter-spacing: 2px; }
+#totpSetupDetails { margin: 8px 0 0; display: grid; gap: 8px; }
+#totpSetupDetails label { display: block; margin-top: 8px; }
+#totpSetupDetails button { margin-top: 8px; }
 .result { white-space: pre-wrap; }
 .total { margin-top: 0; }
 .total strong { font-size: 30px; }

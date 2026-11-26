@@ -6,6 +6,13 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-26 — On-card 2FA (TOTP) in Chrome/Brave extension + native host
+
+- `host/totp_commands.py`, `host/nuri_card_host.py`: added `totp_status`, `totp_code`, and `totp_put` supporting both TOTP applet v1.0 (raw PUT, no PIN) and v1.1 (PIN-authenticated PUT, 5 tries), Base32 / `otpauth://totp/` URI parsing, and zeroized secret/PIN buffers.
+- `extension/popup.html`, `extension/popup.js`, `extension/background.js`, `extension/content.js`, `extension/ui.css`: added a side-panel **2FA Code (TOTP)** live countdown view, secret setup form, clipboard copy, and explicit user-clicked **Fill in Tab** autofill for OTP inputs (e.g. Hetzner 2FA), gated to `trustedToolbar` only.
+- `host/install-macos.sh`, `scripts/package-chrome.py`, `scripts/card-totp.py`: bundled `host/totp_commands.py` into installer snapshots/SHA256SUMS and updated `scripts/card-totp.py put` to handle v1.0 applets + `otpauth://` URIs cleanly.
+- Added unit tests in `host/test_totp_host.py` and `extension/test/totp.test.js`.
+
 ## 2026-11-25 — MuSig2 v1.18: transactional CHANGE_PIN (INS 0x23) for new cards
 
 - `card/musig2/NuriMuSig2v019.java` (`1.18`, `0x0112`): added transactional `INS_CHANGE_PIN` (`0x23`, `Lo(1) || oldPIN || Ln(1) || newPIN` with `JCSystem.beginTransaction()`, APDU buffer wipe, session reset, and nonce burn) and updated `dist/nuri-musig2-v20-keygen{,-aid2,-aid3}.cap` + `dist/SHA256SUMS` + `dist/README.md` (`CARD_V1_RELEASE_VERIFIED`).

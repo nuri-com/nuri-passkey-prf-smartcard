@@ -25,6 +25,7 @@ import struct
 import os
 import sys
 import time
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -43,6 +44,21 @@ def truncate(digest: bytes, digits: int = 6) -> str:
 
 def counter_bytes(step: int = 30, t: float | None = None) -> bytes:
     return struct.pack(">Q", int((t if t is not None else time.time()) // step))
+
+
+def decode_secret(text: str) -> bytes:
+    raw = text.strip()
+    if raw.lower().startswith("otpauth://"):
+        q = parse_qs(urlparse(raw).query)
+        raw = (q.get("secret") or [""])[0].strip()
+    cleaned = raw.replace(" ", "").replace("-", "").upper()
+    if not cleaned:
+        raise ValueError("empty TOTP secret")
+    padded = cleaned + "=" * (-len(cleaned) % 8)
+    out = base64.b32decode(padded, casefold=True)
+    if not 1 <= len(out) <= 64:
+        raise ValueError("secret must be 1..64 bytes")
+    return out
 
 
 def put_apdu(pin: bytes, secret: bytes) -> list[int]:
@@ -124,10 +140,15 @@ def main() -> None:
 
     if args.cmd == "put":
         if not args.secret:
-            ap.error("put needs a base32 secret")
-        raw = base64.b32decode(args.secret.replace(" ", "").upper() + "=" * (-len(args.secret.replace(" ", "")) % 8))
-        pin = read_pin("TOTP admin PIN (chosen on first PUT, required after): ")
-        _, sw1, sw2 = transmit(conn, put_apdu(pin, raw))
+            ap.error("put needs a base32 secret or otpauth:// URI")
+        raw = decode_secret(args.secret)
+        _, s1, s2 = transmit(conn, [0x00, INS_STATUS, 0x00, 0x00, 0x00])
+        if (s1, s2) == (0x6D, 0x00):
+            apdu = [0x00, INS_PUT, 0x00, 0x00, len(raw), *raw]
+        else:
+            pin = read_pin("TOTP admin PIN (chosen on first PUT, required after): ")
+            apdu = put_apdu(pin, raw)
+        _, sw1, sw2 = transmit(conn, apdu)
         if sw1 == 0x63 and sw2 & 0xF0 == 0xC0:
             sys.exit(f"PUT rejected: wrong PIN, {sw2 & 0x0F} tries left")
         if (sw1, sw2) == (0x69, 0x83):

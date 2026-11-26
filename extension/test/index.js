@@ -7,3 +7,4 @@ require('./inpage.test.js');
 require('./webauthn.test.js');
 require('./bitcoin-lib.test.js');
 require('./bitcoin.test.js');
+require('./totp.test.js');

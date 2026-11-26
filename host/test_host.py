@@ -1418,6 +1418,7 @@ class InstallerLauncherTests(unittest.TestCase):
                     manifest = json.load(stream)
                 self.assertEqual(manifest["path"], str(installed / "run.sh"))
             expected = {"host/nuri_card_host.py", "host/webauthn_bridge.py", "host/bitcoin_commands.py",
+                        "host/totp_commands.py",
                         "scripts/nuri_pcsc.py", "scripts/nuri_attest.py", "scripts/nuri_musig2_card.py",
                         "scripts/card-cosign-tweaked.py", "scripts/real-card-arkade-signer-proof.py",
                         "scripts/card-arkade-claim-signer.py", "scripts/card-prf-backup.py",

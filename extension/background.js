@@ -661,6 +661,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((error) => sendResponse({ error: { message: error.message } }));
     return true;
   }
+  if (msg.type === "popup:totpStatus") {
+    nativeCall("totp_status")
+      .then((status) => sendResponse({ status }))
+      .catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:totpCode") {
+    nativeCall("totp_code")
+      .then((totp) => sendResponse({ totp }))
+      .catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:totpPut") {
+    const params = { secret: String(msg.secret || "") };
+    if (msg.pin !== undefined && msg.pin !== "") params.pin = String(msg.pin);
+    msg.secret = "";
+    msg.pin = "";
+    nativeCall("totp_put", params)
+      .then((result) => sendResponse({ result }))
+      .catch((error) => sendResponse({ error }))
+      .finally(() => { params.secret = ""; delete params.secret; });
+    return true;
+  }
+  if (msg.type === "popup:totpFill") {
+    nativeCall("totp_code")
+      .then((totp) => new Promise((resolve) => {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          void chrome.runtime.lastError;
+          const tab = Array.isArray(tabs) ? tabs[0] : null;
+          if (!tab?.id) {
+            resolve({ totp, filled: false, reason: "No active tab; code copied instead." });
+            return;
+          }
+          chrome.tabs.sendMessage(tab.id, { type: "nuri:fillTotp", code: totp.code }, (resp) => {
+            if (chrome.runtime.lastError || !resp) {
+              resolve({ totp, filled: false, reason: "Page cannot be autofilled; code copied instead." });
+              return;
+            }
+            resolve({ totp, filled: Boolean(resp.filled), reason: resp.reason || null });
+          });
+        });
+      }))
+      .then(sendResponse)
+      .catch((error) => sendResponse({ error }));
+    return true;
+  }
   if (msg.type === "popup:disconnectAll") {
     setState({ connectedOrigins: {} }).then(() => { broadcastEvent("accountsChanged", [[]]); sendResponse({ ok: true }); });
     return true;

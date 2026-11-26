@@ -127,6 +127,139 @@ document.getElementById("invoiceMake").onclick = () => {
   });
 };
 
-document.getElementById("refresh").onclick = load;
+// --- on-card 2FA (TOTP) -----------------------------------------------------
+const totpCodeEl = document.getElementById("totpCode");
+const totpMetaEl = document.getElementById("totpMeta");
+const totpMsgEl = document.getElementById("totpMsg");
+const totpPinRow = document.getElementById("totpPinRow");
+const totpSecretEl = document.getElementById("totpSecret");
+const totpPinEl = document.getElementById("totpPin");
+let totpState = { code: "", expiresAt: 0, step: 30, pinRequired: false, provisioned: false };
+
+function fmtTotp(code) {
+  return /^\d{6}$/.test(code) ? `${code.slice(0, 3)} ${code.slice(3)}` : (code || "------");
+}
+
+function copyText(text) {
+  if (!text) return Promise.resolve(false);
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true, () => false);
+  }
+  return Promise.resolve(false);
+}
+
+function renderTotpCountdown() {
+  if (!totpMetaEl || !totpState.provisioned || !totpState.expiresAt) return;
+  const left = Math.max(0, Math.ceil((totpState.expiresAt - Date.now()) / 1000));
+  totpMetaEl.textContent = `${left}s left`;
+  if (left === 0) fetchTotpCode();
+}
+
+function fetchTotpCode(onDone) {
+  chrome.runtime.sendMessage({ type: "popup:totpCode" }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.totp) {
+      totpState.code = "";
+      totpState.expiresAt = 0;
+      totpState.provisioned = false;
+      if (totpCodeEl) totpCodeEl.textContent = "------";
+      if (totpMetaEl) {
+        const msg = err?.code === "NOT_PROVISIONED" || /NOT_PROVISIONED|6985/i.test(err?.message || "")
+          ? "No secret stored yet"
+          : (err?.message || "Unavailable");
+        totpMetaEl.textContent = msg;
+      }
+      if (onDone) onDone(null, err);
+      return;
+    }
+    const { code, remaining, step } = r.totp;
+    totpState.code = code;
+    totpState.step = step || 30;
+    totpState.expiresAt = Date.now() + Number(remaining || 30) * 1000;
+    totpState.provisioned = true;
+    if (totpCodeEl) totpCodeEl.textContent = fmtTotp(code);
+    renderTotpCountdown();
+    if (onDone) onDone(r.totp, null);
+  });
+}
+
+function loadTotp() {
+  chrome.runtime.sendMessage({ type: "popup:totpStatus" }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.status) {
+      if (r?.info) return; // Ignore synthetic mock responses in unrelated unit tests.
+      if (totpMetaEl) totpMetaEl.textContent = err?.message || "Card TOTP unavailable";
+      return;
+    }
+    totpState.pinRequired = Boolean(r.status.pin_required);
+    if (totpPinRow) totpPinRow.hidden = !totpState.pinRequired;
+    if (r.status.provisioned === false) {
+      totpState.code = "";
+      totpState.expiresAt = 0;
+      totpState.provisioned = false;
+      if (totpCodeEl) totpCodeEl.textContent = "------";
+      if (totpMetaEl) totpMetaEl.textContent = "No secret stored yet";
+      return;
+    }
+    fetchTotpCode();
+  });
+}
+
+const totpRefreshBtn = document.getElementById("totpRefresh");
+if (totpRefreshBtn) totpRefreshBtn.onclick = () => { if (totpMsgEl) totpMsgEl.textContent = ""; loadTotp(); };
+
+const totpCopyBtn = document.getElementById("totpCopy");
+if (totpCopyBtn) totpCopyBtn.onclick = () => {
+  fetchTotpCode(async (totp, err) => {
+    if (!totp) { if (totpMsgEl) totpMsgEl.textContent = err?.message || "No code available"; return; }
+    const ok = await copyText(totp.code);
+    if (totpMsgEl) totpMsgEl.textContent = ok ? `Copied ${totp.code}` : `Code: ${totp.code}`;
+  });
+};
+
+const totpFillBtn = document.getElementById("totpFill");
+if (totpFillBtn) totpFillBtn.onclick = () => {
+  if (totpMsgEl) totpMsgEl.textContent = "Reading card…";
+  chrome.runtime.sendMessage({ type: "popup:totpFill" }, async (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.totp) {
+      if (totpMsgEl) totpMsgEl.textContent = err?.message || "Could not read TOTP code";
+      return;
+    }
+    totpState.code = r.totp.code;
+    totpState.expiresAt = Date.now() + Number(r.totp.remaining || 30) * 1000;
+    totpState.provisioned = true;
+    if (totpCodeEl) totpCodeEl.textContent = fmtTotp(r.totp.code);
+    renderTotpCountdown();
+    await copyText(r.totp.code);
+    if (totpMsgEl) totpMsgEl.textContent = r.filled ? `Filled ${r.totp.code} in tab` : (r.reason || `Copied ${r.totp.code}`);
+  });
+};
+
+const totpSaveBtn = document.getElementById("totpSave");
+if (totpSaveBtn) totpSaveBtn.onclick = () => {
+  const secret = totpSecretEl?.value.trim() || "";
+  const pin = totpPinEl?.value || "";
+  if (totpSecretEl) totpSecretEl.value = "";
+  if (totpPinEl) totpPinEl.value = "";
+  if (!secret) { if (totpMsgEl) totpMsgEl.textContent = "Paste Base32 secret or otpauth:// URI first"; return; }
+  if (totpMsgEl) totpMsgEl.textContent = "Saving to card…";
+  chrome.runtime.sendMessage({ type: "popup:totpPut", secret, pin }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.result) {
+      if (totpMsgEl) totpMsgEl.textContent = err?.message || "Save failed";
+      return;
+    }
+    if (totpMsgEl) totpMsgEl.textContent = "Saved on card (secret never stored on host)";
+    const details = document.getElementById("totpSetupDetails");
+    if (details) details.open = false;
+    loadTotp();
+  });
+};
+
+if (typeof setInterval === "function") setInterval(renderTotpCountdown, 1000);
+
+document.getElementById("refresh").onclick = () => { load(); loadTotp(); };
 document.getElementById("disconnect").onclick = () => chrome.runtime.sendMessage({ type: "popup:disconnectAll" }, load);
 load();
+loadTotp();
