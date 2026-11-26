@@ -1403,7 +1403,7 @@ class InstallerLauncherTests(unittest.TestCase):
             (venv / "python").chmod(0o700)
             (venv / "pip").write_text("#!/bin/sh\nexit 0\n")
             (venv / "pip").chmod(0o700)
-            env = dict(os.environ, HOME=home, NURI_CARD_HOST_LOG="", NURI_CARD_CA_PUBKEY="")
+            env = dict(os.environ, HOME=home, NURI_CARD_HOST_LOG="", NURI_CARD_CA_PUBKEY="", NURI_HOST_SKIP_NPM="1")
             env.pop("NURI_HOST_INSTALL_LAUNCHER_ONLY", None)
             proc = subprocess.run(["bash", os.path.join(HERE, "install-macos.sh"), "--sim", "--python", sys.executable],
                                   env=env, capture_output=True, timeout=30)

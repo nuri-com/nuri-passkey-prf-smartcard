@@ -198,5 +198,79 @@ class HostDispatchTests(unittest.TestCase):
         self.assertEqual(resp["error"]["code"], "BAD_REQUEST")
 
 
+class Fido2GenericTests(unittest.TestCase):
+    def setUp(self):
+        from soft_ctap2 import SoftCtap2Device
+        self.dev = SoftCtap2Device(pin="2468")
+        self._env = os.environ.pop("NURI_CARD_SIM", None)
+
+    def tearDown(self):
+        if self._env is not None:
+            os.environ["NURI_CARD_SIM"] = self._env
+
+    def test_origin_and_rpid_gates(self):
+        bad_origins = [
+            "http://github.com",
+            "https://github.com/settings",
+            "https://user:pass@github.com",
+            "ftp://github.com",
+            None,
+        ]
+        for origin in bad_origins:
+            with self.assertRaises(wb.BridgeError) as cm:
+                wb.fido2_get({"origin": origin, "publicKey": {"challenge": CHALLENGE, "rpId": "github.com"}},
+                            None, open_device=lambda: self.fail("card opened"))
+            self.assertEqual(cm.exception.code, "ORIGIN_NOT_ALLOWED", origin)
+
+        for origin, bad_rp in [
+            ("https://github.com", "com"),
+            ("https://github.com", "evil.test"),
+            ("https://github.com", "sub.github.com"),
+            ("https://127.0.0.1", "1"),
+        ]:
+            with self.assertRaises(wb.BridgeError) as cm:
+                wb.fido2_get({"origin": origin, "publicKey": {"challenge": CHALLENGE, "rpId": bad_rp}},
+                            None, open_device=lambda: self.fail("card opened"))
+            self.assertEqual(cm.exception.code, "RP_NOT_ALLOWED", (origin, bad_rp))
+
+    def test_create_and_get_on_third_party_https_site(self):
+        reg_opts = create_options(rp={"id": "github.com", "name": "GitHub"}, extensions={})
+        reg = wb.fido2_create(
+            {"origin": "https://github.com", "publicKey": reg_opts},
+            bytearray(b"2468"),
+            open_device=lambda: self.dev,
+        )
+        self.assertEqual(reg["type"], "public-key")
+        self.assertEqual(reg["response"]["publicKeyAlgorithm"], -7)
+        self.assertIn("authenticatorData", reg["response"])
+        cd = json.loads(websafe_decode(reg["response"]["clientDataJSON"]))
+        self.assertEqual((cd["type"], cd["origin"]), ("webauthn.create", "https://github.com"))
+
+        # Subdomain origin with parent rpId, omitted rpId fallback, and allowCredentials assertion
+        auth = wb.fido2_get(
+            {
+                "origin": "https://gist.github.com",
+                "publicKey": {
+                    "challenge": CHALLENGE,
+                    "rpId": "github.com",
+                    "userVerification": "required",
+                    "allowCredentials": [{"type": "public-key", "id": reg["id"]}],
+                },
+            },
+            bytearray(b"2468"),
+            open_device=lambda: self.dev,
+        )
+        self.assertEqual(auth["id"], reg["id"])
+        auth_data = websafe_decode(auth["response"]["authenticatorData"])
+        self.assertEqual(auth_data[:32], hashlib.sha256(b"github.com").digest())
+
+        # Host dispatch redacts PIN on origin/RP errors
+        req = {"id": 9, "method": "fido2_get", "params": {"origin": "http://github.com", "publicKey": {"challenge": CHALLENGE}, "pin": "2468"}}
+        resp = host.handle(req)
+        self.assertEqual(resp["error"]["code"], "ORIGIN_NOT_ALLOWED")
+        self.assertNotIn("2468", json.dumps(resp))
+        self.assertNotIn("pin", req["params"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

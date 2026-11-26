@@ -15,10 +15,12 @@ one request and is never stored, logged or echoed.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import sys
 from collections.abc import Mapping
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 ALLOWED_ORIGINS = ("https://connect.nuri.com",)
 RP_ID = "nuri.com"
@@ -63,6 +65,68 @@ def _check_request(params: Any, kind: str) -> tuple[str, dict]:
     if rp_id != RP_ID:
         raise BridgeError("RP_NOT_ALLOWED", f"rp id {rp_id!r} is not {RP_ID!r}")
     return origin, options
+
+
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _check_fido2_request(params: Any, kind: str) -> tuple[str, dict]:
+    if not isinstance(params, dict):
+        raise BridgeError("BAD_REQUEST", "params must be an object")
+    origin = params.get("origin")
+    if not isinstance(origin, str) or not origin or origin.strip() != origin:
+        raise BridgeError("ORIGIN_NOT_ALLOWED", f"origin {origin!r} may not use the card authenticator")
+    parsed = urlparse(origin)
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in ("", )
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or not parsed.hostname
+    ):
+        raise BridgeError("ORIGIN_NOT_ALLOWED", f"origin {origin!r} is not a clean origin")
+    host = parsed.hostname.lower().rstrip(".")
+    if not (parsed.scheme == "https" or (parsed.scheme == "http" and host in ("localhost", "127.0.0.1"))):
+        raise BridgeError("ORIGIN_NOT_ALLOWED", f"origin {origin!r} must use HTTPS (or localhost)")
+
+    options = params.get("publicKey")
+    if not isinstance(options, dict):
+        raise BridgeError("BAD_REQUEST", "params.publicKey must be an object")
+
+    raw_rp = (options.get("rp") or {}).get("id") if kind == "create" else options.get("rpId")
+    if raw_rp is None or raw_rp == "":
+        rp_id = host
+    else:
+        if not isinstance(raw_rp, str):
+            raise BridgeError("RP_NOT_ALLOWED", "rp id must be a string")
+        rp_id = raw_rp.lower().rstrip(".")
+
+    if not rp_id or rp_id.startswith(".") or ".." in rp_id or any(c.isspace() for c in rp_id):
+        raise BridgeError("RP_NOT_ALLOWED", f"invalid rp id {rp_id!r}")
+    if _is_ip(host):
+        if rp_id != host:
+            raise BridgeError("RP_NOT_ALLOWED", f"rp id {rp_id!r} must match IP origin {host!r}")
+    else:
+        if not (host == rp_id or host.endswith("." + rp_id)):
+            raise BridgeError("RP_NOT_ALLOWED", f"rp id {rp_id!r} is not valid for origin {origin!r}")
+        if host != "localhost" and "." not in rp_id:
+            raise BridgeError("RP_NOT_ALLOWED", f"rp id {rp_id!r} cannot be a top-level domain")
+
+    out_opts = dict(options)
+    if kind == "create":
+        rp_obj = dict(out_opts.get("rp") or {})
+        rp_obj["id"] = rp_id
+        out_opts["rp"] = rp_obj
+    else:
+        out_opts["rpId"] = rp_id
+    return origin, out_opts
 
 
 def _open_device():
@@ -163,9 +227,8 @@ def _credential_choices(assertions) -> list[dict[str, str]]:
     return choices
 
 
-def _run(params: Any, pin_buf: bytearray | None, kind: str,
-         open_device: Callable = _open_device, client_factory: Callable = _client) -> dict:
-    origin, raw = _check_request(params, kind)
+def _run_options(origin: str, raw: dict, pin_buf: bytearray | None, kind: str,
+                 open_device: Callable = _open_device, client_factory: Callable = _client) -> dict:
     from fido2.webauthn import PublicKeyCredentialCreationOptions, PublicKeyCredentialRequestOptions
     try:
         options = (PublicKeyCredentialCreationOptions if kind == "create" else PublicKeyCredentialRequestOptions).from_dict(raw)
@@ -213,10 +276,12 @@ def _run(params: Any, pin_buf: bytearray | None, kind: str,
         if inline_prf:
             out["clientExtensionResults"]["prf"] = jsonify(dict(inline_prf))["prf"]
         if kind == "create":
-            # Mirror AuthenticatorAttestationResponse.getPublicKey(): DER SPKI (ES256 only).
+            # Mirror AuthenticatorAttestationResponse.getPublicKey() & getAuthenticatorData() (ES256 only).
             from cryptography.hazmat.primitives import serialization
             from cryptography.hazmat.primitives.asymmetric import ec
-            key = response.response.attestation_object.auth_data.credential_data.public_key
+            auth_data = response.response.attestation_object.auth_data
+            out["response"].setdefault("authenticatorData", _b64u(bytes(auth_data)))
+            key = auth_data.credential_data.public_key
             if key.get(3) != -7 or key.get(-1) != 1:
                 raise BridgeError("CARD_ERROR", "card did not return an ES256 P-256 key")
             spki = ec.EllipticCurvePublicNumbers(
@@ -232,9 +297,25 @@ def _run(params: Any, pin_buf: bytearray | None, kind: str,
             pass
 
 
+def _run(params: Any, pin_buf: bytearray | None, kind: str,
+         open_device: Callable = _open_device, client_factory: Callable = _client) -> dict:
+    origin, raw = _check_request(params, kind)
+    return _run_options(origin, raw, pin_buf, kind, open_device=open_device, client_factory=client_factory)
+
+
 def webauthn_create(params: Any, pin_buf: bytearray | None, **kw: Any) -> dict:
     return _run(params, pin_buf, "create", **kw)
 
 
 def webauthn_get(params: Any, pin_buf: bytearray | None, **kw: Any) -> dict:
     return _run(params, pin_buf, "get", **kw)
+
+
+def fido2_create(params: Any, pin_buf: bytearray | None, **kw: Any) -> dict:
+    origin, raw = _check_fido2_request(params, "create")
+    return _run_options(origin, raw, pin_buf, "create", **kw)
+
+
+def fido2_get(params: Any, pin_buf: bytearray | None, **kw: Any) -> dict:
+    origin, raw = _check_fido2_request(params, "get")
+    return _run_options(origin, raw, pin_buf, "get", **kw)

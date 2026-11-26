@@ -259,7 +259,75 @@ if (totpSaveBtn) totpSaveBtn.onclick = () => {
 
 if (typeof setInterval === "function") setInterval(renderTotpCountdown, 1000);
 
-document.getElementById("refresh").onclick = () => { load(); loadTotp(); };
+// --- FIDO2 Security Key (per-site opt-in) ------------------------------------
+const fidoSiteEl = document.getElementById("fidoSite");
+const fidoToggleBtn = document.getElementById("fidoToggle");
+const fidoClearBtn = document.getElementById("fidoClear");
+const fidoMsgEl = document.getElementById("fidoMsg");
+const fidoSummaryEl = document.getElementById("fidoSitesSummary");
+const fidoListEl = document.getElementById("fidoSitesList");
+let fidoActiveOrigin = null;
+
+function renderFidoState(fidoOrigins = {}, activeOrigin = null) {
+  fidoActiveOrigin = activeOrigin;
+  const enabledList = Object.keys(fidoOrigins || {}).filter((k) => fidoOrigins[k]).sort();
+  if (fidoSummaryEl) fidoSummaryEl.textContent = `Enabled sites (${enabledList.length})`;
+  if (fidoListEl) fidoListEl.innerHTML = enabledList.length ? enabledList.map(esc).join("<br>") : "None";
+  const supported = Boolean(activeOrigin && /^https:\/\/|^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(activeOrigin));
+  const isOn = Boolean(supported && fidoOrigins?.[activeOrigin]);
+  if (fidoSiteEl) {
+    fidoSiteEl.textContent = supported
+      ? `${activeOrigin} · ${isOn ? "FIDO2 active" : "off"}`
+      : "Open an HTTPS site to enable FIDO2 Security Key";
+  }
+  if (fidoToggleBtn) {
+    fidoToggleBtn.disabled = !supported;
+    fidoToggleBtn.textContent = isOn ? "Disable on this site" : "Enable on this site";
+  }
+}
+
+function loadFido() {
+  chrome.runtime.sendMessage({ type: "popup:fidoState" }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.fidoOrigins) {
+      if (r?.info) return; // Ignore synthetic mock responses in unrelated unit tests.
+      if (fidoSiteEl) fidoSiteEl.textContent = err?.message || "FIDO2 state unavailable";
+      return;
+    }
+    renderFidoState(r.fidoOrigins, r.activeOrigin || null);
+  });
+}
+
+if (fidoToggleBtn) fidoToggleBtn.onclick = () => {
+  if (!fidoActiveOrigin) return;
+  if (fidoMsgEl) fidoMsgEl.textContent = "";
+  chrome.runtime.sendMessage({ type: "popup:fidoToggle", origin: fidoActiveOrigin }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.fidoOrigins) {
+      if (fidoMsgEl) fidoMsgEl.textContent = err?.message || "Failed to update site setting";
+      return;
+    }
+    renderFidoState(r.fidoOrigins, r.activeOrigin);
+    if (fidoMsgEl) {
+      fidoMsgEl.textContent = r.enabled
+        ? `Enabled on ${r.activeOrigin} — click Security Key / Passkey on the page`
+        : `Disabled on ${r.activeOrigin}`;
+    }
+  });
+};
+
+if (fidoClearBtn) fidoClearBtn.onclick = () => {
+  if (fidoMsgEl) fidoMsgEl.textContent = "";
+  chrome.runtime.sendMessage({ type: "popup:fidoClear" }, (r) => {
+    const err = chrome.runtime.lastError || r?.error;
+    if (err || !r?.fidoOrigins) return;
+    renderFidoState(r.fidoOrigins, fidoActiveOrigin);
+    if (fidoMsgEl) fidoMsgEl.textContent = "Disabled on all sites";
+  });
+};
+
+document.getElementById("refresh").onclick = () => { load(); loadTotp(); loadFido(); };
 document.getElementById("disconnect").onclick = () => chrome.runtime.sendMessage({ type: "popup:disconnectAll" }, load);
 load();
 loadTotp();
+loadFido();

@@ -18,9 +18,26 @@
     });
   });
 
+  chrome.runtime.sendMessage({ type: "fido:check" }, (resp) => {
+    void chrome.runtime.lastError;
+    if (resp && resp.enabled) {
+      window.postMessage({ channel: CHANNEL_TO_PAGE, event: "nuri:fidoEnabled", args: [true] }, "*");
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.type === "event") {
       window.postMessage({ channel: CHANNEL_TO_PAGE, event: msg.event, args: msg.args }, "*");
+      return false;
+    }
+    if (msg && msg.type === "nuri:getOrigin") {
+      sendResponse({ origin: window.location.origin });
+      return false;
+    }
+    if (msg && msg.type === "nuri:fidoEnabled") {
+      if (msg.origin === "*" || msg.origin === window.location.origin) {
+        window.postMessage({ channel: CHANNEL_TO_PAGE, event: "nuri:fidoEnabled", args: [Boolean(msg.enabled)] }, "*");
+      }
       return false;
     }
     if (msg && msg.type === "nuri:fillTotp") {

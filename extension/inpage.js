@@ -20,6 +20,97 @@
   const pending = new Map();
   let nextId = 1;
   const listeners = new Map();
+  let fidoEnabled = false;
+
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  function isBinaryBuffer(val) {
+    if (!val || typeof val !== "object") return false;
+    if (val instanceof ArrayBuffer || ArrayBuffer.isView(val)) return true;
+    const tag = Object.prototype.toString.call(val);
+    return tag === "[object ArrayBuffer]" || tag === "[object SharedArrayBuffer]";
+  }
+  function toB64u(buf) {
+    const bytes = ArrayBuffer.isView(buf)
+      ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+      : new Uint8Array(buf);
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i], b = i + 1 < bytes.length ? bytes[i + 1] : 0, c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+      out += B64[a >> 2] + B64[((a & 3) << 4) | (b >> 4)];
+      if (i + 1 < bytes.length) out += B64[((b & 15) << 2) | (c >> 6)];
+      if (i + 2 < bytes.length) out += B64[c & 63];
+    }
+    return out;
+  }
+  function fromB64u(str) {
+    const clean = String(str || "").replace(/=+$/, "");
+    const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
+    let p = 0;
+    for (let i = 0; i < clean.length; i += 4) {
+      const a = B64.indexOf(clean[i]), b = B64.indexOf(clean[i + 1]);
+      const c = i + 2 < clean.length ? B64.indexOf(clean[i + 2]) : -1;
+      const d = i + 3 < clean.length ? B64.indexOf(clean[i + 3]) : -1;
+      out[p++] = (a << 2) | (b >> 4);
+      if (c >= 0) out[p++] = ((b & 15) << 4) | (c >> 2);
+      if (d >= 0) out[p++] = ((c & 3) << 6) | d;
+    }
+    return out.buffer;
+  }
+  function serializeWebAuthn(val) {
+    if (isBinaryBuffer(val)) return toB64u(val);
+    if (Array.isArray(val)) return val.map(serializeWebAuthn);
+    if (val && typeof val === "object") {
+      const out = {};
+      for (const k of Object.keys(val)) {
+        if (val[k] !== undefined && typeof val[k] !== "function") out[k] = serializeWebAuthn(val[k]);
+      }
+      return out;
+    }
+    return val;
+  }
+  function decodeExtResults(raw) {
+    if (!raw || typeof raw !== "object") return {};
+    const out = JSON.parse(JSON.stringify(raw));
+    if (out.prf?.results) {
+      if (out.prf.results.first) out.prf.results.first = fromB64u(out.prf.results.first);
+      if (out.prf.results.second) out.prf.results.second = fromB64u(out.prf.results.second);
+    }
+    return out;
+  }
+  function asWebAuthnCredential(json, kind) {
+    const rawId = fromB64u(json.rawId || json.id);
+    const r = json.response || {};
+    const ext = decodeExtResults(json.clientExtensionResults);
+    const response = kind === "create"
+      ? {
+          clientDataJSON: fromB64u(r.clientDataJSON),
+          attestationObject: fromB64u(r.attestationObject),
+          getTransports: () => (Array.isArray(r.transports) ? r.transports : ["usb", "nfc"]),
+          getAuthenticatorData: () => (r.authenticatorData ? fromB64u(r.authenticatorData) : new ArrayBuffer(0)),
+          getPublicKey: () => (r.publicKey ? fromB64u(r.publicKey) : null),
+          getPublicKeyAlgorithm: () => r.publicKeyAlgorithm ?? -7,
+        }
+      : {
+          clientDataJSON: fromB64u(r.clientDataJSON),
+          authenticatorData: fromB64u(r.authenticatorData),
+          signature: fromB64u(r.signature),
+          userHandle: r.userHandle ? fromB64u(r.userHandle) : null,
+        };
+    return {
+      id: json.id,
+      rawId,
+      type: json.type || "public-key",
+      authenticatorAttachment: json.authenticatorAttachment || "cross-platform",
+      response,
+      getClientExtensionResults: () => ext,
+      toJSON: () => json,
+    };
+  }
+  function notAllowed(message) {
+    return typeof DOMException === "function"
+      ? new DOMException(message, "NotAllowedError")
+      : Object.assign(new Error(message), { name: "NotAllowedError" });
+  }
 
   function emit(event, ...args) {
     for (const fn of listeners.get(event) || []) {
@@ -62,6 +153,7 @@
     if (ev.source !== window || !ev.data || ev.data.channel !== CHANNEL_TO_PAGE) return;
     const msg = ev.data;
     if (msg.event) {
+      if (msg.event === "nuri:fidoEnabled") { fidoEnabled = Boolean(msg.args?.[0]); return; }
       if (msg.event === "chainChanged") provider.chainId = msg.args[0];
       if (msg.event === "accountsChanged") provider.selectedAddress = msg.args[0]?.[0] ?? null;
       emit(msg.event, ...(msg.args || []));
@@ -96,4 +188,32 @@
     try { Object.defineProperty(window, "ethereum", { value: provider, writable: true, configurable: true }); } catch {}
   }
   window.nuriCard = provider;
+
+  if (typeof navigator !== "undefined" && navigator.credentials && typeof navigator.credentials.create === "function" && typeof navigator.credentials.get === "function") {
+    const creds = navigator.credentials;
+    const origCreate = creds.create.bind(creds);
+    const origGet = creds.get.bind(creds);
+    const shouldBypass = (options) => (
+      !fidoEnabled
+      || !options?.publicKey
+      || options.mediation === "conditional"
+      || options.publicKey?.authenticatorSelection?.authenticatorAttachment === "platform"
+    );
+    const wrap = (kind, orig) => async (options) => {
+      if (shouldBypass(options)) return orig(options);
+      const method = kind === "create" ? "nuri_fidoCreate" : "nuri_fidoGet";
+      try {
+        const json = await provider.request({ method, params: [serializeWebAuthn(options.publicKey)] });
+        return asWebAuthnCredential(json, kind);
+      } catch (err) {
+        const hostCode = err?.data?.code;
+        if (hostCode === "NO_CARD" || hostCode === "NO_READER") return orig(options);
+        throw notAllowed(err?.message || "Smartcard FIDO2 operation was not allowed.");
+      }
+    };
+    try {
+      creds.create = wrap("create", origCreate);
+      creds.get = wrap("get", origGet);
+    } catch {}
+  }
 })();

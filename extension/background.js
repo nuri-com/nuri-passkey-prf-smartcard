@@ -16,8 +16,8 @@ chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(conso
 // State (persisted in chrome.storage.session / local because SW can be killed)
 // ---------------------------------------------------------------------------
 async function getState() {
-  const { chainId = DEFAULT_CHAIN, connectedOrigins = {} } = await chrome.storage.local.get(["chainId", "connectedOrigins"]);
-  return { chainId, connectedOrigins };
+  const { chainId = DEFAULT_CHAIN, connectedOrigins = {}, fidoOrigins = {} } = await chrome.storage.local.get(["chainId", "connectedOrigins", "fidoOrigins"]);
+  return { chainId, connectedOrigins, fidoOrigins };
 }
 async function setState(patch) {
   await chrome.storage.local.set(patch);
@@ -53,7 +53,7 @@ function hostPort() {
   });
   return port;
 }
-const LONG_NATIVE_METHODS = new Set(["bitcoin_preview", "bitcoin_sign_partial", "verify_pin", "sign_hash", "webauthn_create", "webauthn_get"]);
+const LONG_NATIVE_METHODS = new Set(["bitcoin_preview", "bitcoin_sign_partial", "verify_pin", "sign_hash", "webauthn_create", "webauthn_get", "fido2_create", "fido2_get"]);
 function nativeCall(method, params) {
   const id = nextNativeId++;
   const timeoutMs = LONG_NATIVE_METHODS.has(method) ? 240000 : 30000;
@@ -540,7 +540,32 @@ const handlers = {
 
   async nuri_webauthnCreate(params, { origin }) { return cardWebAuthn("create", origin, params); },
   async nuri_webauthnGet(params, { origin }) { return cardWebAuthn("get", origin, params); },
+  async nuri_fidoCreate(params, { origin, state }) { return cardFido2("create", origin, state, params); },
+  async nuri_fidoGet(params, { origin, state }) { return cardFido2("get", origin, state, params); },
 };
+
+function cardFido2(kind, origin, state, params) {
+  if (!state.fidoOrigins?.[origin]) throw rpcError(4100, `FIDO2 Security Key is not enabled for ${origin}`);
+  const publicKey = JSON.parse(JSON.stringify(params?.[0] ?? null));
+  if (!publicKey || typeof publicKey !== "object") throw rpcError(-32602, "publicKey options required");
+  let defaultRp = "";
+  try { defaultRp = new URL(origin).hostname; } catch {}
+  const rpId = (kind === "create" ? publicKey.rp?.id : publicKey.rpId) || defaultRp;
+  const summary = kind === "create"
+    ? { rpId, account: publicKey.user?.name, prf: !!publicKey.extensions?.prf, pinRequired: true }
+    : { rpId, credentials: (publicKey.allowCredentials || []).length, prf: !!publicKey.extensions?.prf?.eval, pinRequired: true };
+  const siteAllowed = kind === "get" && Array.isArray(publicKey.allowCredentials) && publicKey.allowCredentials.length
+    ? new Set(publicKey.allowCredentials.map((c) => c?.id).filter((id) => typeof id === "string" && id.length > 0))
+    : null;
+  return requestApproval(origin, `fido2_${kind}`, summary, (pin, credentialId) => {
+    let reqPublicKey = publicKey;
+    if (kind === "get" && credentialId) {
+      if (siteAllowed && !siteAllowed.has(credentialId)) throw rpcError(4001, "Selected credential is not allowed for this request");
+      reqPublicKey = { ...publicKey, allowCredentials: [{ type: "public-key", id: credentialId }] };
+    }
+    return nativeCall(`fido2_${kind}`, pin === undefined ? { origin, publicKey: reqPublicKey } : { origin, publicKey: reqPublicKey, pin });
+  });
+}
 
 const WEBAUTHN_ORIGINS = new Set(["https://connect.nuri.com"]);
 async function cardWebAuthn(kind, origin, params) {
@@ -601,6 +626,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (["approval:get", "approval:displayed", "approval"].includes(msg.type)) {
     approvalMessage(msg, sender).then(sendResponse).catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "fido:check") {
+    const origin = originOf(sender);
+    getState().then((s) => sendResponse({ enabled: Boolean(s.fidoOrigins?.[origin]) })).catch(() => sendResponse({ enabled: false }));
     return true;
   }
   if (!trustedToolbar(sender)) return false;
@@ -705,6 +735,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }))
       .then(sendResponse)
       .catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:fidoState") {
+    getState().then((s) => new Promise((resolve) => {
+      const fidoOrigins = s.fidoOrigins || {};
+      if (!chrome.tabs?.query) { resolve({ fidoOrigins, activeOrigin: null }); return; }
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        void chrome.runtime.lastError;
+        const tab = Array.isArray(tabs) ? tabs[0] : null;
+        if (!tab?.id) { resolve({ fidoOrigins, activeOrigin: null }); return; }
+        chrome.tabs.sendMessage(tab.id, { type: "nuri:getOrigin" }, (resp) => {
+          if (chrome.runtime.lastError || !resp?.origin) {
+            let activeOrigin = null;
+            try { if (tab.url && /^https?:\/\//.test(tab.url)) activeOrigin = new URL(tab.url).origin; } catch {}
+            resolve({ fidoOrigins, activeOrigin });
+            return;
+          }
+          resolve({ fidoOrigins, activeOrigin: resp.origin });
+        });
+      });
+    })).then(sendResponse).catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:fidoToggle") {
+    const origin = String(msg.origin || "");
+    if (!/^https:\/\/[^/]+$|^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(origin)) {
+      sendResponse({ error: { message: "Open an HTTPS site (or localhost) to enable FIDO2 Security Key" } });
+      return false;
+    }
+    getState().then(async (s) => {
+      const fidoOrigins = { ...(s.fidoOrigins || {}) };
+      const enabled = msg.enabled !== undefined ? Boolean(msg.enabled) : !fidoOrigins[origin];
+      if (enabled) fidoOrigins[origin] = true;
+      else delete fidoOrigins[origin];
+      await setState({ fidoOrigins });
+      chrome.tabs.query({}, (tabs) => {
+        void chrome.runtime.lastError;
+        for (const t of tabs || []) chrome.tabs.sendMessage(t.id, { type: "nuri:fidoEnabled", origin, enabled }, () => void chrome.runtime.lastError);
+      });
+      sendResponse({ fidoOrigins, activeOrigin: origin, enabled });
+    }).catch((error) => sendResponse({ error }));
+    return true;
+  }
+  if (msg.type === "popup:fidoClear") {
+    setState({ fidoOrigins: {} }).then(() => {
+      chrome.tabs.query({}, (tabs) => {
+        void chrome.runtime.lastError;
+        for (const t of tabs || []) chrome.tabs.sendMessage(t.id, { type: "nuri:fidoEnabled", origin: "*", enabled: false }, () => void chrome.runtime.lastError);
+      });
+      sendResponse({ fidoOrigins: {} });
+    }).catch((error) => sendResponse({ error }));
     return true;
   }
   if (msg.type === "popup:disconnectAll") {

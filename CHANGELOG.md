@@ -6,6 +6,12 @@ flowchart LR
   T --> B[Artifact verification]
   B --> H[Separate physical-card acceptance]
 ```
+## 2026-11-26 — Opt-in FIDO2/WebAuthn PC/SC Security Key for any HTTPS site in Brave/Chrome
+
+- `host/webauthn_bridge.py`, `host/nuri_card_host.py`: added `fido2_create` and `fido2_get` alongside the `connect.nuri.com`-locked `webauthn_*` methods, validating clean HTTPS/localhost origins and suffix-matched non-TLD `rpId` values while redacting PINs on errors.
+- `extension/background.js`, `extension/inpage.js`, `extension/content.js`, `extension/popup.html`, `extension/popup.js`, `extension/approve.js`: added a per-site **FIDO2 Security Key** opt-in toggle in the side panel (`chrome.storage.local.fidoOrigins`, off by default), `navigator.credentials.create`/`get` WebAuthn shim when enabled for that site (bypassing platform/Touch ID or unplugged-card requests), and popup PIN approval.
+- Added unit tests in `host/test_webauthn_bridge.py` (`Fido2GenericTests`) and `extension/test/fido2.test.js`.
+
 ## 2026-11-26 — On-card 2FA (TOTP) in Chrome/Brave extension + native host
 
 - `host/totp_commands.py`, `host/nuri_card_host.py`: added `totp_status`, `totp_code`, and `totp_put` supporting both TOTP applet v1.0 (raw PUT, no PIN) and v1.1 (PIN-authenticated PUT, 5 tries), Base32 / `otpauth://totp/` URI parsing, and zeroized secret/PIN buffers.

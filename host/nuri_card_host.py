@@ -727,7 +727,7 @@ def handle(request: Any) -> dict[str, Any]:
                 raise HostError("ADDRESS_MISMATCH", "params.address is not the address info reported")
             r, s = signer.verify_pin_and_sign(pin_buf, digest, _INFO)
             return ok_response(req_id, verify_and_recover(signer.pubkey, digest, r, s))
-        if method in ("webauthn_create", "webauthn_get"):
+        if method in ("webauthn_create", "webauthn_get", "fido2_create", "fido2_get"):
             if resolve_mode() != "card":
                 raise HostError("CONFIG_ERROR", "card WebAuthn has no sim mode")
             import webauthn_bridge as wb
@@ -773,7 +773,7 @@ def handle(request: Any) -> dict[str, Any]:
             _reset_session()
         return error_response(req_id, exc.code, exc.message, exc.extra)
     except Exception as exc:  # never leak a traceback as a crash; report it
-        if method in ("verify_pin", "webauthn_create", "webauthn_get", "bitcoin_sign_partial", "totp_put"):
+        if method in ("verify_pin", "webauthn_create", "webauthn_get", "fido2_create", "fido2_get", "bitcoin_sign_partial", "totp_put"):
             # The exception text may embed APDU bytes (the PIN): never echo it.
             return error_response(req_id, "CARD_ERROR", f"internal error during {method} ({type(exc).__name__})")
         return error_response(req_id, "CARD_ERROR", f"{type(exc).__name__}: {exc}")
